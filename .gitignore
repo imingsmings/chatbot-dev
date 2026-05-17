@@ -1,26 +1,110 @@
-# Environment
-.env
-.env.*
-!.env.example
-
-# Dependencies
-node_modules/
-*/node_modules/
-
-# Build outputs
-dist/
-build/
-coverage/
-
 # Logs
+logs
 logs/
 *.log
 npm-debug.log*
 yarn-debug.log*
+yarn-error.log*
 pnpm-debug.log*
+lerna-debug.log*
 
-# System / editor
+# Diagnostic reports
+report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Coverage
+coverage
+coverage/
+*.lcov
+.nyc_output
+
+# Dependency directories
+node_modules/
+*/node_modules/
+jspm_packages/
+web_modules/
+bower_components/
+
+# Build outputs
+dist
+dist/
+dist-ssr
+build
+build/
+build/Release
+out
+.output
+
+# Caches
+.cache
+.cache/
+.parcel-cache
+.vite/
+.npm
+.eslintcache
+.stylelintcache
+.pnpm-store
+
+# Framework output
+.next
+.nuxt
+.svelte-kit/
+.vuepress/dist
+.temp
+**/.vitepress/dist
+**/.vitepress/cache
+.docusaurus
+.serverless/
+.fusebox/
+.dynamodb/
+.firebase/
+
+# TypeScript
+*.tsbuildinfo
+
+# Environment
+.env
+.env.*
+!.env.example
+*.local
+
+# Package manager artifacts
+*.tgz
+.yarn-integrity
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/sdks
+!.yarn/versions
+
+# Editor and system files
 .DS_Store
 .idea/
 .vscode/*
 !.vscode/extensions.json
+.vscode-test
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Misc
+lib-cov
+.grunt
+.lock-wscript
+.node_repl_history
+.tern-port
+vite.config.js.timestamp-*
+vite.config.ts.timestamp-*
+
+# Cypress output
+/cypress/videos/
+/cypress/screenshots/
