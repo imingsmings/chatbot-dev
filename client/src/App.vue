@@ -1,12 +1,17 @@
 <template>
-  <div class="app-shell">
+  <div class="app-shell" :data-theme="theme">
     <aside class="sidebar">
       <div class="sidebar-header">
         <div>
           <p class="sidebar-eyebrow">Chatbot</p>
           <h1>AI 助手</h1>
         </div>
-        <button class="new-chat-btn" type="button" @click="startNewChat">新建</button>
+        <div class="sidebar-header-actions">
+          <button class="theme-toggle-btn" type="button" @click="toggleTheme">
+            {{ themeToggleLabel }}
+          </button>
+          <button class="new-chat-btn" type="button" @click="startNewChat">新建</button>
+        </div>
       </div>
 
       <nav class="conversation-panel" aria-label="会话">
@@ -15,9 +20,16 @@
         <div
           v-for="conversation in conversations"
           :key="conversation.id"
-          :class="['conversation-item-shell', { active: conversation.id === currentConversationId }]"
+          :class="[
+            'conversation-item-shell',
+            { active: conversation.id === currentConversationId },
+          ]"
         >
-          <button class="conversation-item" type="button" @click="selectConversation(conversation.id)">
+          <button
+            class="conversation-item"
+            type="button"
+            @click="selectConversation(conversation.id)"
+          >
             <span class="conversation-title">{{ conversation.title }}</span>
             <span class="conversation-meta">{{ conversation.messageCount }} 条消息</span>
           </button>
@@ -76,11 +88,10 @@
           <article
             v-for="(msg, index) in messages"
             :key="msg.id"
-            :class="['message-row', msg.role]"
+            :class="['message-row', msg.role, { pending: msg.status === 'pending' }]"
           >
-            <div class="message-avatar">{{ msg.role === 'user' ? '你' : 'AI' }}</div>
+            <div v-if="msg.role === 'assistant'" class="message-avatar">AI</div>
             <div class="message-content">
-              <div class="message-name">{{ msg.role === 'user' ? '你' : 'AI 助手' }}</div>
               <div v-if="msg.status === 'pending'" class="message-text thinking-text">
                 Thinking...
               </div>
@@ -94,9 +105,10 @@
                 :content="msg.text"
                 :streaming="msg.status === 'streaming'"
               />
+              <div v-if="msg.status === 'stopped'" class="message-status-text">已停止生成</div>
               <div v-if="msg.role === 'assistant'" class="message-actions">
                 <button
-                  v-if="msg.text"
+                  v-if="msg.text && msg.status !== 'pending' && msg.status !== 'streaming'"
                   class="message-action-btn"
                   type="button"
                   @click="copyMessage(msg)"
@@ -157,7 +169,9 @@
 import { computed, nextTick, onMounted, reactive, ref } from 'vue'
 import MarkdownMessage from './components/MarkdownMessage.vue'
 
-type MessageStatus = 'pending' | 'streaming' | 'done' | 'error'
+type MessageStatus = 'pending' | 'streaming' | 'done' | 'stopped' | 'error'
+
+type ThemeMode = 'light' | 'dark'
 
 type ChatMessage = {
   id: string
@@ -196,6 +210,7 @@ const abortReason = ref<'manual' | 'timeout' | null>(null)
 const copiedMessageId = ref<string | null>(null)
 const STREAM_IDLE_TIMEOUT_MS = 15000
 const SCROLL_FOLLOW_THRESHOLD = 96
+const THEME_STORAGE_KEY = 'chatbot-theme'
 
 const suggestions = [
   '帮我总结一下今天的工作重点',
@@ -211,18 +226,61 @@ const isResponding = computed(() =>
 )
 
 const canSubmit = computed(
-  () => Boolean(currentConversationId.value) && input.value.trim().length > 0 && !isResponding.value,
+  () =>
+    Boolean(currentConversationId.value) && input.value.trim().length > 0 && !isResponding.value,
 )
+
+const theme = ref<ThemeMode>(getInitialTheme())
+const themeToggleLabel = computed(() => (theme.value === 'dark' ? '浅色' : '深色'))
 
 const currentConversationTitle = computed(() => {
   return (
-    conversations.value.find((conversation) => conversation.id === currentConversationId.value)?.title ||
-    '新的聊天'
+    conversations.value.find((conversation) => conversation.id === currentConversationId.value)
+      ?.title || '新的聊天'
   )
 })
 
 function createMessageId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`
+}
+
+function getInitialTheme(): ThemeMode {
+  if (typeof window === 'undefined') {
+    return 'light'
+  }
+
+  const storedTheme = readStoredTheme()
+  if (storedTheme === 'light' || storedTheme === 'dark') {
+    return storedTheme
+  }
+
+  return window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+}
+
+function readStoredTheme() {
+  try {
+    return window.localStorage?.getItem(THEME_STORAGE_KEY)
+  } catch {
+    return null
+  }
+}
+
+function writeStoredTheme(nextTheme: ThemeMode) {
+  try {
+    window.localStorage?.setItem(THEME_STORAGE_KEY, nextTheme)
+  } catch {
+    // Theme still changes for the current session when storage is unavailable.
+  }
+}
+
+function applyTheme(nextTheme: ThemeMode) {
+  document.documentElement.style.colorScheme = nextTheme
+}
+
+function toggleTheme() {
+  theme.value = theme.value === 'dark' ? 'light' : 'dark'
+  writeStoredTheme(theme.value)
+  applyTheme(theme.value)
 }
 
 function conversationToSummary(conversation: ConversationDetail): ConversationSummary {
@@ -245,8 +303,7 @@ function mapStoredMessages(conversation: ConversationDetail): ChatMessage[] {
 }
 
 function upsertConversation(conversation: ConversationDetail | ConversationSummary) {
-  const summary =
-    'messages' in conversation ? conversationToSummary(conversation) : conversation
+  const summary = 'messages' in conversation ? conversationToSummary(conversation) : conversation
   const index = conversations.value.findIndex((item) => item.id === summary.id)
 
   if (index === -1) {
@@ -667,7 +724,13 @@ async function submitQuestion(
           ? err.message
           : '响应失败，请重试'
 
-    if (assistantMessage.text.trim()) {
+    const isManualAbort =
+      err instanceof DOMException && err.name === 'AbortError' && abortReason.value === 'manual'
+
+    if (isManualAbort && assistantMessage.text.trim()) {
+      assistantMessage.status = 'stopped'
+      assistantMessage.error = '已停止生成'
+    } else if (assistantMessage.text.trim()) {
       assistantMessage.status = 'error'
       assistantMessage.error = `响应中断：${message}`
     } else {
@@ -740,6 +803,7 @@ async function retryMessage(index: number) {
 }
 
 onMounted(() => {
+  applyTheme(theme.value)
   void loadInitialState()
 })
 </script>
