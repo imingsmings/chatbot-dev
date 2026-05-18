@@ -87,7 +87,13 @@
               <div v-else-if="msg.status === 'error'" class="message-text error-text">
                 {{ msg.error || '响应失败，请重试' }}
               </div>
-              <div v-else class="message-text">{{ msg.text }}</div>
+              <div v-else-if="msg.role === 'user'" class="message-text">{{ msg.text }}</div>
+              <MarkdownMessage
+                v-else
+                class="message-text"
+                :content="msg.text"
+                :streaming="msg.status === 'streaming'"
+              />
               <div v-if="msg.role === 'assistant'" class="message-actions">
                 <button
                   v-if="msg.text"
@@ -149,6 +155,7 @@
 
 <script lang="ts" setup>
 import { computed, nextTick, onMounted, reactive, ref } from 'vue'
+import MarkdownMessage from './components/MarkdownMessage.vue'
 
 type MessageStatus = 'pending' | 'streaming' | 'done' | 'error'
 

@@ -360,6 +360,135 @@
   word-break: break-word;
 }
 
+.markdown-message {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.markdown-message > :first-child {
+  margin-top: 0;
+}
+
+.markdown-message > :last-child {
+  margin-bottom: 0;
+}
+
+.markdown-message p,
+.markdown-message ul,
+.markdown-message ol,
+.markdown-message blockquote,
+.markdown-message pre,
+.markdown-message table {
+  margin: 0 0 14px;
+}
+
+.markdown-message h1,
+.markdown-message h2,
+.markdown-message h3,
+.markdown-message h4 {
+  margin: 18px 0 10px;
+  color: #111827;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.markdown-message h1 {
+  font-size: 24px;
+}
+
+.markdown-message h2 {
+  font-size: 21px;
+}
+
+.markdown-message h3 {
+  font-size: 18px;
+}
+
+.markdown-message h4 {
+  font-size: 16px;
+}
+
+.markdown-message ul,
+.markdown-message ol {
+  padding-left: 24px;
+}
+
+.markdown-message li + li {
+  margin-top: 4px;
+}
+
+.markdown-message blockquote {
+  border-left: 3px solid #d9d9e3;
+  color: #4b5563;
+  padding-left: 14px;
+}
+
+.markdown-message a {
+  color: #2563eb;
+  text-decoration: none;
+}
+
+.markdown-message a:hover {
+  text-decoration: underline;
+}
+
+.markdown-message code {
+  border-radius: 5px;
+  background: #f4f4f4;
+  color: #111827;
+  font-family:
+    'SFMono-Regular',
+    Consolas,
+    'Liberation Mono',
+    monospace;
+  font-size: 0.9em;
+  padding: 2px 5px;
+}
+
+.markdown-message pre {
+  max-width: 100%;
+  overflow-x: auto;
+  border-radius: 8px;
+  background: #111827;
+  padding: 14px;
+}
+
+.markdown-message pre code {
+  display: block;
+  min-width: max-content;
+  background: transparent;
+  color: #f9fafb;
+  line-height: 1.6;
+  padding: 0;
+  white-space: pre;
+}
+
+.markdown-message table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+}
+
+.markdown-message th,
+.markdown-message td {
+  border: 1px solid #e5e7eb;
+  padding: 8px 10px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.markdown-message th {
+  background: #f7f7f8;
+  font-weight: 700;
+}
+
+.markdown-message hr {
+  border: 0;
+  border-top: 1px solid #ececf1;
+  margin: 18px 0;
+}
+
 .message-row.user .message-text {
   max-width: min(100%, 620px);
   border-radius: 8px;
