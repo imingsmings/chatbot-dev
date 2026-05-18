@@ -20,13 +20,19 @@ app.use(function (req, res, next) {
   next(createError(404))
 })
 
-app.use(function (err, req, res) {
+app.use(function (err, req, res, next) {
   res.locals.message = err.message
   res.locals.error = req.app.get('env') === 'development' ? err : {}
 
-  // render the error page
+  if (res.headersSent) {
+    next(err)
+    return
+  }
+
   res.status(err.status || 500)
-  res.render('error')
+  res.json({
+    message: err.message || '服务异常'
+  })
 })
 
 module.exports = app

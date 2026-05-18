@@ -1,9 +1,25 @@
-// const LLM_ENDPOINT = 'http://localhost:11434/api/generate'
-// const LLM_MODEL = 'llama3.2:3b'
+const { readLinesFromStream } = require('./streamReader')
+const deepseekAdapter = require('./llmAdapters/deepseek')
+
+const adapters = {
+  deepseek: deepseekAdapter
+}
+
+const LLM_PROVIDER = process.env.LLM_PROVIDER || 'deepseek'
 const LLM_ENDPOINT = process.env.LLM_ENDPOINT
 const LLM_MODEL = process.env.LLM_MODEL
-const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY
-const LLM_TIMEOUT_MS = Number(process.env.LLM_TIMEOUT_MS)
+const configuredTimeout = Number(process.env.LLM_TIMEOUT_MS)
+const LLM_TIMEOUT_MS = Number.isFinite(configuredTimeout) && configuredTimeout > 0 ? configuredTimeout : 30000
+
+function getAdapter() {
+  const adapter = adapters[LLM_PROVIDER]
+
+  if (!adapter) {
+    throw new Error(`Unsupported LLM provider: ${LLM_PROVIDER}`)
+  }
+
+  return adapter
+}
 
 async function fetchWithTimeout(url, options = {}, timeout = LLM_TIMEOUT_MS) {
   const controller = new AbortController()
@@ -28,14 +44,11 @@ async function fetchWithTimeout(url, options = {}, timeout = LLM_TIMEOUT_MS) {
 }
 
 async function callLLM({ prompt, stream = false, callback }) {
+  const adapter = getAdapter()
   const response = await fetchWithTimeout(LLM_ENDPOINT, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: ` Bearer ${DEEPSEEK_API_KEY}` },
-    body: JSON.stringify({
-      model: LLM_MODEL,
-      messages: prompt,
-      stream
-    })
+    headers: adapter.buildHeaders(),
+    body: JSON.stringify(adapter.buildBody({ model: LLM_MODEL, prompt, stream }))
   })
 
   if (!response.ok) {
@@ -44,45 +57,26 @@ async function callLLM({ prompt, stream = false, callback }) {
 
   if (!stream) {
     const data = await response.json()
-    return data.choices?.[0]?.message?.content || ''
+    return adapter.parseResponse(data)
   }
-
-  const reader = response.body.getReader()
-  const decoder = new TextDecoder('utf-8')
 
   let fullResponse = ''
 
-  while (true) {
-    const { done, value } = await reader.read()
+  const handleStreamLine = (line) => {
+    const event = adapter.parseStreamLine(line)
+    if (!event) return
 
-    if (done) {
-      break
+    if (event.done) {
+      return false
     }
 
-    const chunk = decoder.decode(value, { stream: true })
-
-    const lines = chunk.split('\n').filter((line) => line.trim())
-
-    for (const line of lines) {
-      if (!line) continue
-      if (!line.startsWith('data: ')) continue
-
-      const jsonStr = line.slice(6)
-
-      if (jsonStr === '[DONE]') continue
-
-      try {
-        const data = JSON.parse(jsonStr)
-        const chunk = data.choices?.[0]?.delta?.content
-        if (chunk) {
-          fullResponse += chunk
-          callback(chunk)
-        }
-      } catch (e) {
-        console.error(`Failed to parse json:`, e.message)
-      }
+    if (event.content) {
+      fullResponse += event.content
+      callback(event.content)
     }
   }
+
+  await readLinesFromStream(response.body, handleStreamLine)
 
   return fullResponse
 }

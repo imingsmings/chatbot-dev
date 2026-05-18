@@ -16,6 +16,9 @@ pids
 *.pid
 *.seed
 *.pid.lock
+server/data/conversations.json
+server/data/conversations.json.migrated
+server/data/conversations/
 
 # Coverage
 coverage
@@ -45,6 +48,7 @@ out
 .cache/
 .parcel-cache
 .vite/
+.tmp/
 .npm
 .eslintcache
 .stylelintcache

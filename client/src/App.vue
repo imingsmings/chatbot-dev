@@ -1,581 +1,740 @@
 <template>
-  <div class="chat-container">
-    <div class="chat-header">
-      <h1>AI助手</h1>
-      <div class="header-buttons">
-        <button @click="showHistory" class="header-btn history-btn" title="查看历史">查看历史</button>
-        <button @click="clearHistory" class="header-btn history-btn" title="清除历史">删除会话历史</button>
-      </div>
-    </div>
-
-    <div class="chat-box" ref="chatBox">
-       <div v-for="(msg, index) in messages" :key="index" :class="['chat-msg',msg.role]">
-        <div class="bubble">
-          <span class="role-label">{{ msg.role === 'user' ? '🧑‍💻 我' : '🤖 模型' }}</span>
-          <div class="text">{{ msg.text }}</div>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <div>
+          <p class="sidebar-eyebrow">Chatbot</p>
+          <h1>AI 助手</h1>
         </div>
-       </div>
-      <div v-if="loading" class="chat-msg bot">
-        <div class="bubble">
-          <span class="role-label">🤖 模型</span>
-          <div class="text thinking-text">
-            Thinking...
+        <button class="new-chat-btn" type="button" @click="startNewChat">新建</button>
+      </div>
+
+      <nav class="conversation-panel" aria-label="会话">
+        <p class="section-label">会话</p>
+        <div v-if="conversations.length === 0" class="empty-sidebar-state">暂无会话</div>
+        <div
+          v-for="conversation in conversations"
+          :key="conversation.id"
+          :class="['conversation-item-shell', { active: conversation.id === currentConversationId }]"
+        >
+          <button class="conversation-item" type="button" @click="selectConversation(conversation.id)">
+            <span class="conversation-title">{{ conversation.title }}</span>
+            <span class="conversation-meta">{{ conversation.messageCount }} 条消息</span>
+          </button>
+          <div class="conversation-actions">
+            <button
+              class="conversation-action-btn"
+              type="button"
+              title="重命名"
+              @click="renameConversation(conversation)"
+            >
+              重命名
+            </button>
+            <button
+              class="conversation-action-btn danger"
+              type="button"
+              title="删除"
+              @click="deleteCurrentConversation(conversation.id)"
+            >
+              删除
+            </button>
           </div>
         </div>
+      </nav>
+
+      <div class="sidebar-footer">
+        <button
+          class="clear-history-btn"
+          type="button"
+          :disabled="!currentConversationId || isResponding"
+          @click="clearCurrentConversation"
+        >
+          清空当前会话
+        </button>
       </div>
-    </div>
+    </aside>
 
-    <form class="input-area" @submit.prevent="handleSubmit">
-      <input type="text" v-model="input" placeholder="请输入您的问题..." />
-      <button type="submit">发送</button>
-    </form>
+    <main class="chat-main">
+      <div class="chat-scroll" ref="chatBox">
+        <section v-if="messages.length === 0" class="empty-state">
+          <div class="empty-mark">AI</div>
+          <h2>{{ currentConversationTitle }}</h2>
+          <div class="suggestion-grid">
+            <button
+              v-for="suggestion in suggestions"
+              :key="suggestion"
+              class="suggestion-card"
+              type="button"
+              @click="useSuggestion(suggestion)"
+            >
+              {{ suggestion }}
+            </button>
+          </div>
+        </section>
 
-     <!-- 历史记录的模态框 -->
-     <div v-if="showHistoryModal" class="modal-overlay" @click="closeHistory">
-      <div class="modal-content" @click.stop>
-        <!-- header -->
-        <div class="modal-header">
-          <h3>对话历史记录</h3>
-          <button @click="closeHistory" class="close-btn">✖️</button>
-        </div>
-        <!-- content -->
-        <div class="modal-body">
-          <div v-if="historyData.length === 0" class="no-history">暂时没有历史会话</div>
-          <div v-else class="history-list">
-            <div v-for="(msg, index) in historyData" :key="index" :class="['history-msg', msg.role]">
-              <div class="history-bubble">
-                <span class="role-label">{{ msg.role === 'user' ? '🧑‍💻 我' : '🤖 模型' }}</span>
-                <div class="text">{{ msg.content }}</div>
+        <div v-else class="message-list">
+          <article
+            v-for="(msg, index) in messages"
+            :key="msg.id"
+            :class="['message-row', msg.role]"
+          >
+            <div class="message-avatar">{{ msg.role === 'user' ? '你' : 'AI' }}</div>
+            <div class="message-content">
+              <div class="message-name">{{ msg.role === 'user' ? '你' : 'AI 助手' }}</div>
+              <div v-if="msg.status === 'pending'" class="message-text thinking-text">
+                Thinking...
+              </div>
+              <div v-else-if="msg.status === 'error'" class="message-text error-text">
+                {{ msg.error || '响应失败，请重试' }}
+              </div>
+              <div v-else class="message-text">{{ msg.text }}</div>
+              <div v-if="msg.role === 'assistant'" class="message-actions">
+                <button
+                  v-if="msg.text"
+                  class="message-action-btn"
+                  type="button"
+                  @click="copyMessage(msg)"
+                >
+                  {{ copiedMessageId === msg.id ? '已复制' : '复制' }}
+                </button>
+                <button
+                  v-if="msg.status === 'error'"
+                  class="message-action-btn"
+                  type="button"
+                  :disabled="isResponding"
+                  @click="retryMessage(index)"
+                >
+                  重试
+                </button>
               </div>
             </div>
-          </div>
-        </div>
-        <!-- footer -->
-        <div class="modal-footer">
-          <button @click="closeHistory" class="modal-btn">关闭</button>
+          </article>
         </div>
       </div>
-     </div>
+
+      <form class="composer" @submit.prevent="handleSubmit">
+        <div class="composer-inner">
+          <textarea
+            ref="composerInput"
+            v-model="input"
+            rows="1"
+            placeholder="询问任何问题"
+            :disabled="isResponding || !currentConversationId"
+            @input="resizeComposer"
+            @keydown.enter.exact.prevent="handleSubmit"
+          ></textarea>
+          <button
+            v-if="isResponding"
+            class="send-btn stop-btn"
+            type="button"
+            aria-label="停止生成"
+            @click="stopGenerating"
+          >
+            停止
+          </button>
+          <button
+            v-else
+            class="send-btn"
+            type="submit"
+            :disabled="!canSubmit"
+            aria-label="发送消息"
+          >
+            发送
+          </button>
+        </div>
+      </form>
+    </main>
   </div>
 </template>
 
 <script lang="ts" setup>
-import { ref, nextTick, reactive } from "vue";
-const input = ref("");
-const chatBox = ref<HTMLElement | null>(null); 
+import { computed, nextTick, onMounted, reactive, ref } from 'vue'
 
-const messages = ref<{role: 'user' | 'bot'; text:string}[]>([]); 
-const loading = ref(false); 
+type MessageStatus = 'pending' | 'streaming' | 'done' | 'error'
 
-async function handleSubmit(){
-  const question = input.value.trim();
-  if(!question) return;
+type ChatMessage = {
+  id: string
+  role: 'user' | 'assistant'
+  text: string
+  status: MessageStatus
+  error?: string
+}
 
-  messages.value.push({
-    role: 'user',
-    text: question
-  });
+type StoredMessage = {
+  role: 'user' | 'assistant'
+  content: string
+}
 
-  input.value = "";
-  loading.value = true;
+type ConversationSummary = {
+  id: string
+  title: string
+  createdAt: string
+  updatedAt: string
+  messageCount: number
+}
 
-  await nextTick();
+type ConversationDetail = ConversationSummary & {
+  titleManuallyEdited?: boolean
+  messages: StoredMessage[]
+}
 
+const input = ref('')
+const chatBox = ref<HTMLElement | null>(null)
+const composerInput = ref<HTMLTextAreaElement | null>(null)
+const conversations = ref<ConversationSummary[]>([])
+const currentConversationId = ref<string | null>(null)
+const messages = ref<ChatMessage[]>([])
+const currentAbortController = ref<AbortController | null>(null)
+const abortReason = ref<'manual' | 'timeout' | null>(null)
+const copiedMessageId = ref<string | null>(null)
+const STREAM_IDLE_TIMEOUT_MS = 15000
+const SCROLL_FOLLOW_THRESHOLD = 96
+
+const suggestions = [
+  '帮我总结一下今天的工作重点',
+  '用简单例子解释一个技术概念',
+  '帮我优化这段提示词',
+  '给我一个学习计划',
+]
+
+const isResponding = computed(() =>
+  messages.value.some(
+    (msg) => msg.role === 'assistant' && (msg.status === 'pending' || msg.status === 'streaming'),
+  ),
+)
+
+const canSubmit = computed(
+  () => Boolean(currentConversationId.value) && input.value.trim().length > 0 && !isResponding.value,
+)
+
+const currentConversationTitle = computed(() => {
+  return (
+    conversations.value.find((conversation) => conversation.id === currentConversationId.value)?.title ||
+    '新的聊天'
+  )
+})
+
+function createMessageId() {
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`
+}
+
+function conversationToSummary(conversation: ConversationDetail): ConversationSummary {
+  return {
+    id: conversation.id,
+    title: conversation.title,
+    createdAt: conversation.createdAt,
+    updatedAt: conversation.updatedAt,
+    messageCount: conversation.messages.length,
+  }
+}
+
+function mapStoredMessages(conversation: ConversationDetail): ChatMessage[] {
+  return conversation.messages.map((message, index) => ({
+    id: `${conversation.id}-${index}-${message.role}`,
+    role: message.role,
+    text: message.content,
+    status: 'done',
+  }))
+}
+
+function upsertConversation(conversation: ConversationDetail | ConversationSummary) {
+  const summary =
+    'messages' in conversation ? conversationToSummary(conversation) : conversation
+  const index = conversations.value.findIndex((item) => item.id === summary.id)
+
+  if (index === -1) {
+    conversations.value.unshift(summary)
+  } else {
+    conversations.value[index] = summary
+  }
+
+  conversations.value.sort(
+    (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
+  )
+}
+
+function scrollChatToBottom() {
   chatBox.value?.scrollTo({
     top: chatBox.value.scrollHeight,
-    behavior: 'smooth'
+    behavior: 'smooth',
+  })
+}
+
+function shouldFollowNewContent() {
+  const element = chatBox.value
+
+  if (!element) {
+    return true
+  }
+
+  return element.scrollHeight - element.scrollTop - element.clientHeight < SCROLL_FOLLOW_THRESHOLD
+}
+
+async function followNewContent(shouldFollow: boolean) {
+  if (!shouldFollow) {
+    return
+  }
+
+  await nextTick()
+  scrollChatToBottom()
+}
+
+function resizeComposer() {
+  const element = composerInput.value
+
+  if (!element) {
+    return
+  }
+
+  element.style.height = 'auto'
+  element.style.height = `${Math.min(element.scrollHeight, 180)}px`
+}
+
+async function fetchConversationList() {
+  const response = await fetch('/api/conversations')
+
+  if (!response.ok) {
+    throw new Error('获取会话列表失败')
+  }
+
+  const data = await response.json()
+  conversations.value = data.conversations
+}
+
+async function refreshConversationList() {
+  try {
+    await fetchConversationList()
+  } catch (err) {
+    console.error('Failed to refresh conversations:', err)
+  }
+}
+
+async function createConversation() {
+  const response = await fetch('/api/conversations', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
   })
 
-  const res = await fetch("/api/ask", {
-    method: "POST",
-    headers: { 'Content-Type': "application/json"},
-    body: JSON.stringify({question})
-  });
-
-  if (!res.ok) {
-    loading.value = false
-    return
-  }
-  
-  // const data = await res.json();
-  // messages.value.push({
-  //   role: 'bot',
-  //   text: data.answer
-  // })
-  // loading.value = false;
-
-  const reader = res.body?.getReader()
-  if (!reader) {
-    console.error('Response is empty');
-    loading.value = false
-    return
+  if (!response.ok) {
+    throw new Error('新建会话失败')
   }
 
-  const decoder = new TextDecoder('utf-8')
-  const newMessage = reactive({ role: 'bot' as const, text: ''})
-  messages.value.push(newMessage)
+  const data = await response.json()
+  const conversation = data.conversation as ConversationDetail
+  upsertConversation(conversation)
+  currentConversationId.value = conversation.id
+  messages.value = []
 
-  while(true) {
-    const { done, value} =  await reader.read()
-    if (done) {
-      break
+  await nextTick()
+  resizeComposer()
+  composerInput.value?.focus()
+
+  return conversation
+}
+
+async function loadConversation(id: string) {
+  const response = await fetch(`/api/conversations/${encodeURIComponent(id)}`)
+
+  if (!response.ok) {
+    throw new Error('获取会话详情失败')
+  }
+
+  const data = await response.json()
+  const conversation = data.conversation as ConversationDetail
+  currentConversationId.value = conversation.id
+  messages.value = mapStoredMessages(conversation)
+  upsertConversation(conversation)
+
+  await nextTick()
+  resizeComposer()
+  scrollChatToBottom()
+}
+
+async function loadInitialState() {
+  try {
+    await fetchConversationList()
+
+    if (conversations.value.length > 0) {
+      await loadConversation(conversations.value[0].id)
+    } else {
+      await createConversation()
+    }
+  } catch (err) {
+    console.error('Failed to load conversations:', err)
+    alert('加载会话失败，请刷新后重试')
+  }
+}
+
+async function startNewChat() {
+  if (isResponding.value) {
+    stopGenerating()
+  }
+
+  try {
+    await createConversation()
+  } catch (err) {
+    console.error('Failed to create conversation:', err)
+    alert('新建会话失败')
+  }
+}
+
+async function selectConversation(id: string) {
+  if (id === currentConversationId.value) {
+    return
+  }
+
+  if (isResponding.value) {
+    stopGenerating()
+  }
+
+  try {
+    await loadConversation(id)
+  } catch (err) {
+    console.error('Failed to select conversation:', err)
+    alert('切换会话失败')
+  }
+}
+
+async function renameConversation(conversation: ConversationSummary) {
+  const title = window.prompt('请输入新的会话名称', conversation.title)?.trim()
+
+  if (!title || title === conversation.title) {
+    return
+  }
+
+  try {
+    const response = await fetch(`/api/conversations/${encodeURIComponent(conversation.id)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title }),
+    })
+
+    if (!response.ok) {
+      throw new Error('重命名失败')
     }
 
-    const chunk = decoder.decode(value, { stream: true})
-    const lines = chunk.split('\n').filter(line => line.trim())
+    const data = await response.json()
+    upsertConversation(data.conversation)
+  } catch (err) {
+    console.error('Failed to rename conversation:', err)
+    alert('重命名失败，请稍候再试')
+  }
+}
 
-    for (const line of lines) {
-      try {
-        const data = JSON.parse(line)
-        if (data.response) {
-          if (loading.value) {
-            loading.value = false
-          }
-          newMessage.text += data.response
-        }
-      } catch (e) {
-        loading.value = false
-        console.error('Failed to parse json:', e);
+async function deleteCurrentConversation(id: string) {
+  if (isResponding.value) {
+    return
+  }
+
+  const conversation = conversations.value.find((item) => item.id === id)
+  const title = conversation?.title || '该会话'
+
+  if (!confirm(`确定删除“${title}”吗？该操作不可逆`)) {
+    return
+  }
+
+  try {
+    const response = await fetch(`/api/conversations/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    })
+
+    if (!response.ok) {
+      throw new Error('删除失败')
+    }
+
+    conversations.value = conversations.value.filter((item) => item.id !== id)
+
+    if (currentConversationId.value === id) {
+      const nextConversation = conversations.value[0]
+      if (nextConversation) {
+        await loadConversation(nextConversation.id)
+      } else {
+        await createConversation()
       }
     }
+  } catch (err) {
+    console.error('Failed to delete conversation:', err)
+    alert('删除会话失败，请稍候再试')
+  }
+}
+
+async function clearCurrentConversation() {
+  const conversationId = currentConversationId.value
+
+  if (!conversationId || isResponding.value) {
+    return
   }
 
-  await nextTick();
+  if (!confirm('确定清空当前会话消息吗？会话名称会保留')) {
+    return
+  }
 
-  chatBox.value?.scrollTo({
-    top: chatBox.value.scrollHeight,
-    behavior: 'smooth'
+  try {
+    const response = await fetch(`/api/conversations/${encodeURIComponent(conversationId)}/clear`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    })
+
+    if (!response.ok) {
+      throw new Error('清空失败')
+    }
+
+    const data = await response.json()
+    messages.value = []
+    upsertConversation(data.conversation)
+  } catch (err) {
+    console.error('Failed to clear conversation:', err)
+    alert('清空会话失败，请稍候再试')
+  }
+}
+
+async function useSuggestion(suggestion: string) {
+  input.value = suggestion
+  await nextTick()
+  resizeComposer()
+  composerInput.value?.focus()
+}
+
+async function handleSubmit() {
+  const question = input.value.trim()
+
+  await submitQuestion(question, { appendUser: true, clearComposer: true })
+}
+
+async function submitQuestion(
+  question: string,
+  options: {
+    appendUser: boolean
+    clearComposer: boolean
+    assistantInsertIndex?: number
+  },
+) {
+  if (!question || isResponding.value) return
+
+  let conversationId = currentConversationId.value
+  if (!conversationId) {
+    const conversation = await createConversation()
+    conversationId = conversation.id
+  }
+
+  if (options.appendUser) {
+    messages.value.push({
+      id: createMessageId(),
+      role: 'user',
+      text: question,
+      status: 'done',
+    })
+  }
+
+  const assistantMessage = reactive<ChatMessage>({
+    id: createMessageId(),
+    role: 'assistant',
+    text: '',
+    status: 'pending',
+  })
+
+  if (typeof options.assistantInsertIndex === 'number') {
+    messages.value.splice(options.assistantInsertIndex, 0, assistantMessage)
+  } else {
+    messages.value.push(assistantMessage)
+  }
+
+  if (options.clearComposer) {
+    input.value = ''
+  }
+
+  const shouldFollow = shouldFollowNewContent()
+  await nextTick()
+  resizeComposer()
+  await followNewContent(shouldFollow)
+
+  const controller = new AbortController()
+  let streamIdleTimer: number | undefined
+  currentAbortController.value = controller
+  abortReason.value = null
+
+  const clearStreamIdleTimer = () => {
+    if (streamIdleTimer !== undefined) {
+      window.clearTimeout(streamIdleTimer)
+      streamIdleTimer = undefined
+    }
+  }
+
+  const resetStreamIdleTimer = () => {
+    clearStreamIdleTimer()
+    streamIdleTimer = window.setTimeout(() => {
+      abortReason.value = 'timeout'
+      controller.abort()
+    }, STREAM_IDLE_TIMEOUT_MS)
+  }
+
+  try {
+    const res = await fetch(`/api/conversations/${encodeURIComponent(conversationId)}/ask`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question }),
+      signal: controller.signal,
+    })
+
+    if (!res.ok) {
+      throw new Error(`请求失败：${res.status}`)
+    }
+
+    const reader = res.body?.getReader()
+    if (!reader) {
+      throw new Error('响应内容为空')
+    }
+
+    const decoder = new TextDecoder('utf-8')
+    let buffer = ''
+    let streamDone = false
+    resetStreamIdleTimer()
+
+    const handleStreamLine = (line: string) => {
+      const text = line.trim()
+      if (!text) return
+
+      const data = JSON.parse(text)
+
+      if (data.type === 'error') {
+        throw new Error(data.message || '模型响应失败')
+      }
+
+      if (data.type === 'done') {
+        streamDone = true
+        return
+      }
+
+      const delta = data.type === 'delta' ? data.content : data.response
+      if (typeof delta === 'string' && delta) {
+        const shouldFollow = shouldFollowNewContent()
+        assistantMessage.status = 'streaming'
+        assistantMessage.text += delta
+        void followNewContent(shouldFollow)
+      }
+    }
+
+    while (!streamDone) {
+      const { done, value } = await reader.read()
+      if (done) {
+        break
+      }
+
+      resetStreamIdleTimer()
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop() ?? ''
+
+      for (const line of lines) {
+        handleStreamLine(line)
+        if (streamDone) {
+          await reader.cancel()
+          break
+        }
+      }
+    }
+
+    buffer += decoder.decode()
+
+    if (!streamDone && buffer.trim()) {
+      handleStreamLine(buffer)
+    }
+
+    if (!assistantMessage.text.trim()) {
+      throw new Error('模型未返回内容')
+    }
+
+    if (!streamDone) {
+      throw new Error('响应未完整结束')
+    }
+
+    assistantMessage.status = 'done'
+    await refreshConversationList()
+  } catch (err) {
+    const message =
+      err instanceof DOMException && err.name === 'AbortError'
+        ? abortReason.value === 'manual'
+          ? '已停止生成'
+          : '响应超时或连接中断'
+        : err instanceof Error
+          ? err.message
+          : '响应失败，请重试'
+
+    if (assistantMessage.text.trim()) {
+      assistantMessage.status = 'error'
+      assistantMessage.error = `响应中断：${message}`
+    } else {
+      assistantMessage.status = 'error'
+      assistantMessage.error = message
+    }
+
+    console.error('Failed to request model:', err)
+  } finally {
+    clearStreamIdleTimer()
+    if (currentAbortController.value === controller) {
+      currentAbortController.value = null
+      abortReason.value = null
+    }
+
+    const shouldFollow = shouldFollowNewContent()
+    await followNewContent(shouldFollow)
+  }
+}
+
+function stopGenerating() {
+  if (!currentAbortController.value) {
+    return
+  }
+
+  abortReason.value = 'manual'
+  currentAbortController.value.abort()
+}
+
+async function copyMessage(message: ChatMessage) {
+  if (!message.text.trim()) {
+    return
+  }
+
+  try {
+    await navigator.clipboard.writeText(message.text)
+    copiedMessageId.value = message.id
+    window.setTimeout(() => {
+      if (copiedMessageId.value === message.id) {
+        copiedMessageId.value = null
+      }
+    }, 1600)
+  } catch {
+    alert('复制失败，请手动选择文本复制')
+  }
+}
+
+async function retryMessage(index: number) {
+  const failedMessage = messages.value[index]
+
+  if (!failedMessage || failedMessage.role !== 'assistant' || failedMessage.status !== 'error') {
+    return
+  }
+
+  const previousQuestion = [...messages.value]
+    .slice(0, index)
+    .reverse()
+    .find((msg) => msg.role === 'user')
+
+  if (!previousQuestion) {
+    return
+  }
+
+  messages.value.splice(index, 1)
+  await submitQuestion(previousQuestion.text, {
+    appendUser: false,
+    clearComposer: false,
+    assistantInsertIndex: index,
   })
 }
 
-const showHistoryModal = ref(false)
-const historyData = ref<{role: 'user' | 'bot'; content:string}[]>([])
-
-// 关闭模态框
-function closeHistory(){
-  showHistoryModal.value = false;
-}
-
-// 展示会话记录的回调
-async function showHistory(){
-  try{
-    const response = await fetch('/api/history')
-
-    if(response.ok){
-      const data = await response.json();
-      historyData.value = data.conversations;
-      showHistoryModal.value = true; // 打开模态框
-    } else {
-      alert("获取历史记录失败☹️")
-    }
-  }catch{
-    alert("获取历史记录失败，请检查网络")
-  }
-}
-
-// 清除历史记录
-async function clearHistory(){
-  if(!confirm("确定是否要清除所有的会话历史记录？该操作不可逆")) return
-
-  try{
-    const response = await fetch("/api/clear", {
-      method: "POST",
-      headers: { 'Content-Type': 'application/json' }
-    })
-    if(response.ok) {
-      messages.value = [];
-      alert("对话历史已删除")
-    }
-    else alert("清除失败，请稍候再试")
-  } catch {
-    alert("清除失败，请检查网络")
-  }
-}
-
+onMounted(() => {
+  void loadInitialState()
+})
 </script>
 
-<style scoped>
-.chat-container {
-  display: flex;
-  flex-direction: column;
-  width: 100vw;
-  height: 100vh;
-  background: #ffffff;
-  border-left: 1px solid #eee;
-  border-right: 1px solid #eee;
-}
-
-.chat-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 16px;
-  border-bottom: 1px solid #ddd;
-  background: #f7f7f7;
-}
-
-.chat-header h1 {
-  font-size: 20px;
-  font-weight: bold;
-  margin: 0;
-}
-
-.header-buttons {
-  display: flex;
-  gap: 10px;
-}
-
-.header-btn {
-  padding: 8px 12px;
-  border: none;
-  border-radius: 6px;
-  font-size: 14px;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.history-btn {
-  background-color: #17a2b8;
-  color: white;
-}
-
-.history-btn:hover {
-  background-color: #138496;
-}
-
-.clear-btn {
-  background-color: #dc3545;
-  color: white;
-}
-
-.clear-btn:hover {
-  background-color: #c82333;
-}
-
-.chat-box {
-  flex: 1;
-  overflow-y: auto;
-  padding: 16px;
-  background-color: #f5f5f5;
-  display: flex;
-  flex-direction: column;
-}
-
-.chat-msg {
-  display: flex;
-  margin-bottom: 12px;
-}
-
-.chat-msg.user {
-  justify-content: flex-end;
-}
-
-.chat-msg.bot {
-  justify-content: flex-start;
-}
-
-.bubble {
-  max-width: 70%;
-  padding: 10px 14px;
-  border-radius: 18px;
-  line-height: 1.4;
-  position: relative;
-}
-
-.chat-msg.user .bubble {
-  background: #daf1ff;
-  color: #333;
-  border-bottom-right-radius: 4px;
-}
-
-.chat-msg.bot .bubble {
-  background: #e6e6e6;
-  color: #222;
-  border-bottom-left-radius: 4px;
-}
-
-.role-label {
-  font-size: 12px;
-  color: #666;
-  display: block;
-  margin-bottom: 4px;
-}
-
-.input-area {
-  display: flex;
-  padding: 12px;
-  border-top: 1px solid #ddd;
-  background: #fff;
-}
-
-.input-area input {
-  flex: 1;
-  padding: 10px 14px;
-  border: 1px solid #ccc;
-  border-radius: 20px;
-  font-size: 16px;
-  outline: none;
-}
-
-.input-area button {
-  margin-left: 10px;
-  padding: 10px 18px;
-  font-size: 16px;
-  border: none;
-  border-radius: 20px;
-  background-color: #007bff;
-  color: white;
-  cursor: pointer;
-  transition: background-color 0.2s ease;
-}
-
-.input-area button:hover {
-  background-color: #0056b3;
-}
-
-.input-area button:disabled {
-  background-color: #ccc;
-  cursor: not-allowed;
-}
-
-/* 模态框样式 */
-.modal-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background-color: rgba(0, 0, 0, 0.5);
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  z-index: 1000;
-}
-
-.modal-content {
-  background: white;
-  border-radius: 8px;
-  width: 80%;
-  max-width: 600px;
-  max-height: 80%;
-  display: flex;
-  flex-direction: column;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
-}
-
-.modal-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 20px;
-  border-bottom: 1px solid #eee;
-}
-
-.modal-header h3 {
-  margin: 0;
-  font-size: 18px;
-}
-
-.close-btn {
-  background: none;
-  border: none;
-  font-size: 16px;
-  cursor: pointer;
-  color: #666;
-}
-
-.close-btn:hover {
-  color: #333;
-}
-
-.modal-body {
-  flex: 1;
-  padding: 20px;
-  overflow-y: auto;
-}
-
-.no-history {
-  text-align: center;
-  color: #666;
-  font-style: italic;
-  padding: 40px 0;
-}
-
-.history-list {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.history-msg {
-  display: flex;
-}
-
-.history-msg.user {
-  justify-content: flex-end;
-}
-
-.history-msg.assistant {
-  justify-content: flex-start;
-}
-
-.history-bubble {
-  max-width: 80%;
-  padding: 8px 12px;
-  border-radius: 12px;
-  line-height: 1.4;
-}
-
-.history-msg.user .history-bubble {
-  background: #daf1ff;
-  color: #333;
-}
-
-.history-msg.assistant .history-bubble {
-  background: #e6e6e6;
-  color: #222;
-}
-
-.modal-footer {
-  padding: 20px;
-  border-top: 1px solid #eee;
-  text-align: right;
-}
-
-.modal-btn {
-  padding: 8px 16px;
-  border: none;
-  border-radius: 4px;
-  background-color: #6c757d;
-  color: white;
-  cursor: pointer;
-}
-
-.modal-btn:hover {
-  background-color: #5a6268;
-}
-
-/*
-.dot {
-  animation: blink 1s infinite;
-}
-.dot:nth-child(2) {
-  animation-delay: 0.2s;
-}
-.dot:nth-child(3) {
-  animation-delay: 0.4s;
-}
-
-@keyframes blink {
-  0%,
-  80%,
-  100% {
-    opacity: 0;
-  }
-  40% {
-    opacity: 1;
-  }
-}
-*/
-
-/* .text {
-  display: inline-flex;
-  align-items: baseline;
-  color: #8b8b8b;
-  font-size: 14px;
-  line-height: 1.5;
-}
-
-.dot {
-  display: inline-block;
-  opacity: 0.25;
-  animation: thinking-dot 1.35s infinite ease-in-out;
-}
-
-.dot:nth-of-type(1) {
-  animation-delay: 0s;
-}
-
-.dot:nth-of-type(2) {
-  animation-delay: 0.16s;
-}
-
-.dot:nth-of-type(3) {
-  animation-delay: 0.32s;
-}
-
-@keyframes thinking-dot {
-  0%,
-  70%,
-  100% {
-    opacity: 0.25;
-    transform: translateY(0);
-  }
-
-  35% {
-    opacity: 1;
-    transform: translateY(-2px);
-  }
-} */
- .thinking-text {
-  display: inline-flex;
-  align-items: baseline;
-  font-size: 14px;
-  line-height: 1.5;
-  font-weight: 500;
-  color: #8b8b8b;
-
-  color: transparent;
-  background-image: linear-gradient(
-    90deg,
-    #8b8b8b 0%,
-    #8b8b8b 35%,
-    #f2f2f2 50%,
-    #8b8b8b 65%,
-    #8b8b8b 100%
-  );
-  background-size: 220% 100%;
-  background-position: 100% 0;
-
-  -webkit-background-clip: text;
-  background-clip: text;
-
-  animation: thinking-shimmer 1.8s infinite linear;
-}
-
-@keyframes thinking-shimmer {
-  from {
-    background-position: 100% 0;
-  }
-
-  to {
-    background-position: -120% 0;
-  }
-}
-
-@keyframes thinking-dot {
-  0%,
-  70%,
-  100% {
-    opacity: 0.35;
-    transform: translateY(0);
-  }
-
-  35% {
-    opacity: 1;
-    transform: translateY(-2px);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .thinking-text,
-  .dot {
-    animation: none;
-  }
-
-  .thinking-text {
-    color: #8b8b8b;
-    background: none;
-  }
-}
-</style>
+<style src="./assets/app.css"></style>
