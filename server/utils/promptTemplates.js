@@ -118,7 +118,7 @@ function buildStandardPrompt(userInput, conversations) {
   ]
 }
 
-module.exports = {
+export {
   buildFunctionCallPrompt,
   buildStandardPrompt,
   buildAnswerPrompt

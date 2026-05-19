@@ -96,7 +96,7 @@ async function getWeather({ city, date }, options = {}) {
   }
 }
 
-module.exports = {
+export {
   getWeather
 }
 

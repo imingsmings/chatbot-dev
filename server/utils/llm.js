@@ -1,5 +1,5 @@
-const { readLinesFromStream } = require('./streamReader')
-const deepseekAdapter = require('./llmAdapters/deepseek')
+import { readLinesFromStream } from './streamReader.js'
+import deepseekAdapter from './llmAdapters/deepseek.js'
 
 const adapters = {
   deepseek: deepseekAdapter
@@ -206,20 +206,23 @@ async function callLLM({ prompt, stream = false, callback, signal }) {
   }
 }
 
-module.exports = {
-  callLLM: (prompt, options = {}) => {
-    return callLLM({
-      prompt,
-      signal: options.signal
-    })
-  },
+function callLLMOnce(prompt, options = {}) {
+  return callLLM({
+    prompt,
+    signal: options.signal
+  })
+}
 
-  callLLMStream: (prompt, callback, options = {}) => {
-    return callLLM({
-      prompt,
-      stream: true,
-      callback,
-      signal: options.signal
-    })
-  }
+function callLLMStream(prompt, callback, options = {}) {
+  return callLLM({
+    prompt,
+    stream: true,
+    callback,
+    signal: options.signal
+  })
+}
+
+export {
+  callLLMOnce as callLLM,
+  callLLMStream
 }

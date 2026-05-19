@@ -46,7 +46,7 @@ function completeRequest(requestId, controller) {
   }
 }
 
-module.exports = {
+export {
   cancelRequest,
   completeRequest,
   parseRequestId,

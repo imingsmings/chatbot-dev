@@ -33,7 +33,7 @@ function parseStreamLine(line) {
   return content ? { content } : null
 }
 
-module.exports = {
+export default {
   name: 'deepseek',
   buildHeaders,
   buildBody,

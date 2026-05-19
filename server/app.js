@@ -1,11 +1,10 @@
-const createError = require('http-errors')
-const express = require('express')
-const cookieParser = require('cookie-parser')
-const logger = require('morgan')
+import 'dotenv/config'
 
-require('dotenv').config()
-
-const indexRouter = require('./routes/index')
+import createError from 'http-errors'
+import express from 'express'
+import cookieParser from 'cookie-parser'
+import logger from 'morgan'
+import indexRouter from './routes/index.js'
 
 const app = express()
 
@@ -35,4 +34,4 @@ app.use(function (err, req, res, next) {
   })
 })
 
-module.exports = app
+export default app

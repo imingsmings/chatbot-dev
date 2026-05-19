@@ -78,6 +78,6 @@ async function readLinesFromStream(stream, onLine, options = {}) {
   }
 }
 
-module.exports = {
+export {
   readLinesFromStream
 }

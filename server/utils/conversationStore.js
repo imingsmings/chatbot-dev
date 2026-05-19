@@ -1,7 +1,10 @@
-const crypto = require('crypto')
-const fs = require('fs/promises')
-const path = require('path')
+import crypto from 'node:crypto'
+import fs from 'node:fs/promises'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
 const DATA_DIR = path.join(__dirname, '..', 'data')
 const CONVERSATIONS_DIR = path.join(DATA_DIR, 'conversations')
 const LEGACY_DATA_FILE = path.join(DATA_DIR, 'conversations.json')
@@ -253,7 +256,7 @@ async function deleteConversation(id) {
   }
 }
 
-module.exports = {
+export {
   DEFAULT_TITLE,
   appendMessages,
   clearConversation,

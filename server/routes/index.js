@@ -1,9 +1,8 @@
-const express = require('express')
-const router = express.Router()
-const { buildFunctionCallPrompt, buildStandardPrompt, buildAnswerPrompt } = require('../utils/promptTemplates')
-const { callLLM, callLLMStream } = require('../utils/llm')
-const { getWeather } = require('../utils/weatherHandler')
-const {
+import express from 'express'
+import { buildAnswerPrompt, buildFunctionCallPrompt, buildStandardPrompt } from '../utils/promptTemplates.js'
+import { callLLM, callLLMStream } from '../utils/llm.js'
+import { getWeather } from '../utils/weatherHandler.js'
+import {
   appendMessages,
   clearConversation,
   createConversation,
@@ -11,13 +10,15 @@ const {
   getConversation,
   listConversations,
   renameConversation
-} = require('../utils/conversationStore')
-const {
+} from '../utils/conversationStore.js'
+import {
   cancelRequest,
   completeRequest,
   parseRequestId,
   registerRequest
-} = require('../utils/requestRegistry')
+} from '../utils/requestRegistry.js'
+
+const router = express.Router()
 
 const toolsMap = {
   getWeather
@@ -354,4 +355,4 @@ router.post('/clear', async function (req, res, next) {
   }
 })
 
-module.exports = router
+export default router
