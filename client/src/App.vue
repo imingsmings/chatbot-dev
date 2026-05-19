@@ -206,6 +206,7 @@ const conversations = ref<ConversationSummary[]>([])
 const currentConversationId = ref<string | null>(null)
 const messages = ref<ChatMessage[]>([])
 const currentAbortController = ref<AbortController | null>(null)
+const currentRequestId = ref<string | null>(null)
 const abortReason = ref<'manual' | 'timeout' | null>(null)
 const copiedMessageId = ref<string | null>(null)
 const STREAM_IDLE_TIMEOUT_MS = 15000
@@ -242,6 +243,14 @@ const currentConversationTitle = computed(() => {
 
 function createMessageId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`
+}
+
+function createRequestId() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+
+  return `req_${Date.now()}_${Math.random().toString(36).slice(2)}`
 }
 
 function getInitialTheme(): ThemeMode {
@@ -431,7 +440,7 @@ async function loadInitialState() {
 
 async function startNewChat() {
   if (isResponding.value) {
-    stopGenerating()
+    await stopGenerating()
   }
 
   try {
@@ -448,7 +457,7 @@ async function selectConversation(id: string) {
   }
 
   if (isResponding.value) {
-    stopGenerating()
+    await stopGenerating()
   }
 
   try {
@@ -613,8 +622,10 @@ async function submitQuestion(
   await followNewContent(shouldFollow)
 
   const controller = new AbortController()
+  const requestId = createRequestId()
   let streamIdleTimer: number | undefined
   currentAbortController.value = controller
+  currentRequestId.value = requestId
   abortReason.value = null
 
   const clearStreamIdleTimer = () => {
@@ -629,6 +640,7 @@ async function submitQuestion(
     streamIdleTimer = window.setTimeout(() => {
       abortReason.value = 'timeout'
       controller.abort()
+      void cancelActiveRequest(requestId)
     }, STREAM_IDLE_TIMEOUT_MS)
   }
 
@@ -636,7 +648,7 @@ async function submitQuestion(
     const res = await fetch(`/api/conversations/${encodeURIComponent(conversationId)}/ask`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ question }),
+      body: JSON.stringify({ question, requestId }),
       signal: controller.signal,
     })
 
@@ -727,7 +739,7 @@ async function submitQuestion(
     const isManualAbort =
       err instanceof DOMException && err.name === 'AbortError' && abortReason.value === 'manual'
 
-    if (isManualAbort && assistantMessage.text.trim()) {
+    if (isManualAbort) {
       assistantMessage.status = 'stopped'
       assistantMessage.error = '已停止生成'
     } else if (assistantMessage.text.trim()) {
@@ -743,6 +755,7 @@ async function submitQuestion(
     clearStreamIdleTimer()
     if (currentAbortController.value === controller) {
       currentAbortController.value = null
+      currentRequestId.value = null
       abortReason.value = null
     }
 
@@ -751,13 +764,31 @@ async function submitQuestion(
   }
 }
 
-function stopGenerating() {
-  if (!currentAbortController.value) {
+async function cancelActiveRequest(requestId: string) {
+  try {
+    await fetch(`/api/requests/${encodeURIComponent(requestId)}/cancel`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    })
+  } catch (err) {
+    console.error('Failed to cancel active request:', err)
+  }
+}
+
+async function stopGenerating() {
+  const controller = currentAbortController.value
+  const requestId = currentRequestId.value
+
+  if (!controller && !requestId) {
     return
   }
 
   abortReason.value = 'manual'
-  currentAbortController.value.abort()
+  controller?.abort()
+
+  if (requestId) {
+    await cancelActiveRequest(requestId)
+  }
 }
 
 async function copyMessage(message: ChatMessage) {

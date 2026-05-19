@@ -12,13 +12,24 @@ const {
   listConversations,
   renameConversation
 } = require('../utils/conversationStore')
+const {
+  cancelRequest,
+  completeRequest,
+  parseRequestId,
+  registerRequest
+} = require('../utils/requestRegistry')
 
 const toolsMap = {
   getWeather
 }
 
 function writeStreamEvent(res, event) {
+  if (res.destroyed || res.writableEnded) {
+    return false
+  }
+
   res.write(`${JSON.stringify(event)}\n`)
+  return true
 }
 
 function writeStreamError(res, err) {
@@ -27,6 +38,18 @@ function writeStreamError(res, err) {
     type: 'error',
     message
   })
+}
+
+function createAbortError(message = '请求已取消') {
+  const error = new Error(message)
+  error.name = 'AbortError'
+  return error
+}
+
+function throwIfAborted(signal) {
+  if (signal.aborted) {
+    throw createAbortError()
+  }
 }
 
 function writeNotFound(res) {
@@ -131,9 +154,34 @@ router.post('/conversations/:id/clear', async (req, res, next) => {
   }
 })
 
+router.post('/requests/:requestId/cancel', (req, res) => {
+  const requestId = parseRequestId(req.params.requestId)
+
+  if (!requestId) {
+    res.status(400).json({
+      message: 'requestId 不合法'
+    })
+    return
+  }
+
+  res.json({
+    cancelled: cancelRequest(requestId, 'explicit_cancel')
+  })
+})
+
 router.post('/conversations/:id/ask', async (req, res, next) => {
   const question = req.body.question || ''
+  const requestId = parseRequestId(req.body.requestId)
   let conversation
+  const requestController = new AbortController()
+  let abortReason = null
+
+  if (!requestId) {
+    res.status(400).json({
+      message: 'requestId 不合法'
+    })
+    return
+  }
 
   try {
     conversation = await getConversation(req.params.id)
@@ -147,32 +195,81 @@ router.post('/conversations/:id/ask', async (req, res, next) => {
     return
   }
 
+  const abortUpstream = (reason = 'client_closed') => {
+    if (requestController.signal.aborted) {
+      return
+    }
+
+    abortReason = reason
+    requestController.abort()
+  }
+
+  const abortOnClientClose = () => {
+    if (res.writableEnded) {
+      return
+    }
+
+    abortUpstream('client_closed')
+  }
+
+  const registered = registerRequest({
+    requestId,
+    conversationId: req.params.id,
+    controller: requestController,
+    cancel: abortUpstream
+  })
+
+  if (!registered) {
+    res.status(409).json({
+      message: 'requestId 正在处理中'
+    })
+    return
+  }
+
   res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8')
   res.setHeader('Cache-Control', 'no-cache')
   res.setHeader('Connection', 'keep-alive')
   res.setHeader('X-Accel-Buffering', 'no')
 
+  req.on('aborted', abortOnClientClose)
+  res.on('close', abortOnClientClose)
+
   try {
     let finalResponse = ''
+    const writeDelta = (chunk) => {
+      if (!writeStreamEvent(res, { type: 'delta', content: chunk })) {
+        abortUpstream('write_closed')
+        throw createAbortError()
+      }
+    }
+
     const functionCallPrompt = buildFunctionCallPrompt(question)
-    const functionCallResult = await callLLM(functionCallPrompt)
+    const functionCallResult = await callLLM(functionCallPrompt, {
+      signal: requestController.signal
+    })
+    throwIfAborted(requestController.signal)
 
     if (functionCallResult.trim() === '无函数调用') {
       const prompt = buildStandardPrompt(question, conversation.messages)
-      finalResponse = await callLLMStream(prompt, (chunk) => {
-        writeStreamEvent(res, { type: 'delta', content: chunk })
+      finalResponse = await callLLMStream(prompt, writeDelta, {
+        signal: requestController.signal
       })
     } else {
       const toolCalls = JSON.parse(functionCallResult)
       const toolResults = []
 
       for (const tool of toolCalls) {
+        throwIfAborted(requestController.signal)
+
         const functionName = tool.function
         const args = tool.args
 
         if (toolsMap[functionName]) {
           try {
-            const result = await toolsMap[functionName](args)
+            const result = await toolsMap[functionName](args, {
+              signal: requestController.signal
+            })
+            throwIfAborted(requestController.signal)
             toolResults.push({
               function: functionName,
               args,
@@ -196,11 +293,14 @@ router.post('/conversations/:id/ask', async (req, res, next) => {
         }
       }
 
+      throwIfAborted(requestController.signal)
       const answerPrompt = buildAnswerPrompt(question, toolResults)
-      finalResponse = await callLLMStream(answerPrompt, (chunk) => {
-        writeStreamEvent(res, { type: 'delta', content: chunk })
+      finalResponse = await callLLMStream(answerPrompt, writeDelta, {
+        signal: requestController.signal
       })
     }
+
+    throwIfAborted(requestController.signal)
 
     if (!finalResponse.trim()) {
       throw new Error('模型未返回内容')
@@ -213,11 +313,22 @@ router.post('/conversations/:id/ask', async (req, res, next) => {
 
     writeStreamEvent(res, { type: 'done' })
   } catch (err) {
+    if (abortReason || err?.name === 'AbortError') {
+      console.info(`Ask request aborted: conversation=${req.params.id}, request=${requestId}, reason=${abortReason || 'abort_error'}`)
+      return
+    }
+
     console.error(`Failed to handle ask request:`, err)
     writeStreamError(res, err)
-  }
+  } finally {
+    req.off('aborted', abortOnClientClose)
+    res.off('close', abortOnClientClose)
+    completeRequest(requestId, requestController)
 
-  res.end()
+    if (!res.destroyed && !res.writableEnded) {
+      res.end()
+    }
+  }
 })
 
 router.get('/history', async function (req, res, next) {

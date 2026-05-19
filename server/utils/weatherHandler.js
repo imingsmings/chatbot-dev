@@ -25,11 +25,13 @@ function formatDate(text) {
   return null
 }
 
-async function getCityLocation(city) {
+async function getCityLocation(city, options = {}) {
+  const { signal } = options
   const url = `https://${HEFENG_API_HOST}/geo/v2/city/lookup?location=${encodeURIComponent(city)}`
 
   const res = await fetch(url, {
     method: 'GET',
+    signal,
     headers: {
       'X-QW-Api-Key': HEFENG_API_KEY
     }
@@ -44,7 +46,8 @@ async function getCityLocation(city) {
   return null
 }
 
-async function getWeather({ city, date }) {
+async function getWeather({ city, date }, options = {}) {
+  const { signal } = options
   const formattedDate = formatDate(date)
 
   if (!formattedDate) {
@@ -52,7 +55,7 @@ async function getWeather({ city, date }) {
     return `无法识别日期格式："${date}"，请使用"今天"、"明天"或"后天"`
   }
 
-  const locationId = await getCityLocation(city)
+  const locationId = await getCityLocation(city, { signal })
   if (!locationId) {
     console.error('无法识别城市:', city)
     return `无法识别城市："${city}"`
@@ -62,6 +65,7 @@ async function getWeather({ city, date }) {
     const url = `https://${HEFENG_API_HOST}/v7/weather/7d?location=${locationId}`
     const res = await fetch(url, {
       method: 'GET',
+      signal,
       headers: {
         'X-QW-Api-Key': HEFENG_API_KEY
       }
@@ -83,6 +87,10 @@ async function getWeather({ city, date }) {
     console.log('天气查询成功:', result)
     return result
   } catch (error) {
+    if (error?.name === 'AbortError') {
+      throw error
+    }
+
     console.error('天气查询异常:', error)
     return '天气查询服务暂时不可用'
   }
