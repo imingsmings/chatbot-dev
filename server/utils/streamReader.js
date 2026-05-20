@@ -1,14 +1,4 @@
-function createAbortError() {
-  const error = new Error('请求已取消')
-  error.name = 'AbortError'
-  return error
-}
-
-function throwIfAborted(signal) {
-  if (signal?.aborted) {
-    throw createAbortError()
-  }
-}
+import { createAbortError, throwIfAborted } from './abort.js'
 
 async function readLinesFromStream(stream, onLine, options = {}) {
   const { signal, onAbort } = options
