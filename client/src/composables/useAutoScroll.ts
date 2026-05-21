@@ -6,7 +6,7 @@ export function useAutoScroll(chatBox: Ref<HTMLElement | null>) {
   function scrollChatToBottom() {
     chatBox.value?.scrollTo({
       top: chatBox.value.scrollHeight,
-      behavior: 'smooth',
+      behavior: 'auto',
     })
   }
 
