@@ -10,20 +10,13 @@ function buildFunctionCallPrompt(userInput) {
     JSON格式示例（正确）：（数组套对象的形式）
     [
       {
-        "function": "translate",
-        "args": { "input": "我今天很开心" }
-      }
-    ]
-    
-    [
-      {
         "function": "getWeather", 
         "args": { "city": "北京", "date": "明天" }
       }
     ]
     
     ✅ 正确格式（必须这样写）：
-    - { "input": "我今天很开心" }     # 标准JSON格式
+    - { "city": "北京", "date": "明天" }     # 标准JSON格式
     
     关键要求：
     - 参数值只需要一层双引号，不要嵌套引号
@@ -35,9 +28,6 @@ function buildFunctionCallPrompt(userInput) {
       参数要求：
       * city: 城市名称（必须是中文，如北京、上海、成都）
       * date: 日期（必须是中文，只能是：今天、明天、后天）
-    - translate：用于中英文互译
-      参数要求：
-      * input: 需要翻译的文本
     
     严格要求：
     - 如果不需要调用函数，只返回"无函数调用"这5个字
