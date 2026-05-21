@@ -101,6 +101,8 @@ out
 *.sw?
 
 # Misc
+AGENTS.md
+agents.md
 lib-cov
 .grunt
 .lock-wscript
