@@ -30,13 +30,13 @@
 | P0-11 | 会话上下文隔离 | mock | A/B 会话上下文互不污染；切回 A 历史恢复 |
 | P0-12 | 本地 JSON 持久化 | API/文件检查 | 一个会话一个 JSON；增删改清落盘正确 |
 | P0-13 | 服务端错误 JSON | API | 404/500 返回 JSON；不返回 HTML 错误页 |
-| P0-14 | tool 调用成功 | mock tool | 模型返回工具调用 JSON 后，后端调用 tool，并基于 tool result 生成回答 |
+| P0-14 | tool 调用成功 | mock tool | 模型流式返回原生 tool_calls 后，后端调用 tool，并基于 tool result 生成回答；tool_calls 前的普通 content 不提前泄漏到最终响应；reasoning_content 会随 tool result 回灌 |
 | P0-15 | tool 调用失败 | mock tool error | tool 异常不打断服务；回答友好降级；不暴露内部堆栈 |
 | P0-16 | 未知 tool | mock | 未注册 tool 返回可控结果；后端不崩溃 |
 | P0-17 | tool 期间停止 | mock 慢 tool / 慢 answer | 停止后请求释放；后续 answer 阶段不继续消耗；不持久化完整问答 |
 | P0-18 | invalid requestId | API/CDP | `/ask` 返回 400 JSON；服务端不崩溃 |
 | P0-19 | duplicate requestId | API/CDP | 第二个同 requestId 请求返回 409 JSON；首个请求可正常结束 |
-| P0-20 | function-call 非法 JSON | mock LLM | 返回可控 error 事件；后续请求仍可恢复 |
+| P0-20 | tool arguments 非法 JSON | mock LLM | 非法 arguments fallback 到标准回答；后续请求仍可恢复 |
 | P0-21 | 损坏上游 stream | mock LLM | malformed upstream stream 返回可控 error；服务端不崩溃 |
 | P0-22 | 前端损坏 NDJSON | mock/CDP | 客户端进入错误态；后续请求可恢复 |
 | P0-23 | 模型空响应 | mock LLM | 返回可控 error；不写入完整问答 |

@@ -259,7 +259,7 @@ function createMockLlmServer() {
     const raw = await collectBody(req)
     const body = JSON.parse(raw || '{}')
     const promptText = JSON.stringify(body.messages || [])
-    const stage = promptText.includes('具有工具调用能力') ? 'tool-decision' : 'answer'
+    const stage = body.tools?.length && promptText.includes('[TC02]') ? 'tool-decision' : 'answer'
     const record = {
       id,
       stream: Boolean(body.stream),

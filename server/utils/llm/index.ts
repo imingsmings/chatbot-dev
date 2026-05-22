@@ -2,8 +2,17 @@ import { createAbortError } from '../abort.ts'
 import { DEFAULT_TIMEOUT_MS, fetchWithTimeout } from '../httpClient.ts'
 import { readLinesFromStream } from '../streamReader.ts'
 import deepseekAdapter from './adapters/deepseek.ts'
-import type { LlmAdapter, LlmCallOptions, LlmStreamCallback } from '../../types/llm.ts'
+import type {
+  LlmAdapter,
+  LlmCallOptions,
+  LlmStreamCallback,
+  LlmStreamToolCallDelta,
+  LlmStreamWithToolsResult
+} from '../../types/llm.ts'
 import type { PromptMessage } from '../../types/conversation.ts'
+import type { ChatCompletionToolCall } from '../../types/tools.ts'
+
+const TOOL_STREAM_CONTENT_BUFFER_MS = 120
 
 const adapters: Record<string, LlmAdapter> = {
   deepseek: deepseekAdapter
@@ -91,25 +100,81 @@ type CallLLMInput = {
   stream?: boolean
   callback?: LlmStreamCallback
   signal?: AbortSignal
+  tools?: LlmCallOptions['tools']
+  toolChoice?: LlmCallOptions['toolChoice']
 }
 
-async function callLLM({ prompt, stream = false, callback, signal }: CallLLMInput): Promise<string> {
-  const adapter = getAdapter()
+function applyToolCallDeltas(
+  toolCalls: Map<number, ChatCompletionToolCall>,
+  deltas: LlmStreamToolCallDelta[] | undefined
+): void {
+  if (!deltas?.length) {
+    return
+  }
 
+  for (const delta of deltas) {
+    const existing = toolCalls.get(delta.index) ?? {
+      id: delta.id ?? `tool_call_${delta.index}`,
+      type: 'function' as const,
+      function: {
+        name: '',
+        arguments: ''
+      }
+    }
+
+    toolCalls.set(delta.index, {
+      id: delta.id ?? existing.id,
+      type: 'function',
+      function: {
+        name: delta.function?.name ?? existing.function.name,
+        arguments: existing.function.arguments + (delta.function?.arguments ?? '')
+      }
+    })
+  }
+}
+
+function normalizeCollectedToolCalls(toolCalls: Map<number, ChatCompletionToolCall>): ChatCompletionToolCall[] {
+  return [...toolCalls.entries()]
+    .sort(([left], [right]) => left - right)
+    .map(([, toolCall]) => toolCall)
+    .filter((toolCall) => toolCall.function.name)
+}
+
+async function requestModel(
+  adapter: LlmAdapter,
+  { prompt, stream = false, signal, tools, toolChoice }: CallLLMInput
+) {
   if (!LLM_ENDPOINT) {
     throw new Error('LLM_ENDPOINT 未配置')
   }
 
-  const upstream = await fetchWithTimeout(
+  return fetchWithTimeout(
     LLM_ENDPOINT,
     {
       method: 'POST',
       headers: adapter.buildHeaders(),
-      body: JSON.stringify(adapter.buildBody({ model: LLM_MODEL, prompt, stream }))
+      body: JSON.stringify(adapter.buildBody({
+        model: LLM_MODEL,
+        prompt,
+        stream,
+        tools,
+        toolChoice
+      }))
     },
     DEFAULT_TIMEOUT_MS,
     signal
   )
+}
+
+async function callLLM({ prompt, stream = false, callback, signal, tools, toolChoice }: CallLLMInput): Promise<string> {
+  const adapter = getAdapter()
+  const upstream = await requestModel(adapter, {
+    prompt,
+    stream,
+    signal,
+    tools,
+    toolChoice
+  })
   const { response } = upstream
 
   try {
@@ -137,6 +202,10 @@ async function callLLM({ prompt, stream = false, callback, signal }: CallLLMInpu
         return false
       }
 
+      if (event.toolCallDeltas?.length) {
+        return
+      }
+
       if (event.content) {
         fullResponse += event.content
         callback?.(event.content)
@@ -149,6 +218,110 @@ async function callLLM({ prompt, stream = false, callback, signal }: CallLLMInpu
     })
 
     return fullResponse
+  } finally {
+    upstream.cleanup()
+  }
+}
+
+async function callLLMStreamWithTools(
+  prompt: PromptMessage[],
+  callback: LlmStreamCallback,
+  options: LlmCallOptions = {}
+): Promise<LlmStreamWithToolsResult> {
+  const adapter = getAdapter()
+  const upstream = await requestModel(adapter, {
+    prompt,
+    stream: true,
+    signal: options.signal,
+    tools: options.tools,
+    toolChoice: options.toolChoice
+  })
+  const { response } = upstream
+
+  try {
+    if (!response.ok) {
+      throw new Error(`Failed to request model：${response.status} : ${response.statusText}`)
+    }
+
+    if (!response.body) {
+      throw new Error('模型未返回流式响应')
+    }
+
+    let fullResponse = ''
+    let reasoningContent = ''
+    let finishReason: string | undefined
+    let pendingContent = ''
+    let pendingContentStartedAt = 0
+    let contentUnlocked = false
+    const toolCalls = new Map<number, ChatCompletionToolCall>()
+
+    const flushPendingContent = (): void => {
+      if (!pendingContent) {
+        return
+      }
+
+      contentUnlocked = true
+      callback(pendingContent)
+      pendingContent = ''
+      pendingContentStartedAt = 0
+    }
+
+    const handleStreamLine = (line: string): false | void => {
+      const event = adapter.parseStreamLine(line)
+      if (!event) return
+
+      if (event.done) {
+        return false
+      }
+
+      if (event.finishReason) {
+        finishReason = event.finishReason
+      }
+
+      if (event.reasoningContent) {
+        reasoningContent += event.reasoningContent
+      }
+
+      if (event.toolCallDeltas?.length) {
+        pendingContent = ''
+        pendingContentStartedAt = 0
+        applyToolCallDeltas(toolCalls, event.toolCallDeltas)
+      }
+
+      if (event.content) {
+        fullResponse += event.content
+
+        if (contentUnlocked) {
+          callback(event.content)
+          return
+        }
+
+        pendingContent += event.content
+        pendingContentStartedAt ||= Date.now()
+
+        if (Date.now() - pendingContentStartedAt >= TOOL_STREAM_CONTENT_BUFFER_MS) {
+          flushPendingContent()
+        }
+      }
+    }
+
+    await readLinesFromStream(response.body, handleStreamLine, {
+      signal: upstream.signal,
+      onAbort: upstream.abortUpstream
+    })
+
+    const collectedToolCalls = normalizeCollectedToolCalls(toolCalls)
+
+    if (collectedToolCalls.length === 0) {
+      flushPendingContent()
+    }
+
+    return {
+      content: fullResponse,
+      reasoningContent,
+      toolCalls: collectedToolCalls,
+      finishReason
+    }
   } finally {
     upstream.cleanup()
   }
@@ -174,16 +347,8 @@ function callLLMStream(
   })
 }
 
-function callLLMStreamToText(prompt: PromptMessage[], options: LlmCallOptions = {}): Promise<string> {
-  return callLLM({
-    prompt,
-    stream: true,
-    signal: options.signal
-  })
-}
-
 export {
   callLLMOnce as callLLM,
   callLLMStream,
-  callLLMStreamToText
+  callLLMStreamWithTools
 }

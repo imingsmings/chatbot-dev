@@ -102,6 +102,59 @@ function sse(content) {
   return `data: ${JSON.stringify({ choices: [{ delta: { content } }] })}\n\ndata: [DONE]\n\n`
 }
 
+function sseToolCall({ id = 'call_mock_1', name, argsText, reasoningContent = '' }) {
+  const splitAt = Math.max(1, Math.floor(argsText.length / 2))
+  const firstArgs = argsText.slice(0, splitAt)
+  const secondArgs = argsText.slice(splitAt)
+
+  return [
+    reasoningContent
+      ? `data: ${JSON.stringify({ choices: [{ delta: { reasoning_content: reasoningContent } }] })}\n\n`
+      : '',
+    `data: ${JSON.stringify({
+      choices: [{
+        delta: {
+          tool_calls: [{
+            index: 0,
+            id,
+            type: 'function',
+            function: {
+              name,
+              arguments: ''
+            }
+          }]
+        }
+      }]
+    })}\n\n`,
+    `data: ${JSON.stringify({
+      choices: [{
+        delta: {
+          tool_calls: [{
+            index: 0,
+            function: {
+              arguments: firstArgs
+            }
+          }]
+        }
+      }]
+    })}\n\n`,
+    `data: ${JSON.stringify({
+      choices: [{
+        delta: {
+          tool_calls: [{
+            index: 0,
+            function: {
+              arguments: secondArgs
+            }
+          }]
+        },
+        finish_reason: 'tool_calls'
+      }]
+    })}\n\n`,
+    'data: [DONE]\n\n',
+  ].join('')
+}
+
 function writeSse(res, content) {
   res.write(`data: ${JSON.stringify({ choices: [{ delta: { content } }] })}\n\n`)
 }
@@ -118,7 +171,12 @@ function createMockLlmServer() {
     req.setEncoding('utf8')
     for await (const chunk of req) raw += chunk
     const body = JSON.parse(raw)
-    const content = body.messages.map((message) => message.content).join('\n')
+    const content = body.messages.map((message) => message.content || '').join('\n')
+    const latestUserContent = [...body.messages]
+      .reverse()
+      .find((message) => message.role === 'user')?.content || ''
+    const hasToolResult = body.messages.some((message) => message.role === 'tool')
+    const assistantToolMessage = body.messages.find((message) => message.role === 'assistant' && message.tool_calls)
     const record = {
       stream: Boolean(body.stream),
       content,
@@ -159,25 +217,71 @@ function createMockLlmServer() {
       return
     }
 
-    if (content.includes('请根据用户的输入内容判断是否需要调用函数工具')) {
-      let answer = '[]'
-      if (content.includes('P0_TOOL_SUCCESS')) {
-        answer = '[{"function":"getWeather","args":{"city":"北京","date":"明天"}}]'
-      } else if (content.includes('P0_TOOL_FAILURE')) {
-        answer = '[{"function":"getWeather","args":{"city":"异常城","date":"今天"}}]'
-      } else if (content.includes('P0_TOOL_UNKNOWN')) {
-        answer = '[{"function":"missingTool","args":{"city":"北京","date":"明天"}}]'
-      } else if (content.includes('P0_TOOL_STOP')) {
-        answer = '[{"function":"getWeather","args":{"city":"慢城","date":"明天"}}]'
-      } else if (content.includes('P0_TOOL_ANSWER_STOP')) {
-        answer = '[{"function":"getWeather","args":{"city":"北京","date":"明天"}}]'
-      } else if (content.includes('P0_BAD_FUNCTION_JSON')) {
-        answer = '[{"function":"getWeather","args":'
-      } else if (content.includes('P0_DUPLICATE_SLOW')) {
+    if (body.tools?.length) {
+      if (latestUserContent.includes('P0_MALFORMED_STREAM')) {
+        res.writeHead(200, { 'Content-Type': 'text/event-stream' })
+        res.write('data: {"choices":[{"delta":{"content":"broken"}}]\n\n')
+        record.chunksSent += 1
+        record.responseEnded = true
+        res.end()
+        return
+      }
+
+      let toolCall = null
+      if (latestUserContent.includes('P0_TOOL_SUCCESS')) {
+        toolCall = { name: 'getWeather', argsText: '{"city":"北京","date":"明天"}' }
+      } else if (latestUserContent.includes('P0_TOOL_REASONING')) {
+        toolCall = {
+          name: 'getWeather',
+          argsText: '{"city":"北京","date":"明天"}',
+          reasoningContent: '需要先调用天气工具。'
+        }
+      } else if (latestUserContent.includes('P0_TOOL_PREAMBLE')) {
+        toolCall = {
+          name: 'getWeather',
+          argsText: '{"city":"北京","date":"明天"}',
+          preamble: '我先看一下天气 '
+        }
+      } else if (latestUserContent.includes('P0_TOOL_FAILURE')) {
+        toolCall = { name: 'getWeather', argsText: '{"city":"异常城","date":"今天"}' }
+      } else if (latestUserContent.includes('P0_TOOL_UNKNOWN')) {
+        toolCall = { name: 'missingTool', argsText: '{"city":"北京","date":"明天"}' }
+      } else if (latestUserContent.includes('P0_TOOL_STOP')) {
+        toolCall = { name: 'getWeather', argsText: '{"city":"慢城","date":"明天"}' }
+      } else if (latestUserContent.includes('P0_TOOL_ANSWER_STOP')) {
+        toolCall = { name: 'getWeather', argsText: '{"city":"北京","date":"明天"}' }
+      } else if (latestUserContent.includes('P0_BAD_FUNCTION_JSON')) {
+        toolCall = { name: 'getWeather', argsText: '{"city":"北京","date":' }
+      } else if (latestUserContent.includes('P0_DUPLICATE_SLOW')) {
         await delay(1200)
       }
 
       res.writeHead(200, { 'Content-Type': 'text/event-stream' })
+      if (toolCall) {
+        if (toolCall.preamble) {
+          writeSse(res, toolCall.preamble)
+          record.chunksSent += 1
+        }
+        record.responseEnded = true
+        res.end(sseToolCall(toolCall))
+        return
+      }
+
+      let answer = '标准回答'
+      if (content.includes('P0CTX_QUERY_A')) {
+        const match = content.match(/A_SECRET_[0-9]+/)
+        answer = `A_ONLY:${match?.[0] || 'missing'}`
+      } else if (content.includes('P0CTX_QUERY_B')) {
+        const match = content.match(/B_SECRET_[0-9]+/)
+        answer = `B_ONLY:${match?.[0] || 'missing'}`
+      } else if (content.includes('P0CTX_A')) {
+        answer = '已记住 A。'
+      } else if (content.includes('P0CTX_B')) {
+        answer = '已记住 B。'
+      } else if (content.includes('P0_EMPTY_MODEL')) {
+        answer = ''
+      }
+
       record.responseEnded = true
       res.end(sse(answer))
       return
@@ -193,13 +297,20 @@ function createMockLlmServer() {
     }
 
     let answer = '标准回答'
-    if (content.includes('函数返回结果')) {
+    if (hasToolResult) {
       if (content.includes('unknown tool')) {
         answer = '未找到相关工具，请换一种问法。'
-      } else if (content.includes('获取天气数据失败')) {
+      } else if (content.includes('获取天气数据失败') || content.includes('Failed to call tool')) {
         answer = '天气服务暂时不可用，请稍后重试。'
       } else if (content.includes('天气：')) {
-        answer = '北京明天天气：晴，气温 18°C ~ 26°C。'
+        if (content.includes('P0_TOOL_REASONING')) {
+          answer = assistantToolMessage?.content === '' &&
+            assistantToolMessage?.reasoning_content === '需要先调用天气工具。'
+            ? 'reasoning 已回传，北京明天天气：晴。'
+            : 'reasoning 未回传。'
+        } else {
+          answer = '北京明天天气：晴，气温 18°C ~ 26°C。'
+        }
       }
       if (content.includes('P0_TOOL_ANSWER_STOP')) {
         res.writeHead(200, { 'Content-Type': 'text/event-stream' })
@@ -545,9 +656,16 @@ async function main() {
     createdIds.push(toolId)
 
     const toolSuccess = await ask(client, toolId, 'P0_TOOL_SUCCESS 查询北京明天天气')
+    const toolReasoning = await ask(client, toolId, 'P0_TOOL_REASONING 查询北京明天天气')
+    const toolPreamble = await ask(client, toolId, 'P0_TOOL_PREAMBLE 工具调用前先输出一些文字')
     const toolFailure = await ask(client, toolId, 'P0_TOOL_FAILURE 查询异常城今天天气')
     const toolUnknown = await ask(client, toolId, 'P0_TOOL_UNKNOWN 调用不存在工具')
     assert(toolSuccess.text.includes('北京明天天气'), 'P0-14 tool success failed')
+    assert(toolReasoning.text.includes('reasoning 已回传'), 'P0-14 tool reasoning_content was not passed back')
+    assert(
+      toolPreamble.text.includes('北京明天天气') && !toolPreamble.text.includes('我先看一下天气'),
+      'P0-14 tool preamble leaked before tool result answer'
+    )
     assert(toolFailure.text.includes('天气服务暂时不可用'), 'P0-15 tool failure fallback failed')
     assert(toolUnknown.text.includes('未找到相关工具'), 'P0-16 unknown tool fallback failed')
 
@@ -706,6 +824,8 @@ async function main() {
         'P1-31': 'passed',
       },
       toolSuccess: toolSuccess.text,
+      toolReasoning: toolReasoning.text,
+      toolPreamble: toolPreamble.text,
       toolFailure: toolFailure.text,
       toolUnknown: toolUnknown.text,
       stopped,

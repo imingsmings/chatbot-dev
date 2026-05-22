@@ -1,3 +1,5 @@
+import type { ChatCompletionToolCall } from './tools.ts'
+
 export type StoredMessageRole = 'user' | 'assistant'
 
 export type PromptMessageRole = StoredMessageRole | 'system' | 'tool'
@@ -9,7 +11,10 @@ export type StoredMessage = {
 
 export type PromptMessage = {
   role: PromptMessageRole
-  content: string
+  content: string | null
+  reasoning_content?: string
+  tool_call_id?: string
+  tool_calls?: ChatCompletionToolCall[]
 }
 
 export type Conversation = {
