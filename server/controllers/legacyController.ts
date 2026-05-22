@@ -1,6 +1,7 @@
-import { clearAllConversations, listConversationSummaries } from '../services/conversationService.js'
+import { clearAllConversations, listConversationSummaries } from '../services/conversationService.ts'
+import type { RequestHandler } from 'express'
 
-async function listHistory(req, res, next) {
+const listHistory: RequestHandler = async (req, res, next) => {
   try {
     res.json({
       conversations: await listConversationSummaries()
@@ -10,7 +11,7 @@ async function listHistory(req, res, next) {
   }
 }
 
-async function clearHistory(req, res, next) {
+const clearHistory: RequestHandler = async (req, res, next) => {
   try {
     await clearAllConversations()
     res.json({

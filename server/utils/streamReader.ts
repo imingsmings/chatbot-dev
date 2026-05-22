@@ -1,13 +1,22 @@
-import { createAbortError, throwIfAborted } from './abort.js'
+import { createAbortError, throwIfAborted } from './abort.ts'
 
-async function readLinesFromStream(stream, onLine, options = {}) {
+type ReadLinesOptions = {
+  signal?: AbortSignal
+  onAbort?: () => void
+}
+
+async function readLinesFromStream(
+  stream: ReadableStream<Uint8Array>,
+  onLine: (line: string) => boolean | void | Promise<boolean | void>,
+  options: ReadLinesOptions = {}
+): Promise<void> {
   const { signal, onAbort } = options
   const reader = stream.getReader()
   const decoder = new TextDecoder('utf-8')
   let buffer = ''
-  let abortHandler
+  let abortHandler: (() => void) | undefined
 
-  const handleLine = async (line) => {
+  const handleLine = async (line: string): Promise<boolean> => {
     throwIfAborted(signal)
     const result = await onLine(line)
     return result === false
@@ -55,7 +64,7 @@ async function readLinesFromStream(stream, onLine, options = {}) {
     if (buffer.trim()) {
       await handleLine(buffer)
     }
-  } catch (err) {
+  } catch (err: unknown) {
     if (signal?.aborted) {
       throw createAbortError()
     }

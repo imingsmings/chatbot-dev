@@ -1,5 +1,5 @@
 import express from 'express'
-import { clearHistory, listHistory } from '../controllers/legacyController.js'
+import { clearHistory, listHistory } from '../controllers/legacyController.ts'
 
 const router = express.Router()
 

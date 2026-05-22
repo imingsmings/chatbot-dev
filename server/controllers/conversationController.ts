@@ -5,15 +5,28 @@ import {
   listConversationSummaries,
   removeConversation,
   updateConversationTitle
-} from '../services/conversationService.js'
+} from '../services/conversationService.ts'
+import type { RequestHandler, Response } from 'express'
 
-function writeNotFound(res) {
+type ConversationParams = {
+  id: string
+}
+
+type CreateConversationBody = {
+  title?: unknown
+}
+
+type RenameConversationBody = {
+  title?: unknown
+}
+
+function writeNotFound(res: Response): void {
   res.status(404).json({
     message: '会话不存在'
   })
 }
 
-async function listConversations(req, res, next) {
+const listConversations: RequestHandler = async (req, res, next) => {
   try {
     res.json({
       conversations: await listConversationSummaries()
@@ -23,7 +36,7 @@ async function listConversations(req, res, next) {
   }
 }
 
-async function createConversation(req, res, next) {
+const createConversation: RequestHandler<unknown, unknown, CreateConversationBody> = async (req, res, next) => {
   try {
     const conversation = await createNewConversation(req.body.title)
     res.status(201).json({
@@ -34,7 +47,7 @@ async function createConversation(req, res, next) {
   }
 }
 
-async function getConversation(req, res, next) {
+const getConversation: RequestHandler<ConversationParams> = async (req, res, next) => {
   try {
     const conversation = await findConversation(req.params.id)
 
@@ -51,7 +64,11 @@ async function getConversation(req, res, next) {
   }
 }
 
-async function renameConversation(req, res, next) {
+const renameConversation: RequestHandler<ConversationParams, unknown, RenameConversationBody> = async (
+  req,
+  res,
+  next
+) => {
   try {
     const result = await updateConversationTitle(req.params.id, req.body.title)
 
@@ -75,7 +92,7 @@ async function renameConversation(req, res, next) {
   }
 }
 
-async function deleteConversation(req, res, next) {
+const deleteConversation: RequestHandler<ConversationParams> = async (req, res, next) => {
   try {
     const deleted = await removeConversation(req.params.id)
 
@@ -90,7 +107,7 @@ async function deleteConversation(req, res, next) {
   }
 }
 
-async function clearConversation(req, res, next) {
+const clearConversation: RequestHandler<ConversationParams> = async (req, res, next) => {
   try {
     const conversation = await clearConversationMessages(req.params.id)
 

@@ -1,10 +1,25 @@
-import { appendMessages } from '../utils/conversationStore.js'
-import { callLLM, callLLMStream } from '../utils/llm/index.js'
-import { buildAnswerPrompt, buildFunctionCallPrompt, buildStandardPrompt } from '../utils/promptTemplates.js'
-import { throwIfAborted } from '../utils/abort.js'
-import { executeToolCalls } from './toolService.js'
+import { appendMessages } from '../utils/conversationStore.ts'
+import { callLLM, callLLMStream } from '../utils/llm/index.ts'
+import { buildAnswerPrompt, buildFunctionCallPrompt, buildStandardPrompt } from '../utils/promptTemplates.ts'
+import { throwIfAborted } from '../utils/abort.ts'
+import { executeToolCalls } from './toolService.ts'
+import type { Conversation } from '../types/conversation.ts'
 
-async function generateConversationAnswer({ conversation, conversationId, question, signal, onDelta }) {
+type GenerateConversationAnswerOptions = {
+  conversation: Conversation
+  conversationId: string
+  question: string
+  signal: AbortSignal
+  onDelta: (chunk: string) => void
+}
+
+async function generateConversationAnswer({
+  conversation,
+  conversationId,
+  question,
+  signal,
+  onDelta
+}: GenerateConversationAnswerOptions): Promise<string> {
   let finalResponse = ''
   const functionCallPrompt = buildFunctionCallPrompt(question)
   const functionCallResult = await callLLM(functionCallPrompt, {
@@ -18,7 +33,7 @@ async function generateConversationAnswer({ conversation, conversationId, questi
       signal
     })
   } else {
-    const toolCalls = JSON.parse(functionCallResult)
+    const toolCalls = JSON.parse(functionCallResult) as unknown
     const toolResults = await executeToolCalls(toolCalls, {
       signal,
       throwIfAborted

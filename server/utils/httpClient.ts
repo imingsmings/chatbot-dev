@@ -1,14 +1,26 @@
-import { createAbortError } from './abort.js'
+import { createAbortError } from './abort.ts'
 
 const configuredTimeout = Number(process.env.LLM_TIMEOUT_MS)
 const DEFAULT_TIMEOUT_MS =
   Number.isFinite(configuredTimeout) && configuredTimeout > 0 ? configuredTimeout : 30000
 
-async function fetchWithTimeout(url, options = {}, timeout = DEFAULT_TIMEOUT_MS, externalSignal) {
+type FetchWithTimeoutResult = {
+  response: Response
+  signal: AbortSignal
+  abortUpstream: () => void
+  cleanup: () => void
+}
+
+async function fetchWithTimeout(
+  url: string | URL,
+  options: RequestInit = {},
+  timeout = DEFAULT_TIMEOUT_MS,
+  externalSignal?: AbortSignal
+): Promise<FetchWithTimeoutResult> {
   const controller = new AbortController()
   let timeoutTriggered = false
-  let abortHandler
-  let timeoutId
+  let abortHandler: (() => void) | undefined
+  let timeoutId: ReturnType<typeof setTimeout> | undefined
 
   if (externalSignal?.aborted) {
     throw createAbortError()
@@ -57,10 +69,10 @@ async function fetchWithTimeout(url, options = {}, timeout = DEFAULT_TIMEOUT_MS,
       abortUpstream,
       cleanup
     }
-  } catch (err) {
+  } catch (err: unknown) {
     cleanup()
 
-    if (err?.name === 'AbortError') {
+    if (err instanceof Error && err.name === 'AbortError') {
       if (timeoutTriggered) {
         throw new Error('请求超时，请稍候重试')
       }

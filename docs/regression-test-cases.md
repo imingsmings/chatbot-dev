@@ -122,7 +122,7 @@ P2 仅在明确要求“真实接口”时执行。
 | --- | --- |
 | 点击停止后前端仍显示生成中 | `client/src/App.vue` 或拆分后的 composer/request 状态管理 |
 | `/ask` 未变成 aborted/canceled | 前端 `AbortController`、fetch signal、请求发起封装 |
-| 前端取消但上游仍继续输出 | `server/routes/index.js`、`server/utils/llm.js`、`server/utils/streamReader.js`、request registry |
+| 前端取消但上游仍继续输出 | `server/routes/index.ts`、`server/utils/llm/index.ts`、`server/utils/streamReader.ts`、request registry |
 | 停止后仍写入完整回答 | `appendMessages` 调用时机、abort 后的 finally/catch 分支 |
 | 重试重复插入用户问题 | retry 插入索引、`appendUser: false` 路径 |
 | 切换会话串上下文 | 当前 `conversationId`、prompt 构造、会话详情加载 |

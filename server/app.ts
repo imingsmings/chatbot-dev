@@ -4,7 +4,8 @@ import createError from 'http-errors'
 import express from 'express'
 import cookieParser from 'cookie-parser'
 import logger from 'morgan'
-import indexRouter from './routes/index.js'
+import indexRouter from './routes/index.ts'
+import type { ErrorRequestHandler, RequestHandler } from 'express'
 
 const app = express()
 
@@ -15,11 +16,11 @@ app.use(cookieParser())
 
 app.use('/', indexRouter)
 
-app.use(function (req, res, next) {
+const notFoundHandler: RequestHandler = (req, res, next) => {
   next(createError(404))
-})
+}
 
-app.use(function (err, req, res, next) {
+const errorHandler: ErrorRequestHandler = (err, req, res, next) => {
   res.locals.message = err.message
   res.locals.error = req.app.get('env') === 'development' ? err : {}
 
@@ -32,6 +33,9 @@ app.use(function (err, req, res, next) {
   res.json({
     message: err.message || '服务异常'
   })
-})
+}
+
+app.use(notFoundHandler)
+app.use(errorHandler)
 
 export default app

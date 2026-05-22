@@ -1,25 +1,39 @@
-import { generateConversationAnswer } from '../services/chatService.js'
-import { findConversation } from '../services/conversationService.js'
-import { createAbortError } from '../utils/abort.js'
-import { setNdjsonStreamHeaders, writeStreamError, writeStreamEvent } from '../utils/ndjsonStream.js'
+import { generateConversationAnswer } from '../services/chatService.ts'
+import { findConversation } from '../services/conversationService.ts'
+import { createAbortError } from '../utils/abort.ts'
+import { setNdjsonStreamHeaders, writeStreamError, writeStreamEvent } from '../utils/ndjsonStream.ts'
 import {
   completeRequest,
   parseRequestId,
   registerRequest
-} from '../utils/requestRegistry.js'
+} from '../utils/requestRegistry.ts'
+import type { RequestHandler, Response } from 'express'
 
-function writeNotFound(res) {
+type AskConversationParams = {
+  id: string
+}
+
+type AskConversationBody = {
+  question?: unknown
+  requestId?: unknown
+}
+
+function writeNotFound(res: Response): void {
   res.status(404).json({
     message: '会话不存在'
   })
 }
 
-async function askConversation(req, res, next) {
-  const question = req.body.question || ''
+const askConversation: RequestHandler<AskConversationParams, unknown, AskConversationBody> = async (
+  req,
+  res,
+  next
+) => {
+  const question = typeof req.body.question === 'string' ? req.body.question : ''
   const requestId = parseRequestId(req.body.requestId)
   let conversation
   const requestController = new AbortController()
-  let abortReason = null
+  let abortReason: string | null = null
 
   if (!requestId) {
     res.status(400).json({
@@ -40,7 +54,7 @@ async function askConversation(req, res, next) {
     return
   }
 
-  const abortUpstream = (reason = 'client_closed') => {
+  const abortUpstream = (reason = 'client_closed'): void => {
     if (requestController.signal.aborted) {
       return
     }
@@ -49,7 +63,7 @@ async function askConversation(req, res, next) {
     requestController.abort()
   }
 
-  const abortOnClientClose = () => {
+  const abortOnClientClose = (): void => {
     if (res.writableEnded) {
       return
     }
@@ -77,7 +91,7 @@ async function askConversation(req, res, next) {
   res.on('close', abortOnClientClose)
 
   try {
-    const writeDelta = (chunk) => {
+    const writeDelta = (chunk: string): void => {
       if (!writeStreamEvent(res, { type: 'delta', content: chunk })) {
         abortUpstream('write_closed')
         throw createAbortError()
@@ -93,8 +107,8 @@ async function askConversation(req, res, next) {
     })
 
     writeStreamEvent(res, { type: 'done' })
-  } catch (err) {
-    if (abortReason || err?.name === 'AbortError') {
+  } catch (err: unknown) {
+    if (abortReason || (err instanceof Error && err.name === 'AbortError')) {
       console.info(
         `Ask request aborted: conversation=${req.params.id}, request=${requestId}, reason=${abortReason || 'abort_error'}`
       )

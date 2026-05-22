@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 
 const APP_URL = process.env.APP_URL || 'http://localhost:5173/'
+const APP_ORIGIN = new URL(APP_URL).origin
 const CHROME_PATH =
   process.env.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
 const DEBUG_PORT = Number(process.env.DEBUG_PORT || 9333)
@@ -57,7 +58,11 @@ class CdpClient {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id)
-        reject(new Error(`CDP command timed out: ${method}`))
+        const context =
+          method === 'Runtime.evaluate' && params.expression
+            ? `: ${params.expression.slice(0, 180)}`
+            : ''
+        reject(new Error(`CDP command timed out: ${method}${context}`))
       }, CDP_COMMAND_TIMEOUT_MS)
       this.pending.set(id, {
         resolve: (value) => {
@@ -185,6 +190,14 @@ async function clickText(client, selector, text) {
       el.click();
     })()`,
   )
+}
+
+async function ensureClipboard(client) {
+  await client.send('Page.bringToFront').catch(() => {})
+  await client.send('Browser.grantPermissions', {
+    origin: APP_ORIGIN,
+    permissions: ['clipboardReadWrite', 'clipboardSanitizedWrite'],
+  }).catch(() => {})
 }
 
 async function clickConversationAt(client, index) {
@@ -474,19 +487,19 @@ async function main() {
   try {
     await waitForHttp(`http://127.0.0.1:${DEBUG_PORT}/json/version`)
 
-    await fetch(`http://127.0.0.1:${DEBUG_PORT}/json/new?${encodeURIComponent(APP_URL)}`, {
-      method: 'PUT',
-    })
     const targets = await (await fetch(`http://127.0.0.1:${DEBUG_PORT}/json/list`)).json()
     const target =
-      targets.find((item) => item.type === 'page' && item.url.startsWith(APP_URL)) ||
+      targets.find((item) => item.type === 'page' && item.url === 'about:blank') ||
       targets.find((item) => item.type === 'page')
     const client = new CdpClient(target.webSocketDebuggerUrl)
 
     await client.send('Page.enable')
     await client.send('Runtime.enable')
+    client.on('Page.javascriptDialogOpening', () => {
+      client.send('Page.handleJavaScriptDialog', { accept: true }).catch(() => {})
+    })
     await client.send('Browser.grantPermissions', {
-      origin: APP_URL,
+      origin: APP_ORIGIN,
       permissions: ['clipboardReadWrite', 'clipboardSanitizedWrite'],
     }).catch(() => {})
     await client.send('Emulation.setDeviceMetricsOverride', {
@@ -496,6 +509,7 @@ async function main() {
       mobile: false,
     })
     await client.send('Page.addScriptToEvaluateOnNewDocument', { source: mockScript })
+    await client.send('Page.navigate', { url: APP_URL })
 
     await resetPage(client)
 
@@ -513,6 +527,7 @@ async function main() {
     await clickText(client, 'button', '停止')
     await waitFor(client, `document.body.innerText.includes('已停止生成') && [...document.querySelectorAll('button')].some((button) => button.textContent.trim() === '发送')`)
     await screenshot(client, '01-stopped-after-click')
+    await ensureClipboard(client)
     await clickText(client, 'button', '复制')
     await waitFor(client, `document.body.innerText.includes('已复制')`)
     await screenshot(client, '01-stopped-copy')
@@ -558,6 +573,7 @@ async function main() {
     await ask(client, '测试复制')
     await waitFor(client, `document.body.innerText.includes('这是可以复制的助手回复。') && document.body.innerText.includes('复制')`)
     await waitIdle(client)
+    await ensureClipboard(client)
     await clickText(client, 'button', '复制')
     await waitFor(client, `document.body.innerText.includes('已复制')`)
     await evaluate(

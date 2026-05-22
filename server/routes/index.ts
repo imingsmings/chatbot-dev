@@ -1,8 +1,8 @@
 import express from 'express'
-import chatRoutes from './chat.js'
-import conversationRoutes from './conversations.js'
-import legacyRoutes from './legacy.js'
-import requestRoutes from './requests.js'
+import chatRoutes from './chat.ts'
+import conversationRoutes from './conversations.ts'
+import legacyRoutes from './legacy.ts'
+import requestRoutes from './requests.ts'
 
 const router = express.Router()
 

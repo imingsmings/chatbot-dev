@@ -9,6 +9,7 @@ const CHROME_PATH =
 const DEBUG_PORT = Number(process.env.DEBUG_PORT || 9336)
 const OUT_DIR = path.resolve(process.cwd(), '.tmp/cdp-markdown-screenshots')
 const CAPTURE_SCREENSHOTS = process.env.CDP_SCREENSHOTS === '1'
+const CDP_COMMAND_TIMEOUT_MS = 10000
 
 class CdpClient {
   constructor(wsUrl) {
@@ -43,7 +44,20 @@ class CdpClient {
     this.ws.send(JSON.stringify({ id, method, params }))
 
     return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject })
+      const timer = setTimeout(() => {
+        this.pending.delete(id)
+        reject(new Error(`CDP command timed out: ${method}`))
+      }, CDP_COMMAND_TIMEOUT_MS)
+      this.pending.set(id, {
+        resolve: (value) => {
+          clearTimeout(timer)
+          resolve(value)
+        },
+        reject: (error) => {
+          clearTimeout(timer)
+          reject(error)
+        },
+      })
     })
   }
 
@@ -84,7 +98,12 @@ async function evaluate(client, expression) {
   })
 
   if (result.exceptionDetails) {
-    throw new Error(result.exceptionDetails.text || 'Runtime evaluation failed')
+    const detail =
+      result.exceptionDetails.exception?.description ||
+      result.exceptionDetails.exception?.value ||
+      result.exceptionDetails.text ||
+      'Runtime evaluation failed'
+    throw new Error(detail)
   }
 
   return result.result?.value
@@ -370,13 +389,10 @@ async function main() {
 
   try {
     await waitForHttp(`http://127.0.0.1:${DEBUG_PORT}/json/version`)
-    await fetch(`http://127.0.0.1:${DEBUG_PORT}/json/new?${encodeURIComponent(APP_URL)}`, {
-      method: 'PUT',
-    })
 
     const targets = await (await fetch(`http://127.0.0.1:${DEBUG_PORT}/json/list`)).json()
     const target =
-      targets.find((item) => item.type === 'page' && item.url.startsWith(APP_URL)) ||
+      targets.find((item) => item.type === 'page' && item.url === 'about:blank') ||
       targets.find((item) => item.type === 'page')
     const client = new CdpClient(target.webSocketDebuggerUrl)
 
@@ -391,6 +407,7 @@ async function main() {
     await client.send('Page.navigate', { url: APP_URL })
     await waitFor(client, `document.body.innerText.includes('MD-BASIC')`)
 
+    console.log('Markdown stage: fixture loaded')
     const assertions = {}
 
     await scrollAssistantToText(client, 'MD-BASIC')
@@ -515,6 +532,7 @@ async function main() {
     )
     await screenshot(client, '07-user-message-plain')
 
+    console.log('Markdown stage: streaming')
     await clickText(client, 'button', '新建')
     await waitFor(client, `document.body.innerText.includes('CDP Markdown Streaming')`)
     await ask(client, '请返回流式 markdown')
@@ -549,6 +567,8 @@ async function main() {
     )
     await screenshot(client, '09-streaming-done-render')
 
+    console.log('Markdown stage: persistence/copy/mobile')
+    console.log('Markdown stage: reload persistence')
     await client.send('Page.reload', { ignoreCache: true })
     await waitFor(client, `document.body.innerText.includes('MD-BASIC')`)
     await scrollAssistantToText(client, 'MD-CODE')
@@ -564,7 +584,15 @@ async function main() {
     )
     await screenshot(client, '10-refresh-persistence')
 
+    console.log('Markdown stage: copy')
+    await client.send('Page.bringToFront').catch(() => {})
+    await client.send('Browser.grantPermissions', {
+      origin: APP_URL,
+      permissions: ['clipboardReadWrite', 'clipboardSanitizedWrite'],
+    }).catch(() => {})
+    console.log('Markdown stage: copy scroll')
     await scrollAssistantToText(client, 'MD-BASIC')
+    console.log('Markdown stage: copy click')
     await evaluate(
       client,
       `(() => {
@@ -572,10 +600,15 @@ async function main() {
         row.querySelector('.message-action-btn')?.click();
       })()`,
     )
+    console.log('Markdown stage: copy wait')
     await waitFor(client, `document.body.innerText.includes('已复制')`)
+    console.log('Markdown stage: copy read')
     assertions.copy = await evaluate(
       client,
-      `navigator.clipboard.readText().then((text) => ({
+      `Promise.race([
+        navigator.clipboard.readText(),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('clipboard read timed out')), 3000)),
+      ]).then((text) => ({
         containsRawMarkdown: text.includes('# MD-BASIC') && text.includes('**粗体**'),
         containsHtml: text.includes('<h1') || text.includes('<strong>'),
         length: text.length,
@@ -583,6 +616,7 @@ async function main() {
     )
     await screenshot(client, '11-copy-raw-markdown')
 
+    console.log('Markdown stage: mobile')
     await setViewport(client, 390, 844, true)
     await delay(300)
     await scrollAssistantToText(client, 'MD-TABLE')

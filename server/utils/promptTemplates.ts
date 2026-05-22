@@ -1,4 +1,7 @@
-function buildFunctionCallPrompt(userInput) {
+import type { PromptMessage, StoredMessage } from '../types/conversation.ts'
+import type { ToolResult } from '../types/tools.ts'
+
+function buildFunctionCallPrompt(userInput: string): PromptMessage[] {
   const content = `
     你是一个中文智能助手，具有工具调用能力。请严格按照以下规则回复：
     
@@ -53,7 +56,7 @@ function buildFunctionCallPrompt(userInput) {
   ]
 }
 
-function buildAnswerPrompt(userInput, results) {
+function buildAnswerPrompt(userInput: string, results: ToolResult[]): PromptMessage[] {
   const toolsText = results
     .map((item) => {
       const { function: fn, args, result } = item
@@ -88,7 +91,7 @@ function buildAnswerPrompt(userInput, results) {
   ]
 }
 
-function buildStandardPrompt(userInput, conversations) {
+function buildStandardPrompt(userInput: string, conversations: StoredMessage[]): PromptMessage[] {
   // return [
   //   `你是一个中文智能助手，请使用中文回答用户的问题。`,
   //   ...conversations.map((item) => `${item.role === 'user' ? '用户' : '助手'}：${item.content}`),

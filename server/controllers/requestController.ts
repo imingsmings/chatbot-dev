@@ -1,6 +1,11 @@
-import { cancelRequest, parseRequestId } from '../utils/requestRegistry.js'
+import { cancelRequest, parseRequestId } from '../utils/requestRegistry.ts'
+import type { RequestHandler } from 'express'
 
-function cancelActiveRequest(req, res) {
+type CancelRequestParams = {
+  requestId: string
+}
+
+const cancelActiveRequest: RequestHandler<CancelRequestParams> = (req, res) => {
   const requestId = parseRequestId(req.params.requestId)
 
   if (!requestId) {

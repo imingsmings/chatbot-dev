@@ -6,7 +6,7 @@ import {
   getConversation,
   listConversations,
   renameConversation
-} from '../controllers/conversationController.js'
+} from '../controllers/conversationController.ts'
 
 const router = express.Router()
 

@@ -398,7 +398,7 @@ async function main() {
   const dataDir = await mkdtemp(path.join(tmpdir(), 'chatbot-p0-data-'))
   const conversationsDir = path.join(dataDir, 'conversations')
 
-  const server = spawnProcess('node', ['./bin/www'], {
+  const server = spawnProcess('node', ['./bin/www.ts'], {
     cwd: path.resolve(process.cwd(), 'server'),
     env: {
       ...process.env,
@@ -586,7 +586,7 @@ async function main() {
     assert(titleAfterManualRename.data.conversation.title === `${PREFIX}-MANUAL-TITLE`, 'P1-28 manual title was overwritten')
 
     const legacyDataDir = await mkdtemp(path.join(tmpdir(), 'chatbot-legacy-data-'))
-    const legacyServer = spawnProcess('node', ['./bin/www'], {
+    const legacyServer = spawnProcess('node', ['./bin/www.ts'], {
       cwd: path.resolve(process.cwd(), 'server'),
       env: {
         ...process.env,
@@ -622,7 +622,7 @@ async function main() {
     const corruptDataDir = await mkdtemp(path.join(tmpdir(), 'chatbot-corrupt-data-'))
     await mkdir(path.join(corruptDataDir, 'conversations'), { recursive: true })
     await writeFile(path.join(corruptDataDir, 'conversations', 'conv_corrupt_cdp.json'), '{broken json', 'utf8')
-    const corruptServer = spawnProcess('node', ['./bin/www'], {
+    const corruptServer = spawnProcess('node', ['./bin/www.ts'], {
       cwd: path.resolve(process.cwd(), 'server'),
       env: {
         ...process.env,

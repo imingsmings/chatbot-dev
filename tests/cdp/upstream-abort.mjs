@@ -392,7 +392,7 @@ export default defineConfig({
   const mock = createMockLlmServer()
   await mock.start()
 
-  const server = spawnProcess('node', ['./bin/www'], {
+  const server = spawnProcess('node', ['./bin/www.ts'], {
     cwd: path.resolve(process.cwd(), 'server'),
     env: {
       ...process.env,

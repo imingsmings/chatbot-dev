@@ -1,9 +1,11 @@
-import { createAbortError } from '../abort.js'
-import { DEFAULT_TIMEOUT_MS, fetchWithTimeout } from '../httpClient.js'
-import { readLinesFromStream } from '../streamReader.js'
-import deepseekAdapter from './adapters/deepseek.js'
+import { createAbortError } from '../abort.ts'
+import { DEFAULT_TIMEOUT_MS, fetchWithTimeout } from '../httpClient.ts'
+import { readLinesFromStream } from '../streamReader.ts'
+import deepseekAdapter from './adapters/deepseek.ts'
+import type { LlmAdapter, LlmCallOptions, LlmStreamCallback } from '../../types/llm.ts'
+import type { PromptMessage } from '../../types/conversation.ts'
 
-const adapters = {
+const adapters: Record<string, LlmAdapter> = {
   deepseek: deepseekAdapter
 }
 
@@ -11,7 +13,7 @@ const LLM_PROVIDER = process.env.LLM_PROVIDER || 'deepseek'
 const LLM_ENDPOINT = process.env.LLM_ENDPOINT
 const LLM_MODEL = process.env.LLM_MODEL
 
-function getAdapter() {
+function getAdapter(): LlmAdapter {
   const adapter = adapters[LLM_PROVIDER]
 
   if (!adapter) {
@@ -21,7 +23,11 @@ function getAdapter() {
   return adapter
 }
 
-async function readResponseText(response, signal, onAbort) {
+async function readResponseText(
+  response: Response,
+  signal: AbortSignal,
+  onAbort: () => void
+): Promise<string> {
   if (!response.body) {
     return response.text()
   }
@@ -29,7 +35,7 @@ async function readResponseText(response, signal, onAbort) {
   const reader = response.body.getReader()
   const decoder = new TextDecoder('utf-8')
   let text = ''
-  let abortHandler
+  let abortHandler: (() => void) | undefined
 
   if (signal) {
     abortHandler = () => {
@@ -67,7 +73,7 @@ async function readResponseText(response, signal, onAbort) {
     text += decoder.decode()
 
     return text
-  } catch (err) {
+  } catch (err: unknown) {
     if (signal?.aborted) {
       throw createAbortError()
     }
@@ -80,8 +86,20 @@ async function readResponseText(response, signal, onAbort) {
   }
 }
 
-async function callLLM({ prompt, stream = false, callback, signal }) {
+type CallLLMInput = {
+  prompt: PromptMessage[]
+  stream?: boolean
+  callback?: LlmStreamCallback
+  signal?: AbortSignal
+}
+
+async function callLLM({ prompt, stream = false, callback, signal }: CallLLMInput): Promise<string> {
   const adapter = getAdapter()
+
+  if (!LLM_ENDPOINT) {
+    throw new Error('LLM_ENDPOINT 未配置')
+  }
+
   const upstream = await fetchWithTimeout(
     LLM_ENDPOINT,
     {
@@ -107,7 +125,11 @@ async function callLLM({ prompt, stream = false, callback, signal }) {
 
     let fullResponse = ''
 
-    const handleStreamLine = (line) => {
+    if (!response.body) {
+      throw new Error('模型未返回流式响应')
+    }
+
+    const handleStreamLine = (line: string): false | void => {
       const event = adapter.parseStreamLine(line)
       if (!event) return
 
@@ -117,7 +139,7 @@ async function callLLM({ prompt, stream = false, callback, signal }) {
 
       if (event.content) {
         fullResponse += event.content
-        callback(event.content)
+        callback?.(event.content)
       }
     }
 
@@ -132,14 +154,18 @@ async function callLLM({ prompt, stream = false, callback, signal }) {
   }
 }
 
-function callLLMOnce(prompt, options = {}) {
+function callLLMOnce(prompt: PromptMessage[], options: LlmCallOptions = {}): Promise<string> {
   return callLLM({
     prompt,
     signal: options.signal
   })
 }
 
-function callLLMStream(prompt, callback, options = {}) {
+function callLLMStream(
+  prompt: PromptMessage[],
+  callback: LlmStreamCallback,
+  options: LlmCallOptions = {}
+): Promise<string> {
   return callLLM({
     prompt,
     stream: true,

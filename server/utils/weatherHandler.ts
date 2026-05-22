@@ -1,7 +1,27 @@
+import type { ToolExecutionOptions, WeatherToolArgs } from '../types/tools.ts'
+
 const HEFENG_API_HOST = process.env.HEFENG_API_HOST
 const HEFENG_API_KEY = process.env.HEFENG_API_KEY
+const HEFENG_HEADERS = HEFENG_API_KEY ? { 'X-QW-Api-Key': HEFENG_API_KEY } : undefined
 
-function formatDate(text) {
+type QWeatherCityLookupResponse = {
+  code?: string
+  location?: Array<{
+    id: string
+  }>
+}
+
+type QWeatherDailyResponse = {
+  code?: string
+  daily?: Array<{
+    fxDate: string
+    textDay: string
+    tempMin: string
+    tempMax: string
+  }>
+}
+
+function formatDate(text: string): string | null {
   const today = new Date()
 
   if (text.includes('今天')) return today.toISOString().split('T')[0]
@@ -25,28 +45,37 @@ function formatDate(text) {
   return null
 }
 
-async function getCityLocation(city, options = {}) {
+async function getCityLocation(city: string, options: ToolExecutionOptions = {}): Promise<string | null> {
   const { signal } = options
   const url = `https://${HEFENG_API_HOST}/geo/v2/city/lookup?location=${encodeURIComponent(city)}`
 
   const res = await fetch(url, {
     method: 'GET',
     signal,
-    headers: {
-      'X-QW-Api-Key': HEFENG_API_KEY
-    }
+    headers: HEFENG_HEADERS
   })
 
-  const data = await res.json()
+  const data = (await res.json()) as QWeatherCityLookupResponse
+  const [location] = data.location ?? []
 
-  if (data.code === '200' && data.location?.length > 0) {
-    return data.location[0].id
+  if (data.code === '200' && location) {
+    return location.id
   }
 
   return null
 }
 
-async function getWeather({ city, date }, options = {}) {
+function normalizeWeatherArgs(args: unknown): WeatherToolArgs {
+  const value = typeof args === 'object' && args !== null ? (args as Record<string, unknown>) : {}
+
+  return {
+    city: typeof value.city === 'string' ? value.city : '',
+    date: typeof value.date === 'string' ? value.date : ''
+  }
+}
+
+async function getWeather(args: unknown, options: ToolExecutionOptions = {}): Promise<string> {
+  const { city, date } = normalizeWeatherArgs(args)
   const { signal } = options
   const formattedDate = formatDate(date)
 
@@ -66,18 +95,16 @@ async function getWeather({ city, date }, options = {}) {
     const res = await fetch(url, {
       method: 'GET',
       signal,
-      headers: {
-        'X-QW-Api-Key': HEFENG_API_KEY
-      }
+      headers: HEFENG_HEADERS
     })
-    const data = await res.json() // 拿到的是一周的天气
+    const data = (await res.json()) as QWeatherDailyResponse // 拿到的是一周的天气
 
     if (data.code !== '200') {
       console.error('天气API返回错误:', data.code)
       return '获取天气数据失败'
     }
 
-    const match = data.daily.find((d) => d.fxDate === formattedDate) // 过滤出需要的那一天的天气数据
+    const match = data.daily?.find((d) => d.fxDate === formattedDate) // 过滤出需要的那一天的天气数据
     if (!match) {
       console.error('没有找到对应日期的天气数据:', formattedDate)
       return `暂无 ${formattedDate} 的天气数据`
@@ -86,8 +113,8 @@ async function getWeather({ city, date }, options = {}) {
     const result = `📍 ${city}（${formattedDate}）天气：${match.textDay}，气温 ${match.tempMin}°C ~ ${match.tempMax}°C`
     console.log('天气查询成功:', result)
     return result
-  } catch (error) {
-    if (error?.name === 'AbortError') {
+  } catch (error: unknown) {
+    if (error instanceof Error && error.name === 'AbortError') {
       throw error
     }
 

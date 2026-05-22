@@ -1,5 +1,5 @@
 import express from 'express'
-import { cancelActiveRequest } from '../controllers/requestController.js'
+import { cancelActiveRequest } from '../controllers/requestController.ts'
 
 const router = express.Router()
 

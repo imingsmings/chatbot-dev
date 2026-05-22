@@ -16,6 +16,7 @@ class CdpClient {
     this.ws = new WebSocket(wsUrl)
     this.nextId = 1
     this.pending = new Map()
+    this.events = new Map()
 
     this.ready = new Promise((resolve, reject) => {
       this.ws.addEventListener('open', resolve, { once: true })
@@ -24,7 +25,16 @@ class CdpClient {
 
     this.ws.addEventListener('message', (event) => {
       const payload = JSON.parse(event.data)
-      if (!payload.id) return
+
+      if (!payload.id) {
+        const listeners = this.events.get(payload.method)
+        if (listeners) {
+          for (const listener of listeners) {
+            listener(payload.params || {})
+          }
+        }
+        return
+      }
 
       const pending = this.pending.get(payload.id)
       if (!pending) return
@@ -46,7 +56,11 @@ class CdpClient {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id)
-        reject(new Error(`CDP command timed out: ${method}`))
+        const context =
+          method === 'Runtime.evaluate' && params.expression
+            ? `: ${params.expression.slice(0, 180)}`
+            : ''
+        reject(new Error(`CDP command timed out: ${method}${context}`))
       }, CDP_COMMAND_TIMEOUT_MS)
       this.pending.set(id, {
         resolve: (value) => {
@@ -59,6 +73,12 @@ class CdpClient {
         },
       })
     })
+  }
+
+  on(method, callback) {
+    const listeners = this.events.get(method) || []
+    listeners.push(callback)
+    this.events.set(method, listeners)
   }
 
   close() {
@@ -139,6 +159,14 @@ async function setViewport(client, width, height, mobile = false) {
     deviceScaleFactor: 1,
     mobile,
   })
+}
+
+async function ensureClipboard(client) {
+  await client.send('Page.bringToFront').catch(() => {})
+  await client.send('Browser.grantPermissions', {
+    origin: new URL(APP_URL).origin,
+    permissions: ['clipboardReadWrite', 'clipboardSanitizedWrite'],
+  }).catch(() => {})
 }
 
 async function scrollAssistantToText(client, text) {
@@ -486,20 +514,20 @@ async function main() {
 
   try {
     await waitForHttp(`http://127.0.0.1:${DEBUG_PORT}/json/version`)
-    await fetch(`http://127.0.0.1:${DEBUG_PORT}/json/new?${encodeURIComponent(APP_URL)}`, {
-      method: 'PUT',
-    })
 
     const targets = await (await fetch(`http://127.0.0.1:${DEBUG_PORT}/json/list`)).json()
     const target =
-      targets.find((item) => item.type === 'page' && item.url.startsWith(APP_URL)) ||
+      targets.find((item) => item.type === 'page' && item.url === 'about:blank') ||
       targets.find((item) => item.type === 'page')
     const client = new CdpClient(target.webSocketDebuggerUrl)
 
     await client.send('Page.enable')
     await client.send('Runtime.enable')
+    client.on('Page.javascriptDialogOpening', () => {
+      client.send('Page.handleJavaScriptDialog', { accept: true }).catch(() => {})
+    })
     await client.send('Browser.grantPermissions', {
-      origin: APP_URL,
+      origin: new URL(APP_URL).origin,
       permissions: ['clipboardReadWrite', 'clipboardSanitizedWrite'],
     }).catch(() => {})
     await setViewport(client, 1280, 900)
@@ -724,6 +752,7 @@ async function main() {
     )
     await screenshot(client, '11-refresh-persistence')
 
+    await ensureClipboard(client)
     await evaluate(
       client,
       `(() => {
@@ -734,11 +763,14 @@ async function main() {
     await waitFor(client, `document.body.innerText.includes('已复制')`)
     assertions.copy = await evaluate(
       client,
-      `navigator.clipboard.readText().then((text) => ({
-        containsRawFence: text.includes('~~~typescript') || text.includes(${JSON.stringify('```typescript')}),
-        containsHljsHtml: text.includes('hljs-') || text.includes('<span'),
-        length: text.length,
-      }))`,
+      `Promise.race([
+        navigator.clipboard.readText(),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('clipboard read timed out')), 3000)),
+      ]).then((text) => ({
+          containsRawFence: text.includes('~~~typescript') || text.includes(${JSON.stringify('```typescript')}),
+          containsHljsHtml: text.includes('hljs-') || text.includes('<span'),
+          length: text.length,
+        }))`,
     )
     await screenshot(client, '12-copy-raw-markdown')
 
