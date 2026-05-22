@@ -63,6 +63,10 @@ async function executeToolCalls(toolCalls: unknown, options: ExecuteToolOptions 
           result
         })
       } catch (err: unknown) {
+        if (err instanceof Error && err.name === 'AbortError') {
+          throw err
+        }
+
         const message = err instanceof Error ? err.message : 'unknown error'
         console.error(`Failed to call tool ${functionName}`, err)
         toolResults.push({

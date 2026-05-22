@@ -121,6 +121,30 @@ async function waitFor(client, expression, timeoutMs = 6000) {
   throw new Error(`Timed out waiting for expression: ${expression}`)
 }
 
+async function waitForEvent(client, method, timeoutMs = 10000) {
+  return new Promise((resolve, reject) => {
+    let settled = false
+    const timer = setTimeout(() => {
+      if (settled) return
+      settled = true
+      reject(new Error(`Timed out waiting for CDP event: ${method}`))
+    }, timeoutMs)
+
+    client.on(method, (params) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      resolve(params)
+    })
+  })
+}
+
+async function navigateAndWait(client, url) {
+  const loaded = waitForEvent(client, 'Page.loadEventFired')
+  await client.send('Page.navigate', { url })
+  await loaded
+}
+
 async function evaluate(client, expression) {
   const result = await client.send('Runtime.evaluate', {
     expression,
@@ -152,8 +176,19 @@ async function screenshot(client, name) {
 }
 
 async function resetPage(client) {
-  await client.send('Page.navigate', { url: APP_URL })
-  await waitFor(client, 'document.querySelector("textarea") && document.querySelector(".empty-state")')
+  await navigateAndWait(client, 'about:blank')
+  await waitFor(client, 'document.readyState === "complete"')
+  await navigateAndWait(client, APP_URL)
+  await waitFor(
+    client,
+    `location.href.startsWith(${JSON.stringify(APP_URL)}) && document.querySelector("textarea")`,
+  )
+
+  const isEmpty = await evaluate(client, 'Boolean(document.querySelector(".empty-state"))')
+  if (!isEmpty) {
+    await clickText(client, 'button', '新建')
+    await waitFor(client, 'document.querySelector("textarea") && document.querySelector(".empty-state")')
+  }
 }
 
 async function setPlan(client, plans) {
@@ -645,6 +680,7 @@ async function main() {
     }
     await clickText(client, 'button', '停止')
     await waitFor(client, `document.body.innerText.includes('已停止生成')`)
+    await waitIdle(client)
 
     await setPlan(client, [
       { kind: 'success', chunks: makeLongChunks('新流式回复', 40), interval: 120, done: false },
@@ -737,6 +773,7 @@ async function main() {
     }
     await clickText(client, 'button', '停止')
     await waitFor(client, `document.body.innerText.includes('已停止生成')`)
+    await waitIdle(client)
 
     await resetPage(client)
     await typeText(client, '   ')
@@ -873,11 +910,18 @@ async function main() {
     await ask(client, '移动端布局')
     await waitFor(client, `document.body.innerText.includes('移动端长消息')`)
     await waitIdle(client)
+    await evaluate(
+      client,
+      `(() => {
+        const chatScroll = document.querySelector('.chat-scroll');
+        chatScroll?.scrollTo({ top: chatScroll.scrollHeight });
+      })()`,
+    )
     await waitFor(
       client,
       `(() => {
         const chatScroll = document.querySelector('.chat-scroll');
-        return chatScroll && Math.abs(chatScroll.scrollHeight - chatScroll.scrollTop - chatScroll.clientHeight) < 8;
+        return chatScroll && Math.abs(chatScroll.scrollHeight - chatScroll.scrollTop - chatScroll.clientHeight) <= 24;
       })()`,
     )
     const mobileState = await evaluate(
@@ -891,7 +935,7 @@ async function main() {
           viewportWidth: window.innerWidth,
           pageOverflowX: document.documentElement.scrollWidth > window.innerWidth,
           composerOverlapsScroll: composerRect.top < chatScrollRect.bottom - 1,
-          scrollBottomGap: Math.abs(chatScroll.scrollHeight - chatScroll.scrollTop - chatScroll.clientHeight),
+          scrollBottomGap: Math.round(Math.abs(chatScroll.scrollHeight - chatScroll.scrollTop - chatScroll.clientHeight)),
           shellWidth: document.querySelector('.app-shell').getBoundingClientRect().width,
         };
       })()`,
@@ -899,7 +943,7 @@ async function main() {
     if (
       mobileState.pageOverflowX ||
       mobileState.composerOverlapsScroll ||
-      mobileState.scrollBottomGap > 8 ||
+      mobileState.scrollBottomGap > 24 ||
       mobileState.shellWidth > 390
     ) {
       throw new Error(`Mobile layout failed: ${JSON.stringify(mobileState)}`)

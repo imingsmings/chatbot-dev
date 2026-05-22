@@ -259,9 +259,11 @@ function createMockLlmServer() {
     const raw = await collectBody(req)
     const body = JSON.parse(raw || '{}')
     const promptText = JSON.stringify(body.messages || [])
+    const stage = promptText.includes('具有工具调用能力') ? 'tool-decision' : 'answer'
     const record = {
       id,
       stream: Boolean(body.stream),
+      stage,
       marker: promptText.match(/\[TC\d+\]/)?.[0] || 'unknown',
       startedAt,
       chunksSent: 0,
@@ -285,15 +287,9 @@ function createMockLlmServer() {
     }
 
     if (!body.stream) {
-      const waitMs = record.marker === '[TC02]' ? 5000 : 80
-      await delay(waitMs)
-      if (!res.destroyed && !res.writableEnded) {
-        res.writeHead(200, { 'Content-Type': 'application/json' })
-        record.responseEnded = true
-        res.end(JSON.stringify({
-          choices: [{ message: { content: '无函数调用' } }],
-        }))
-      }
+      res.writeHead(500, { 'Content-Type': 'application/json' })
+      record.responseEnded = true
+      res.end(JSON.stringify({ message: 'expected streaming request' }))
       return
     }
 
@@ -302,6 +298,23 @@ function createMockLlmServer() {
       'Cache-Control': 'no-cache',
       Connection: 'keep-alive',
     })
+
+    if (stage === 'tool-decision') {
+      const waitMs = record.marker === '[TC02]' ? 5000 : 80
+      await delay(waitMs)
+
+      if (safeWrite(`data: ${JSON.stringify({ choices: [{ delta: { content: '无函数调用' } }] })}\n\n`)) {
+        record.chunksSent += 1
+      } else {
+        return
+      }
+
+      if (safeWrite('data: [DONE]\n\n')) {
+        record.responseEnded = true
+        res.end()
+      }
+      return
+    }
 
     if (record.marker === '[TC08]') {
       await delay(5000)
@@ -519,7 +532,7 @@ export default defineConfig({
     await waitIdle(client)
     await delay(700)
     const tc01Records = mock.records.filter((item) => item.marker === '[TC01]')
-    const tc01Stream = tc01Records.find((item) => item.stream)
+    const tc01Stream = tc01Records.find((item) => item.stream && item.stage === 'answer')
     const tc01Messages = await getMessageCounts(tc01Id)
     const tc01Canceled = [...askRequests.values()].some((item) => item.failed && (item.canceled || item.errorText.includes('ERR_ABORTED')))
     results.push({
@@ -550,21 +563,21 @@ export default defineConfig({
     await waitIdle(client)
     await delay(700)
     const tc02Records = mock.records.filter((item) => item.marker === '[TC02]')
-    const tc02NonStream = tc02Records.find((item) => !item.stream)
-    const tc02StreamStarted = tc02Records.some((item) => item.stream)
+    const tc02ToolDecision = tc02Records.find((item) => item.stream && item.stage === 'tool-decision')
+    const tc02AnswerStarted = tc02Records.some((item) => item.stream && item.stage === 'answer')
     const tc02Messages = await getMessageCounts(tc02Id)
     results.push({
       id: 'TC-02',
       name: '首 token 前停止',
-      pass: Boolean(tc02NonStream?.closeBeforeEnd && !tc02StreamStarted && tc02Messages === 0),
-      upstreamFunctionCallClosedBeforeEnd: Boolean(tc02NonStream?.closeBeforeEnd),
-      streamRequestStarted: tc02StreamStarted,
+      pass: Boolean(tc02ToolDecision?.closeBeforeEnd && !tc02AnswerStarted && tc02Messages === 0),
+      upstreamToolDecisionClosedBeforeEnd: Boolean(tc02ToolDecision?.closeBeforeEnd),
+      answerStreamRequestStarted: tc02AnswerStarted,
       persistedMessageCount: tc02Messages,
     })
     await showOverlay(client, 'TC-02 首 token 前停止', [
       `PASS: ${results.at(-1).pass}`,
-      `function-call upstream close before end: ${Boolean(tc02NonStream?.closeBeforeEnd)}`,
-      `stream request started: ${tc02StreamStarted}`,
+      `tool-decision upstream close before end: ${Boolean(tc02ToolDecision?.closeBeforeEnd)}`,
+      `answer stream request started: ${tc02AnswerStarted}`,
       `persisted messages: ${tc02Messages}`,
     ])
     screenshots.push(await screenshot(client, '04-tc02-stopped-before-first-token'))
@@ -578,7 +591,7 @@ export default defineConfig({
     await waitFor(client, `document.querySelector('.empty-state') && document.querySelector('textarea')`)
     await delay(700)
     const tc04Records = mock.records.filter((item) => item.marker === '[TC04]')
-    const tc04ClosedRecord = tc04Records.find((item) => item.closeBeforeEnd)
+    const tc04ClosedRecord = tc04Records.find((item) => item.stage === 'answer' && item.closeBeforeEnd)
     const tc04Messages = await getMessageCounts(tc04Id)
     const activeEmpty = await evaluate(client, `Boolean(document.querySelector('.empty-state'))`)
     results.push({
@@ -603,7 +616,7 @@ export default defineConfig({
     await ask(client, '[TC08] 上游慢响应中断：流式请求建立后先不要返回 token。')
     await waitStop(client)
     await waitUntil(
-      () => mock.records.some((item) => item.marker === '[TC08]' && item.stream),
+      () => mock.records.some((item) => item.marker === '[TC08]' && item.stream && item.stage === 'answer'),
       8000,
       'TC08 stream request start',
     )
@@ -612,7 +625,9 @@ export default defineConfig({
     await waitFor(client, `document.body.innerText.includes('已停止生成')`)
     await waitIdle(client)
     await delay(700)
-    const tc08Stream = mock.records.filter((item) => item.marker === '[TC08]').find((item) => item.stream)
+    const tc08Stream = mock.records
+      .filter((item) => item.marker === '[TC08]')
+      .find((item) => item.stream && item.stage === 'answer')
     const tc08Messages = await getMessageCounts(tc08Id)
     results.push({
       id: 'TC-08',

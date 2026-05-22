@@ -174,7 +174,16 @@ function callLLMStream(
   })
 }
 
+function callLLMStreamToText(prompt: PromptMessage[], options: LlmCallOptions = {}): Promise<string> {
+  return callLLM({
+    prompt,
+    stream: true,
+    signal: options.signal
+  })
+}
+
 export {
   callLLMOnce as callLLM,
-  callLLMStream
+  callLLMStream,
+  callLLMStreamToText
 }

@@ -7,10 +7,10 @@ function buildFunctionCallPrompt(userInput: string): PromptMessage[] {
     
     请根据用户的输入内容判断是否需要调用函数工具，规则如下：
     
-    1. 如果不需要调用函数工具，请直接返回字符串："无函数调用"（必须完全一致）
-    2. 如果需要调用函数，请返回标准JSON数组格式。
+    1. 如果不需要调用函数工具，请只返回空 JSON 数组：[]
+    2. 如果需要调用函数，请返回标准 JSON 数组格式。
     
-    JSON格式示例（正确）：（数组套对象的形式）
+    JSON 格式示例（正确）：（数组套对象的形式）
     [
       {
         "function": "getWeather", 
@@ -18,7 +18,7 @@ function buildFunctionCallPrompt(userInput: string): PromptMessage[] {
       }
     ]
     
-    ✅ 正确格式（必须这样写）：
+    ✅ 工具参数正确格式（必须这样写）：
     - { "city": "北京", "date": "明天" }     # 标准JSON格式
     
     关键要求：
@@ -33,13 +33,14 @@ function buildFunctionCallPrompt(userInput: string): PromptMessage[] {
       * date: 日期（必须是中文，只能是：今天、明天、后天）
     
     严格要求：
-    - 如果不需要调用函数，只返回"无函数调用"这5个字
-    - 如果需要调用函数，只返回JSON数组，不要包含其他文字解释
+    - 如果不需要调用函数，只返回 []，不要返回任何文字
+    - 如果需要调用函数，只返回 JSON 数组，不要包含其他文字解释
+    - 不要使用 Markdown，不要使用 \`\`\`json 或 \`\`\` 包裹
     - 所有参数值必须使用中文，禁止使用英文
     - date参数只能是"今天"、"明天"、"后天"，不能是其他格式
     - JSON必须严格正确，不能有双引号嵌套问题
     
-    ⚠️ 特别注意：返回的JSON必须能被JSON.parse()正确解析，任何格式错误都会导致系统无法处理！
+    ⚠️ 特别注意：返回内容必须能被 JSON.parse() 正确解析，任何格式错误都会导致系统按无工具调用处理！
     
     以下是用户的输入，请根据内容判断是否需要函数调用：
     

@@ -134,7 +134,7 @@ function createMockLlmServer() {
     })
 
     if (!body.stream) {
-      let answer = '无函数调用'
+      let answer = '[]'
       if (content.includes('P0_TOOL_SUCCESS')) {
         answer = '[{"function":"getWeather","args":{"city":"北京","date":"明天"}}]'
       } else if (content.includes('P0_TOOL_FAILURE')) {
@@ -156,6 +156,30 @@ function createMockLlmServer() {
       res.writeHead(200, { 'Content-Type': 'application/json' })
       record.responseEnded = true
       res.end(JSON.stringify(llmResponse(answer)))
+      return
+    }
+
+    if (content.includes('请根据用户的输入内容判断是否需要调用函数工具')) {
+      let answer = '[]'
+      if (content.includes('P0_TOOL_SUCCESS')) {
+        answer = '[{"function":"getWeather","args":{"city":"北京","date":"明天"}}]'
+      } else if (content.includes('P0_TOOL_FAILURE')) {
+        answer = '[{"function":"getWeather","args":{"city":"异常城","date":"今天"}}]'
+      } else if (content.includes('P0_TOOL_UNKNOWN')) {
+        answer = '[{"function":"missingTool","args":{"city":"北京","date":"明天"}}]'
+      } else if (content.includes('P0_TOOL_STOP')) {
+        answer = '[{"function":"getWeather","args":{"city":"慢城","date":"明天"}}]'
+      } else if (content.includes('P0_TOOL_ANSWER_STOP')) {
+        answer = '[{"function":"getWeather","args":{"city":"北京","date":"明天"}}]'
+      } else if (content.includes('P0_BAD_FUNCTION_JSON')) {
+        answer = '[{"function":"getWeather","args":'
+      } else if (content.includes('P0_DUPLICATE_SLOW')) {
+        await delay(1200)
+      }
+
+      res.writeHead(200, { 'Content-Type': 'text/event-stream' })
+      record.responseEnded = true
+      res.end(sse(answer))
       return
     }
 
@@ -202,6 +226,8 @@ function createMockLlmServer() {
       answer = '已记住 A。'
     } else if (content.includes('P0CTX_B')) {
       answer = '已记住 B。'
+    } else if (content.includes('P0_EMPTY_MODEL')) {
+      answer = ''
     }
 
     res.writeHead(200, { 'Content-Type': 'text/event-stream' })
@@ -560,7 +586,7 @@ async function main() {
     const malformedStream = await ask(client, toolId, 'P0_MALFORMED_STREAM 触发损坏流')
     const emptyModel = await ask(client, toolId, 'P0_EMPTY_MODEL 触发空模型响应')
     const recovery = await ask(client, toolId, 'P0_RECOVERY 确认异常后还能继续')
-    assert(badFunctionJson.text.includes('"type":"error"'), 'P0-20 invalid function JSON did not return stream error')
+    assert(badFunctionJson.text.includes('标准回答') && badFunctionJson.text.includes('"type":"done"'), 'P0-20 invalid function JSON did not fallback to standard answer')
     assert(malformedStream.text.includes('"type":"error"'), 'P0-21 malformed stream did not return stream error')
     assert(emptyModel.text.includes('"type":"error"'), 'P0-23 empty model did not return stream error')
     assert(recovery.text.includes('标准回答') && recovery.text.includes('"type":"done"'), 'P0-25 recovery request failed after errors')
