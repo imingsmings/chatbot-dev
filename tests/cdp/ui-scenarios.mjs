@@ -227,6 +227,54 @@ async function clickText(client, selector, text) {
   )
 }
 
+async function clickDialogButton(client, text) {
+  await evaluate(
+    client,
+    `(() => {
+      const dialog = document.querySelector('.modal-content[role="dialog"]');
+      if (!dialog) throw new Error('Cannot find app dialog');
+      const button = [...dialog.querySelectorAll('button')]
+        .find((node) => node.textContent.trim() === ${JSON.stringify(text)});
+      if (!button) throw new Error('Cannot find dialog button: ${text}');
+      button.click();
+    })()`,
+  )
+}
+
+async function waitForDialog(client, title) {
+  await waitFor(
+    client,
+    `document.querySelector('.modal-content[role="dialog"]')?.innerText.includes(${JSON.stringify(title)})`,
+  )
+}
+
+async function cancelDialog(client) {
+  await clickDialogButton(client, '取消')
+  await waitFor(client, `!document.querySelector('.modal-content[role="dialog"]')`)
+}
+
+async function confirmDialog(client, label = '确定') {
+  await clickDialogButton(client, label)
+  await waitFor(client, `!document.querySelector('.modal-content[role="dialog"]')`)
+}
+
+async function submitPromptDialog(client, value, options = {}) {
+  await evaluate(
+    client,
+    `(() => {
+      const input = document.querySelector('.modal-content[role="dialog"] .dialog-input');
+      if (!input) throw new Error('Cannot find dialog input');
+      input.value = ${JSON.stringify(value)};
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    })()`,
+  )
+  await clickDialogButton(client, '保存')
+
+  if (options.waitForClose !== false) {
+    await waitFor(client, `!document.querySelector('.modal-content[role="dialog"]')`)
+  }
+}
+
 async function ensureClipboard(client) {
   await client.send('Page.bringToFront').catch(() => {})
   await client.send('Browser.grantPermissions', {
@@ -756,17 +804,6 @@ async function main() {
 
     await client.send('Page.enable')
     await client.send('Runtime.enable')
-    const dialogResponses = []
-    const queueDialog = (response) => {
-      dialogResponses.push(response)
-    }
-    client.on('Page.javascriptDialogOpening', () => {
-      const response = dialogResponses.shift() || { accept: true }
-      client.send('Page.handleJavaScriptDialog', {
-        accept: response.accept !== false,
-        promptText: response.promptText,
-      }).catch(() => {})
-    })
     await client.send('Browser.grantPermissions', {
       origin: APP_ORIGIN,
       permissions: ['clipboardReadWrite', 'clipboardSanitizedWrite'],
@@ -864,16 +901,18 @@ async function main() {
       client,
       `document.querySelector('.conversation-item-shell.active .conversation-title')?.textContent.trim()`,
     )
-    queueDialog({ accept: false })
     await clickConversationActionAt(client, 0, '重命名')
-    await delay(100)
-    queueDialog({ accept: true, promptText: '   ' })
+    await waitForDialog(client, '重命名会话')
+    await cancelDialog(client)
     await clickConversationActionAt(client, 0, '重命名')
-    await delay(100)
+    await waitForDialog(client, '重命名会话')
+    await submitPromptDialog(client, '   ')
     await setMockFlags(client, { failNextRename: true })
-    queueDialog({ accept: true, promptText: '失败的新标题' })
-    queueDialog({ accept: true })
     await clickConversationActionAt(client, 0, '重命名')
+    await waitForDialog(client, '重命名会话')
+    await submitPromptDialog(client, '失败的新标题', { waitForClose: false })
+    await waitForDialog(client, '操作失败')
+    await confirmDialog(client, '知道了')
     await delay(500)
     const renameState = await evaluate(
       client,
@@ -887,16 +926,17 @@ async function main() {
     }
 
     await waitFor(client, `document.querySelector('.clear-history-btn')?.disabled === false`)
-    await evaluate(client, `window.confirm = () => false`)
     await clickConversationActionAt(client, 0, '删除')
-    await delay(100)
+    await waitForDialog(client, '删除会话')
+    await cancelDialog(client)
     const deleteCancelCount = await evaluate(client, `document.querySelectorAll('.conversation-item-shell').length`)
     if (deleteCancelCount !== manyConversations.length) {
       throw new Error(`Delete cancel removed a conversation: ${deleteCancelCount}`)
     }
 
-    await evaluate(client, `window.confirm = () => true`)
     await clickConversationActionAt(client, 1, '删除')
+    await waitForDialog(client, '删除会话')
+    await confirmDialog(client, '删除')
     await delay(100)
     const afterMouseDeleteState = await evaluate(
       client,
@@ -910,6 +950,8 @@ async function main() {
       afterMouseDeleteState.mockCount === manyConversations.length
     ) {
       await invokeConversationActionAt(client, 1, '删除')
+      await waitForDialog(client, '删除会话')
+      await confirmDialog(client, '删除')
     }
     try {
       await waitFor(client, `document.querySelectorAll('.conversation-item-shell').length === ${manyConversations.length - 1}`)
@@ -942,9 +984,9 @@ async function main() {
     }
 
     await typeText(client, '清空取消前草稿')
-    await evaluate(client, `window.confirm = () => false`)
     await clickText(client, 'button', '清空当前会话')
-    await delay(100)
+    await waitForDialog(client, '清空当前会话')
+    await cancelDialog(client)
     const clearCancelState = await evaluate(
       client,
       `(() => ({
@@ -958,7 +1000,8 @@ async function main() {
 
     await setMockFlags(client, { failNextCreate: true })
     await clickText(client, 'button', '新建')
-    await delay(200)
+    await waitForDialog(client, '操作失败')
+    await confirmDialog(client, '知道了')
     const newChatFailureState = await evaluate(
       client,
       `(() => ({
@@ -972,7 +1015,8 @@ async function main() {
 
     await setMockFlags(client, { failNextDetail: true })
     await clickConversationAt(client, 1)
-    await delay(200)
+    await waitForDialog(client, '操作失败')
+    await confirmDialog(client, '知道了')
     const switchFailureState = await evaluate(
       client,
       `(() => ({
@@ -994,8 +1038,9 @@ async function main() {
     }])
     await client.send('Page.reload')
     await waitFor(client, `document.body.innerText.includes('唯一会话助手消息')`)
-    await evaluate(client, `window.confirm = () => true`)
     await clickConversationActionAt(client, 0, '删除')
+    await waitForDialog(client, '删除会话')
+    await confirmDialog(client, '删除')
     await waitFor(
       client,
       `document.querySelector('.empty-state') &&
@@ -1406,7 +1451,6 @@ async function main() {
     const switchDraftValue = await evaluate(client, `document.querySelector('textarea')?.value`)
 
     await typeText(client, '删除当前会话前未发送草稿')
-    await evaluate(client, `window.confirm = () => true`)
     await evaluate(
       client,
       `(() => {
@@ -1415,6 +1459,8 @@ async function main() {
         button.click();
       })()`,
     )
+    await waitForDialog(client, '删除会话')
+    await confirmDialog(client, '删除')
     await waitFor(
       client,
       `document.querySelector('.empty-state') &&
@@ -1444,8 +1490,9 @@ async function main() {
     await waitFor(client, `document.body.innerText.includes('清空前会话内容。')`)
     await waitIdle(client)
     await typeText(client, '清空当前会话前未发送草稿')
-    await evaluate(client, `window.confirm = () => true`)
     await clickText(client, 'button', '清空当前会话')
+    await waitForDialog(client, '清空当前会话')
+    await confirmDialog(client, '清空')
     await waitFor(
       client,
       `document.querySelector('.empty-state') &&
@@ -1476,7 +1523,6 @@ async function main() {
     const operationState = await evaluate(
       client,
       `(() => {
-        window.prompt = () => '生成中重命名成功';
         const beforeTitles = [...document.querySelectorAll('.conversation-title')].map((node) => node.textContent.trim());
         const clearDisabled = document.querySelector('.clear-history-btn')?.disabled === true;
         document.querySelector('.conversation-action-btn.danger')?.click();
@@ -1489,6 +1535,8 @@ async function main() {
         };
       })()`,
     )
+    await waitForDialog(client, '重命名会话')
+    await submitPromptDialog(client, '生成中重命名成功')
     await waitFor(client, `document.body.innerText.includes('生成中重命名成功')`)
     if (!operationState.clearDisabled || operationState.beforeCount !== operationState.afterDeleteCount) {
       throw new Error('Generating conversation operation state failed')

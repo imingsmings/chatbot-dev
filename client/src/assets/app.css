@@ -940,6 +940,46 @@
   padding: 18px;
 }
 
+.dialog-message {
+  color: var(--text-primary);
+  font-size: 14px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.dialog-field {
+  display: flex;
+  margin-top: 16px;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.dialog-label {
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.dialog-input {
+  width: 100%;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 15px;
+  line-height: 1.4;
+  outline: none;
+  padding: 10px 12px;
+}
+
+.dialog-input:focus {
+  border-color: var(--text-secondary);
+  box-shadow: 0 0 0 3px rgba(107, 114, 128, 0.18);
+}
+
 .no-history {
   padding: 44px 0;
   color: var(--text-secondary);
@@ -998,6 +1038,21 @@
   font-weight: 700;
   line-height: 1;
   padding: 10px 16px;
+}
+
+.modal-btn.secondary {
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--text-primary);
+}
+
+.modal-btn.secondary:hover {
+  background: var(--surface-hover);
+}
+
+.modal-btn.danger {
+  background: var(--danger);
+  color: #ffffff;
 }
 
 @keyframes thinking-shimmer {

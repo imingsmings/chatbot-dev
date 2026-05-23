@@ -25,6 +25,7 @@ export function useChatStream(options: {
   refreshConversationList: () => Promise<void>
   resizeComposer: () => void
   shouldFollowNewContent: () => boolean
+  showError: (message: string, title?: string) => Promise<void> | void
   clearComposer: () => void
 }) {
   const currentAbortController = ref<AbortController | null>(null)
@@ -287,7 +288,7 @@ export function useChatStream(options: {
         }
       }, 1600)
     } catch {
-      alert('复制失败，请手动选择文本复制')
+      await options.showError('复制失败，请手动选择文本复制')
     }
   }
 

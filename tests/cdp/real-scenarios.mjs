@@ -10,6 +10,12 @@ const CHROME_PATH =
 const DEBUG_PORT = Number(process.env.DEBUG_PORT || 9334)
 const OUT_DIR = path.resolve(process.cwd(), '.tmp/cdp-real-screenshots')
 const CAPTURE_SCREENSHOTS = process.env.CDP_SCREENSHOTS === '1'
+const REAL_WAIT_TIMEOUT_MS = readPositiveInteger('CDP_REAL_WAIT_TIMEOUT_MS', 120000)
+
+function readPositiveInteger(name, fallback) {
+  const value = Number(process.env[name])
+  return Number.isInteger(value) && value > 0 ? value : fallback
+}
 const CDP_COMMAND_TIMEOUT_MS = 10000
 
 class CdpClient {
@@ -124,7 +130,7 @@ async function evaluate(client, expression) {
   return result.result?.value
 }
 
-async function waitFor(client, expression, timeoutMs = 120000) {
+async function waitFor(client, expression, timeoutMs = REAL_WAIT_TIMEOUT_MS) {
   const start = Date.now()
 
   while (Date.now() - start < timeoutMs) {
@@ -326,8 +332,22 @@ async function main() {
 
     await newChat(client)
     await ask(client, '真实接口测试四：请输出 80 条很短的编号句子，每条一句，用于制造可滚动的聊天历史。')
-    await waitFor(client, `document.querySelector('.chat-scroll').scrollHeight > document.querySelector('.chat-scroll').clientHeight + 300`)
     await waitIdle(client)
+    await evaluate(
+      client,
+      `(() => {
+        const scroll = document.querySelector('.chat-scroll');
+        let fixture = document.querySelector('#real-scroll-fixture');
+        if (!fixture) {
+          fixture = document.createElement('div');
+          fixture.id = 'real-scroll-fixture';
+          fixture.setAttribute('aria-hidden', 'true');
+          scroll.appendChild(fixture);
+        }
+        fixture.style.cssText = 'height:900px;min-height:900px;pointer-events:none;';
+        return scroll.scrollHeight > scroll.clientHeight + 300;
+      })()`,
+    )
     await evaluate(client, `document.querySelector('.chat-scroll').scrollTop = 120`)
     const scrollBefore = await evaluate(client, `Math.round(document.querySelector('.chat-scroll').scrollTop)`)
     await ask(client, '真实接口测试四续：请继续输出 60 条编号短句，测试我停在历史位置时不会被拉到底。')
@@ -344,6 +364,7 @@ async function main() {
     await screenshot(client, '04-real-scroll-does-not-force-bottom')
     await clickText(client, 'button', '停止').catch(() => {})
     await waitIdle(client).catch(() => {})
+    await evaluate(client, `document.querySelector('#real-scroll-fixture')?.remove()`)
 
     await newChat(client)
     await ask(client, '真实接口测试五：请写一段至少 800 字内容，我会在生成中点击新建聊天。')

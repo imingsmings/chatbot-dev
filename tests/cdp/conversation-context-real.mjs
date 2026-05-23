@@ -10,6 +10,10 @@ const CHROME_PATH =
 const DEBUG_PORT = Number(process.env.DEBUG_PORT || 9335)
 const OUT_DIR = path.resolve(process.cwd(), '.tmp/cdp-conversation-screenshots')
 const CAPTURE_SCREENSHOTS = process.env.CDP_SCREENSHOTS === '1'
+const REAL_WAIT_TIMEOUT_MS = readPositiveInteger(
+  'CDP_REAL_CONTEXT_WAIT_TIMEOUT_MS',
+  readPositiveInteger('CDP_REAL_WAIT_TIMEOUT_MS', 180000),
+)
 const STAMP = new Date().toISOString().replace(/[-:.TZ]/g, '').slice(0, 14)
 const TITLE_PREFIX = `CDPCTX-${STAMP}`
 const TITLE_A = `${TITLE_PREFIX}-A`
@@ -18,13 +22,17 @@ const TITLE_B = `${TITLE_PREFIX}-B`
 const SECRET_A = `橙色河流-${STAMP}`
 const SECRET_B = `蓝色山谷-${STAMP}`
 
+function readPositiveInteger(name, fallback) {
+  const value = Number(process.env[name])
+  return Number.isInteger(value) && value > 0 ? value : fallback
+}
+
 class CdpClient {
   constructor(wsUrl) {
     this.ws = new WebSocket(wsUrl)
     this.nextId = 1
     this.pending = new Map()
     this.events = new Map()
-    this.dialogQueue = []
 
     this.ready = new Promise((resolve, reject) => {
       this.ws.addEventListener('open', resolve, { once: true })
@@ -54,16 +62,6 @@ class CdpClient {
       }
     })
 
-    this.on('Page.javascriptDialogOpening', (params) => {
-      const next = this.dialogQueue.shift() || {}
-      const accept = next.accept !== false
-      this.send('Page.handleJavaScriptDialog', {
-        accept,
-        promptText: params.type === 'prompt' ? next.text || '' : undefined,
-      }).catch((err) => {
-        console.error('Failed to handle dialog:', err)
-      })
-    })
   }
 
   async send(method, params = {}) {
@@ -80,10 +78,6 @@ class CdpClient {
     const listeners = this.events.get(method) || []
     listeners.push(callback)
     this.events.set(method, listeners)
-  }
-
-  queueDialog(text = '', accept = true) {
-    this.dialogQueue.push({ text, accept })
   }
 
   close() {
@@ -125,7 +119,7 @@ async function evaluate(client, expression) {
   return result.result?.value
 }
 
-async function waitFor(client, expression, timeoutMs = 180000) {
+async function waitFor(client, expression, timeoutMs = REAL_WAIT_TIMEOUT_MS) {
   const start = Date.now()
 
   while (Date.now() - start < timeoutMs) {
@@ -177,6 +171,45 @@ async function clickText(client, selector, text) {
   )
 }
 
+async function waitForDialog(client, title) {
+  await waitFor(
+    client,
+    `document.querySelector('.modal-content[role="dialog"]')?.innerText.includes(${JSON.stringify(title)})`,
+  )
+}
+
+async function clickDialogButton(client, text) {
+  await evaluate(
+    client,
+    `(() => {
+      const dialog = document.querySelector('.modal-content[role="dialog"]');
+      if (!dialog) throw new Error('Cannot find app dialog');
+      const button = [...dialog.querySelectorAll('button')]
+        .find((node) => node.textContent.trim() === ${JSON.stringify(text)});
+      if (!button) throw new Error('Cannot find dialog button: ${text}');
+      button.click();
+    })()`,
+  )
+}
+
+async function confirmDialog(client, label = '确定') {
+  await clickDialogButton(client, label)
+  await waitFor(client, `!document.querySelector('.modal-content[role="dialog"]')`)
+}
+
+async function submitPromptDialog(client, value) {
+  await evaluate(
+    client,
+    `(() => {
+      const input = document.querySelector('.modal-content[role="dialog"] .dialog-input');
+      if (!input) throw new Error('Cannot find dialog input');
+      input.value = ${JSON.stringify(value)};
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    })()`,
+  )
+  await confirmDialog(client, '保存')
+}
+
 async function clickConversationTitle(client, title) {
   await evaluate(
     client,
@@ -190,7 +223,6 @@ async function clickConversationTitle(client, title) {
 }
 
 async function renameActiveConversation(client, title) {
-  client.queueDialog(title, true)
   await evaluate(
     client,
     `(() => {
@@ -199,6 +231,8 @@ async function renameActiveConversation(client, title) {
       button.click();
     })()`,
   )
+  await waitForDialog(client, '重命名会话')
+  await submitPromptDialog(client, title)
   await waitFor(
     client,
     `[...document.querySelectorAll('.conversation-title')].some((node) => node.textContent.trim() === ${JSON.stringify(title)})`,
@@ -211,7 +245,6 @@ async function renameActiveConversation(client, title) {
 }
 
 async function confirmActiveDelete(client) {
-  client.queueDialog('', true)
   await evaluate(
     client,
     `(() => {
@@ -220,11 +253,14 @@ async function confirmActiveDelete(client) {
       button.click();
     })()`,
   )
+  await waitForDialog(client, '删除会话')
+  await confirmDialog(client, '删除')
 }
 
 async function clearCurrentConversation(client) {
-  client.queueDialog('', true)
   await clickText(client, 'button', '清空当前会话')
+  await waitForDialog(client, '清空当前会话')
+  await confirmDialog(client, '清空')
 }
 
 async function ask(client, question) {

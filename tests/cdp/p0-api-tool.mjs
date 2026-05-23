@@ -3,6 +3,8 @@ import { spawn } from 'node:child_process'
 import { access, mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { tmpdir } from 'node:os'
+import { DatabaseSync } from 'node:sqlite'
+import { sse, sseToolCall, writeSse } from './helpers/mockStream.mjs'
 
 const SERVER_PORT = process.env.SERVER_PORT || '7702'
 const BASE_URL = `http://127.0.0.1:${SERVER_PORT}`
@@ -98,67 +100,6 @@ function llmResponse(content) {
   }
 }
 
-function sse(content) {
-  return `data: ${JSON.stringify({ choices: [{ delta: { content } }] })}\n\ndata: [DONE]\n\n`
-}
-
-function sseToolCall({ id = 'call_mock_1', name, argsText, reasoningContent = '' }) {
-  const splitAt = Math.max(1, Math.floor(argsText.length / 2))
-  const firstArgs = argsText.slice(0, splitAt)
-  const secondArgs = argsText.slice(splitAt)
-
-  return [
-    reasoningContent
-      ? `data: ${JSON.stringify({ choices: [{ delta: { reasoning_content: reasoningContent } }] })}\n\n`
-      : '',
-    `data: ${JSON.stringify({
-      choices: [{
-        delta: {
-          tool_calls: [{
-            index: 0,
-            id,
-            type: 'function',
-            function: {
-              name,
-              arguments: ''
-            }
-          }]
-        }
-      }]
-    })}\n\n`,
-    `data: ${JSON.stringify({
-      choices: [{
-        delta: {
-          tool_calls: [{
-            index: 0,
-            function: {
-              arguments: firstArgs
-            }
-          }]
-        }
-      }]
-    })}\n\n`,
-    `data: ${JSON.stringify({
-      choices: [{
-        delta: {
-          tool_calls: [{
-            index: 0,
-            function: {
-              arguments: secondArgs
-            }
-          }]
-        },
-        finish_reason: 'tool_calls'
-      }]
-    })}\n\n`,
-    'data: [DONE]\n\n',
-  ].join('')
-}
-
-function writeSse(res, content) {
-  res.write(`data: ${JSON.stringify({ choices: [{ delta: { content } }] })}\n\n`)
-}
-
 function createMockLlmServer() {
   const requests = []
   const server = http.createServer(async (req, res) => {
@@ -246,6 +187,12 @@ function createMockLlmServer() {
           name: 'getWeather',
           argsText: '{"city":"北京","date":"明天"}',
           preamble: '我先看一下天气 '
+        }
+      } else if (latestUserContent.includes('P0_TOOL_LONG_PREAMBLE')) {
+        toolCall = {
+          name: 'getWeather',
+          argsText: '{"city":"北京","date":"明天"}',
+          preamble: 'LONG_PREAMBLE_MARKER '.repeat(12)
         }
       } else if (latestUserContent.includes('P0_TOOL_FAILURE')) {
         toolCall = { name: 'getWeather', argsText: '{"city":"异常城","date":"今天"}' }
@@ -461,6 +408,29 @@ async function askWithRequestId(client, conversationId, question, requestId) {
   )
 }
 
+async function fetchJson(url, options = {}) {
+  const response = await fetch(url, options)
+  const text = await response.text()
+  let data = null
+  try { data = text ? JSON.parse(text) : null } catch {}
+  return { status: response.status, ok: response.ok, data, text, response }
+}
+
+async function askDirect(baseUrl, conversationId, question) {
+  const requestId = `req_${Math.random().toString(36).slice(2)}_${Date.now()}`
+  const response = await fetch(`${baseUrl}/conversations/${conversationId}/ask`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ question, requestId }),
+  })
+  const text = await response.text()
+  return {
+    status: response.status,
+    protocol: response.headers.get('X-Chat-Stream-Protocol'),
+    text,
+  }
+}
+
 async function askAndAbort(client, conversationId, question) {
   const requestId = `req_${Math.random().toString(36).slice(2)}_${Date.now()}`
   const askUrl = `${BASE_URL}/conversations/${conversationId}/ask`
@@ -535,6 +505,138 @@ async function fileExists(filePath) {
     return true
   } catch {
     return false
+  }
+}
+
+async function runSqliteStorageScenario() {
+  const sqliteDataDir = await mkdtemp(path.join(tmpdir(), 'chatbot-sqlite-data-'))
+  const sqliteConversationsDir = path.join(sqliteDataDir, 'conversations')
+  const sqliteDbPath = path.join(sqliteDataDir, 'conversations.sqlite3')
+  const sqliteUrl = 'http://127.0.0.1:7705'
+  const timestamp = new Date().toISOString()
+  const fileSeed = {
+    id: 'conv_sqlite_file_seed',
+    title: 'SQLite file seed',
+    createdAt: timestamp,
+    updatedAt: timestamp,
+    titleManuallyEdited: true,
+    messages: [{ role: 'user', content: 'file seed' }],
+  }
+  const legacySeed = {
+    id: 'conv_sqlite_legacy_seed',
+    title: 'SQLite legacy seed',
+    createdAt: timestamp,
+    updatedAt: timestamp,
+    messages: [{ role: 'assistant', content: 'legacy seed', reasoningContent: 'legacy reasoning', reasoningDurationMs: 3 }],
+  }
+
+  await mkdir(sqliteConversationsDir, { recursive: true })
+  await writeFile(path.join(sqliteConversationsDir, `${fileSeed.id}.json`), `${JSON.stringify(fileSeed, null, 2)}\n`, 'utf8')
+  await writeFile(path.join(sqliteDataDir, 'conversations.json'), JSON.stringify({ conversations: [legacySeed] }), 'utf8')
+
+  async function startSqliteServer() {
+    const server = spawnProcess('node', ['./bin/www.ts'], {
+      cwd: path.resolve(process.cwd(), 'server'),
+      env: {
+        ...process.env,
+        PORT: '7705',
+        CONVERSATION_STORE: 'sqlite',
+        CONVERSATION_DATA_DIR: sqliteDataDir,
+        CONVERSATION_DB_PATH: sqliteDbPath,
+        LLM_PROVIDER: 'deepseek',
+        LLM_ENDPOINT: MOCK_URL,
+        LLM_MODEL: 'cdp-p0-api',
+        LLM_TIMEOUT_MS: '10000',
+        DEEPSEEK_API_KEY: 'cdp-test-key',
+        HEFENG_API_HOST: 'mock.weather.local',
+        HEFENG_API_KEY: 'mock-weather-key',
+        NODE_OPTIONS: `${process.env.NODE_OPTIONS || ''} --require=${WEATHER_MOCK}`.trim(),
+      },
+    })
+    await waitForHttp(`${sqliteUrl}/conversations`)
+    return server
+  }
+
+  let sqliteServer = await startSqliteServer()
+  let createdSqliteId = null
+
+  try {
+    const migratedList = await fetchJson(`${sqliteUrl}/conversations`)
+    assert(
+      migratedList.data.conversations.some((item) => item.id === fileSeed.id) &&
+        migratedList.data.conversations.some((item) => item.id === legacySeed.id),
+      'P0-36 sqlite migration did not import JSON conversations'
+    )
+
+    const legacyDetail = await fetchJson(`${sqliteUrl}/conversations/${legacySeed.id}`)
+    assert(
+      legacyDetail.data.conversation.messages[0].reasoningContent === 'legacy reasoning',
+      'P0-36 sqlite migration did not preserve assistant reasoning fields'
+    )
+
+    const created = await fetchJson(`${sqliteUrl}/conversations`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: '新的聊天' }),
+    })
+    createdSqliteId = created.data.conversation.id
+    const answer = await askDirect(sqliteUrl, createdSqliteId, 'P0_SQLITE_APPEND 请保存到 sqlite')
+    assert(answer.protocol === '1' && answer.text.includes('标准回答'), 'P0-37 sqlite ask flow failed')
+
+    const afterAsk = await fetchJson(`${sqliteUrl}/conversations/${createdSqliteId}`)
+    assert(afterAsk.data.conversation.messages.length === 2, 'P0-37 sqlite ask messages were not persisted')
+    assert(
+      afterAsk.data.conversation.title.startsWith('P0_SQLITE_APPEND'),
+      'P0-37 sqlite title was not generated from first user message'
+    )
+
+    const renamed = await fetchJson(`${sqliteUrl}/conversations/${createdSqliteId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: 'SQLite renamed' }),
+    })
+    assert(renamed.data.conversation.title === 'SQLite renamed', 'P0-38 sqlite rename failed')
+
+    const cleared = await fetchJson(`${sqliteUrl}/conversations/${createdSqliteId}/clear`, { method: 'POST' })
+    assert(cleared.data.conversation.messages.length === 0, 'P0-38 sqlite clear failed')
+
+    await stopProcess(sqliteServer)
+    sqliteServer = null
+
+    const db = new DatabaseSync(sqliteDbPath)
+    try {
+      const marker = db.prepare('SELECT value FROM storage_meta WHERE key = ?').get('json_migration_completed')
+      const importedCount = db.prepare('SELECT value FROM storage_meta WHERE key = ?').get('json_migration_imported_count')
+      assert(marker?.value === '1' && importedCount?.value === '2', 'P0-36 sqlite migration metadata missing')
+    } finally {
+      db.close()
+    }
+
+    sqliteServer = await startSqliteServer()
+    const restartedList = await fetchJson(`${sqliteUrl}/conversations`)
+    assert(
+      restartedList.data.conversations.filter((item) => item.id === fileSeed.id).length === 1 &&
+        restartedList.data.conversations.filter((item) => item.id === legacySeed.id).length === 1,
+      'P0-36 sqlite migration was not idempotent after restart'
+    )
+    assert(
+      restartedList.data.conversations.some((item) => item.id === createdSqliteId),
+      'P0-37 sqlite conversation did not persist after restart'
+    )
+
+    const deleted = await fetchJson(`${sqliteUrl}/conversations/${createdSqliteId}`, { method: 'DELETE' })
+    assert(deleted.status === 204, 'P0-38 sqlite delete failed')
+
+    return {
+      dbPath: sqliteDbPath,
+      migratedIds: [fileSeed.id, legacySeed.id],
+      createdSqliteId,
+    }
+  } finally {
+    if (createdSqliteId) {
+      await fetch(`${sqliteUrl}/conversations/${encodeURIComponent(createdSqliteId)}`, { method: 'DELETE' }).catch(() => {})
+    }
+    await stopProcess(sqliteServer)
   }
 }
 
@@ -669,6 +771,7 @@ async function main() {
     const toolSuccess = await ask(client, toolId, 'P0_TOOL_SUCCESS 查询北京明天天气')
     const toolReasoning = await ask(client, toolId, 'P0_TOOL_REASONING 查询北京明天天气')
     const toolPreamble = await ask(client, toolId, 'P0_TOOL_PREAMBLE 工具调用前先输出一些文字')
+    const toolLongPreamble = await ask(client, toolId, 'P0_TOOL_LONG_PREAMBLE 工具调用前输出超过缓冲阈值的文字')
     const toolFailure = await ask(client, toolId, 'P0_TOOL_FAILURE 查询异常城今天天气')
     const toolUnknown = await ask(client, toolId, 'P0_TOOL_UNKNOWN 调用不存在工具')
     await ask(client, toolId, 'P0_TOOL_CONTEXT_MEMORY P0_TOOL_CONTEXT_CITY_BEIJING 请记住我的城市是北京')
@@ -679,6 +782,10 @@ async function main() {
     assert(
       toolPreamble.text.includes('北京明天天气') && !toolPreamble.text.includes('我先看一下天气'),
       'P0-14 tool preamble leaked before tool result answer'
+    )
+    assert(
+      toolLongPreamble.text.includes('北京明天天气') && !toolLongPreamble.text.includes('LONG_PREAMBLE_MARKER'),
+      'P0-35 long tool preamble leaked before tool result answer'
     )
     assert(toolFailure.text.includes('天气服务暂时不可用'), 'P0-15 tool failure fallback failed')
     assert(toolUnknown.text.includes('未找到相关工具'), 'P0-16 unknown tool fallback failed')
@@ -820,6 +927,8 @@ async function main() {
       await stopProcess(corruptServer)
     }
 
+    const sqliteStorage = await runSqliteStorageScenario()
+
     const deleted = await api(client, `/conversations/${crudId}`, { method: 'DELETE' })
     assert(deleted.status === 204, 'P0-10 delete failed')
     const deletedGet = await api(client, `/conversations/${crudId}`)
@@ -848,6 +957,10 @@ async function main() {
         'P0-26': 'passed',
         'P0-27': 'passed',
         'P0-28': 'passed',
+        'P0-35': 'passed',
+        'P0-36': 'passed',
+        'P0-37': 'passed',
+        'P0-38': 'passed',
         'P1-26': 'passed',
         'P1-27': 'passed',
         'P1-28': 'passed',
@@ -858,12 +971,14 @@ async function main() {
       toolSuccess: toolSuccess.text,
       toolReasoning: toolReasoning.text,
       toolPreamble: toolPreamble.text,
+      toolLongPreamble: toolLongPreamble.text,
       toolFailure: toolFailure.text,
       toolUnknown: toolUnknown.text,
       toolContext: toolContext.text,
       reasoningMessage,
       stopped,
       answerStopped,
+      sqliteStorage,
       llmRequestCount: mock.requests.length,
     }
 

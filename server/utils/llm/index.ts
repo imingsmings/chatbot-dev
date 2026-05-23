@@ -17,8 +17,6 @@ const adapters: Record<string, LlmAdapter> = {
   deepseek: deepseekAdapter
 }
 
-const TOOL_DECISION_CONTENT_FLUSH_CHARS = 80
-
 const LLM_PROVIDER = process.env.LLM_PROVIDER || 'deepseek'
 const LLM_ENDPOINT = process.env.LLM_ENDPOINT
 const LLM_MODEL = process.env.LLM_MODEL
@@ -268,7 +266,6 @@ async function callLLMStreamWithTools(
     let reasoningContent = ''
     let finishReason: string | undefined
     let pendingContent = ''
-    let contentUnlocked = false
     const toolCalls = new Map<number, ChatCompletionToolCall>()
 
     const flushPendingContent = (): void => {
@@ -276,7 +273,6 @@ async function callLLMStreamWithTools(
         return
       }
 
-      contentUnlocked = true
       callback(pendingContent, 'content')
       pendingContent = ''
     }
@@ -306,16 +302,7 @@ async function callLLMStreamWithTools(
       if (event.content) {
         fullResponse += event.content
 
-        if (contentUnlocked) {
-          callback(event.content, 'content')
-          return
-        }
-
         pendingContent += event.content
-
-        if (pendingContent.length >= TOOL_DECISION_CONTENT_FLUSH_CHARS) {
-          flushPendingContent()
-        }
       }
     }
 

@@ -22,6 +22,19 @@ function buildHeaders(): Record<string, string> {
   }
 }
 
+function isReasoningEnabled(): boolean {
+  const rawValue = process.env.LLM_REASONING_ENABLED
+  if (rawValue === undefined || rawValue.trim() === '') {
+    return true
+  }
+
+  return ['1', 'true', 'yes', 'on', 'enabled'].includes(rawValue.trim().toLowerCase())
+}
+
+function getReasoningEffort(): string {
+  return process.env.LLM_REASONING_EFFORT?.trim() || 'max'
+}
+
 function buildBody({
   model,
   prompt,
@@ -38,11 +51,14 @@ function buildBody({
   const body: Record<string, unknown> = {
     model,
     messages: prompt,
-    stream,
-    thinking: {
+    stream
+  }
+
+  if (isReasoningEnabled()) {
+    body.thinking = {
       type: 'enabled'
-    },
-    reasoning_effort: 'max'
+    }
+    body.reasoning_effort = getReasoningEffort()
   }
 
   if (tools?.length) {

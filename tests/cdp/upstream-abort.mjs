@@ -114,7 +114,12 @@ async function evaluate(client, expression) {
   })
 
   if (result.exceptionDetails) {
-    throw new Error(result.exceptionDetails.text || 'Runtime evaluation failed')
+    const detail =
+      result.exceptionDetails.exception?.description ||
+      result.exceptionDetails.exception?.value ||
+      result.exceptionDetails.text ||
+      'Runtime evaluation failed'
+    throw new Error(detail)
   }
 
   return result.result?.value
@@ -525,7 +530,11 @@ export default defineConfig({
     const tc01Id = await newChat(client)
     await ask(client, '[TC01] 请持续输出很多短句，用于测试流式过程中点击停止是否会中断上游请求。')
     await waitStop(client)
-    await waitAssistantStreamingText(client)
+    await waitUntil(
+      () => mock.records.some((item) => item.marker === '[TC01]' && item.stream && item.stage === 'answer'),
+      8000,
+      'TC01 stream request start',
+    )
     screenshots.push(await screenshot(client, '01-tc01-streaming-before-stop'))
     await clickText(client, 'button', '停止')
     await waitFor(client, `document.body.innerText.includes('已停止生成')`)
@@ -585,7 +594,11 @@ export default defineConfig({
     const tc04Id = await newChat(client)
     await ask(client, '[TC04] 正在生成时点击新建聊天，验证旧请求会先中断。')
     await waitStop(client)
-    await waitAssistantStreamingText(client)
+    await waitUntil(
+      () => mock.records.some((item) => item.marker === '[TC04]' && item.stream && item.stage === 'answer'),
+      8000,
+      'TC04 stream request start',
+    )
     screenshots.push(await screenshot(client, '05-tc04-generating-before-new-chat'))
     await clickText(client, 'button', '新建')
     await waitFor(client, `document.querySelector('.empty-state') && document.querySelector('textarea')`)

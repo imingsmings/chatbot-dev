@@ -11,8 +11,17 @@ const DEBUG_PORT = Number(process.env.DEBUG_PORT || 9337)
 const OUT_DIR = path.resolve(process.cwd(), '.tmp/cdp-markdown-real-screenshots')
 const CAPTURE_SCREENSHOTS = process.env.CDP_SCREENSHOTS === '1'
 const CDP_COMMAND_TIMEOUT_MS = 10000
+const REAL_WAIT_TIMEOUT_MS = readPositiveInteger(
+  'CDP_REAL_MARKDOWN_WAIT_TIMEOUT_MS',
+  readPositiveInteger('CDP_REAL_WAIT_TIMEOUT_MS', 240000),
+)
 const STAMP = new Date().toISOString().replace(/[-:.TZ]/g, '').slice(0, 14)
 const TITLE = `CDPMDREAL-${STAMP}`
+
+function readPositiveInteger(name, fallback) {
+  const value = Number(process.env[name])
+  return Number.isInteger(value) && value > 0 ? value : fallback
+}
 
 class CdpClient {
   constructor(wsUrl) {
@@ -140,7 +149,7 @@ async function evaluate(client, expression) {
   return result.result?.value
 }
 
-async function waitFor(client, expression, timeoutMs = 240000) {
+async function waitFor(client, expression, timeoutMs = REAL_WAIT_TIMEOUT_MS) {
   const start = Date.now()
 
   while (Date.now() - start < timeoutMs) {
@@ -211,6 +220,19 @@ async function scrollAssistantToText(client, text) {
         }
       }
       target.scrollIntoView({ block: 'center', inline: 'nearest' });
+    })()`,
+  )
+  await delay(250)
+}
+
+async function scrollLatestAssistant(client) {
+  await evaluate(
+    client,
+    `(() => {
+      const rows = [...document.querySelectorAll('.message-row.assistant')];
+      const row = rows[rows.length - 1];
+      if (!row) throw new Error('Cannot find latest assistant row');
+      row.scrollIntoView({ block: 'center', inline: 'nearest' });
     })()`,
   )
   await delay(250)
@@ -466,34 +488,44 @@ async function main() {
     await ask(client, streamPrompt)
     await waitFor(
       client,
-      `[...document.querySelectorAll('.message-row.assistant')].some((node) => node.innerText.includes('MD-STREAM')) &&
+      `document.querySelectorAll('.message-row.assistant').length > 1 &&
         [...document.querySelectorAll('button')].some((button) => button.textContent.trim() === '停止')`,
       120000,
     )
-    await scrollAssistantToText(client, 'MD-STREAM')
+    await scrollLatestAssistant(client)
     assertions.streamingMid = await evaluate(
       client,
       `(() => {
-        const row = [...document.querySelectorAll('.message-row.assistant')].find((node) => node.innerText.includes('MD-STREAM'));
+        const rows = [...document.querySelectorAll('.message-row.assistant')];
+        const row = rows[rows.length - 1];
         return {
-          hasH2: !!row.querySelector('h2'),
+          hasAssistantRow: Boolean(row),
+          textLength: row?.innerText.trim().length || 0,
           isGenerating: [...document.querySelectorAll('button')].some((button) => button.textContent.trim() === '停止'),
-          hasAnyCode: !!row.querySelector('code'),
+          hasErrorText: row?.innerText.includes('响应失败') || row?.innerText.includes('响应中断') || false,
         };
       })()`,
     )
+    if (
+      !assertions.streamingMid.hasAssistantRow ||
+      !assertions.streamingMid.isGenerating ||
+      assertions.streamingMid.hasErrorText
+    ) {
+      throw new Error(`Real Markdown streaming mid-state failed: ${JSON.stringify(assertions.streamingMid)}`)
+    }
     await screenshot(client, '08-real-streaming-mid-render')
 
     await waitIdle(client)
-    await scrollAssistantToText(client, 'MD-STREAM')
+    await scrollLatestAssistant(client)
     assertions.streamingDone = await evaluate(
       client,
       `(() => {
-        const row = [...document.querySelectorAll('.message-row.assistant')].find((node) => node.innerText.includes('MD-STREAM'));
+        const rows = [...document.querySelectorAll('.message-row.assistant')];
+        const row = rows[rows.length - 1];
         return {
-          h2: !!row.querySelector('h2'),
-          preCode: !!row.querySelector('pre code'),
-          table: !!row.querySelector('table'),
+          h2: !!row?.querySelector('h2'),
+          preCode: !!row?.querySelector('pre code'),
+          table: !!row?.querySelector('table'),
           done: [...document.querySelectorAll('button')].some((button) => button.textContent.trim() === '发送'),
         };
       })()`,

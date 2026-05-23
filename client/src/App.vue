@@ -42,11 +42,25 @@
         @submit="handleSubmit"
       />
     </main>
+
+    <AppDialog
+      :cancel-label="dialog.cancelLabel"
+      :confirm-label="dialog.confirmLabel"
+      :danger="dialog.danger"
+      :initial-value="dialog.initialValue"
+      :message="dialog.message"
+      :mode="dialog.mode"
+      :open="dialog.open"
+      :title="dialog.title"
+      @cancel="handleDialogCancel"
+      @confirm="handleDialogConfirm"
+    />
   </div>
 </template>
 
 <script lang="ts" setup>
 import { computed, nextTick, onMounted, ref } from 'vue'
+import AppDialog from '@/components/AppDialog.vue'
 import ChatComposer from '@/components/ChatComposer.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import MessageList from '@/components/MessageList.vue'
@@ -57,9 +71,33 @@ import { useConversations } from '@/composables/useConversations'
 import { useTheme } from '@/composables/useTheme'
 import type { ConversationSummary } from '@/types/chat'
 
+type DialogMode = 'alert' | 'confirm' | 'prompt'
+
+type DialogState = {
+  cancelLabel: string
+  confirmLabel: string
+  danger: boolean
+  initialValue: string
+  message: string
+  mode: DialogMode
+  open: boolean
+  title: string
+}
+
 const input = ref('')
 const chatBox = ref<HTMLElement | null>(null)
 const composer = ref<InstanceType<typeof ChatComposer> | null>(null)
+const dialog = ref<DialogState>({
+  cancelLabel: '取消',
+  confirmLabel: '确定',
+  danger: false,
+  initialValue: '',
+  message: '',
+  mode: 'alert',
+  open: false,
+  title: '',
+})
+let resolveDialog: ((value: string | boolean | null) => void) | null = null
 
 const suggestions = [
   '帮我总结一下今天的工作重点',
@@ -96,6 +134,79 @@ function clearComposerDraft() {
   input.value = ''
 }
 
+function openDialog(options: Partial<DialogState> & Pick<DialogState, 'message' | 'mode' | 'title'>) {
+  resolveDialog?.(null)
+  dialog.value = {
+    cancelLabel: '取消',
+    confirmLabel: options.mode === 'alert' ? '知道了' : '确定',
+    danger: false,
+    initialValue: '',
+    ...options,
+    open: true,
+  }
+
+  return new Promise<string | boolean | null>((resolve) => {
+    resolveDialog = resolve
+  })
+}
+
+function closeDialog() {
+  dialog.value.open = false
+  resolveDialog = null
+}
+
+function handleDialogCancel() {
+  resolveDialog?.(null)
+  closeDialog()
+}
+
+function handleDialogConfirm(value: string | true) {
+  resolveDialog?.(value)
+  closeDialog()
+}
+
+async function showError(message: string, title = '操作失败') {
+  await openDialog({
+    message,
+    mode: 'alert',
+    title,
+  })
+}
+
+async function confirmAction(options: {
+  confirmLabel?: string
+  danger?: boolean
+  message: string
+  title: string
+}) {
+  const result = await openDialog({
+    cancelLabel: '取消',
+    confirmLabel: options.confirmLabel ?? '确定',
+    danger: options.danger ?? false,
+    message: options.message,
+    mode: 'confirm',
+    title: options.title,
+  })
+
+  return result === true
+}
+
+async function promptText(options: {
+  initialValue: string
+  message: string
+  title: string
+}) {
+  const result = await openDialog({
+    confirmLabel: '保存',
+    initialValue: options.initialValue,
+    message: options.message,
+    mode: 'prompt',
+    title: options.title,
+  })
+
+  return typeof result === 'string' ? result.trim() : null
+}
+
 const {
   copiedMessageId,
   copyMessage,
@@ -114,6 +225,7 @@ const {
   refreshConversationList,
   resizeComposer,
   shouldFollowNewContent,
+  showError,
 })
 
 const canSubmit = computed(
@@ -145,7 +257,7 @@ async function startNewChat() {
     await settleConversationView({ focus: true })
   } catch (err) {
     console.error('Failed to create conversation:', err)
-    alert('新建会话失败')
+    await showError('新建会话失败')
   }
 }
 
@@ -164,12 +276,16 @@ async function selectConversation(id: string) {
     await settleConversationView({ scroll: true })
   } catch (err) {
     console.error('Failed to select conversation:', err)
-    alert('切换会话失败')
+    await showError('切换会话失败')
   }
 }
 
 async function handleRenameConversation(conversation: ConversationSummary) {
-  const title = window.prompt('请输入新的会话名称', conversation.title)?.trim()
+  const title = await promptText({
+    initialValue: conversation.title,
+    message: '请输入新的会话名称',
+    title: '重命名会话',
+  })
 
   if (!title || title === conversation.title) {
     return
@@ -179,7 +295,7 @@ async function handleRenameConversation(conversation: ConversationSummary) {
     await renameConversation(conversation, title)
   } catch (err) {
     console.error('Failed to rename conversation:', err)
-    alert('重命名失败，请稍候再试')
+    await showError('重命名失败，请稍候再试')
   }
 }
 
@@ -191,7 +307,12 @@ async function handleDeleteConversation(id: string) {
   const conversation = conversations.value.find((item) => item.id === id)
   const title = conversation?.title || '该会话'
 
-  if (!confirm(`确定删除“${title}”吗？该操作不可逆`)) {
+  if (!(await confirmAction({
+    confirmLabel: '删除',
+    danger: true,
+    message: `确定删除“${title}”吗？该操作不可逆`,
+    title: '删除会话',
+  }))) {
     return
   }
 
@@ -201,7 +322,7 @@ async function handleDeleteConversation(id: string) {
     await settleConversationView({ focus: true, scroll: true })
   } catch (err) {
     console.error('Failed to delete conversation:', err)
-    alert('删除会话失败，请稍候再试')
+    await showError('删除会话失败，请稍候再试')
   }
 }
 
@@ -210,7 +331,12 @@ async function handleClearCurrentConversation() {
     return
   }
 
-  if (!confirm('确定清空当前会话消息吗？会话名称会保留')) {
+  if (!(await confirmAction({
+    confirmLabel: '清空',
+    danger: true,
+    message: '确定清空当前会话消息吗？会话名称会保留',
+    title: '清空当前会话',
+  }))) {
     return
   }
 
@@ -220,7 +346,7 @@ async function handleClearCurrentConversation() {
     await settleConversationView()
   } catch (err) {
     console.error('Failed to clear conversation:', err)
-    alert('清空会话失败，请稍候再试')
+    await showError('清空会话失败，请稍候再试')
   }
 }
 
@@ -245,7 +371,7 @@ onMounted(async () => {
     await settleConversationView({ scroll: true })
   } catch (err) {
     console.error('Failed to load conversations:', err)
-    alert('加载会话失败，请刷新后重试')
+    await showError('加载会话失败，请刷新后重试')
   }
 })
 </script>

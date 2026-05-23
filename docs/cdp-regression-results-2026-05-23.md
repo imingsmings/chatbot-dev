@@ -2,60 +2,73 @@
 
 ## 范围
 
-本轮覆盖当前修改功能、mock 全量、真实接口全量、构建和类型检查。
+本轮覆盖 docs 后续测试优化、架构与代码 review 整改、SQLite 存储新增、JSON 到 SQLite 迁移、mock 全量回归、真实接口全量回归、前后端类型检查和前端构建。
 
-默认不截图。真实接口仅在本轮目标明确要求后执行。
+默认未截图。真实接口测试按本轮目标明确要求执行，并使用临时 SQLite 数据目录，避免污染现有 `server/data`。
 
 ## 最终结论
 
-| 范围 | 命令 | 最终结果 | 通过次数 | 备注 |
-| --- | --- | --- | --- | --- |
-| P0 核心回归 | `node tests/cdp/run-cdp-regression.mjs p0` | 通过 | 1 | review 修复后复跑通过 |
-| mock 全量 | `node tests/cdp/run-cdp-regression.mjs all-mock` | 通过 | 2 | UI、Markdown、Highlight、P0 API/tool、取消链路均通过 |
-| 真实接口全量 | `node tests/cdp/run-cdp-regression.mjs real` | 通过 | 2 | 最终覆盖 Real UI、Real context、Real Markdown |
-| Markdown fixture | `node tests/cdp/run-cdp-regression.mjs markdown` | 通过 | 1 | 协议 header 修复后通过 |
-| Highlight fixture | `node tests/cdp/run-cdp-regression.mjs highlight` | 通过 | 1 | 协议 header 修复后通过 |
-| UI root script | `pnpm run test:cdp:ui` | 通过 | 1 | sandbox 下首次绑定端口被拒绝，提权后通过 |
-| 服务端类型检查 | `pnpm --dir server typecheck` | 通过 | 2 | chatService review 修复前后均通过 |
-| 前端构建 | `pnpm --dir client build` | 通过 | 2 | Vue type-check + Vite build 通过 |
-| 语法和 whitespace | `node --check ...` / `git diff --check` | 通过 | 多次 | touched CDP 脚本均检查通过 |
-
-## 失败与修复记录
-
-| 失败点 | 原因 | 处理 | 复测 |
+| 范围 | 命令 | 结果 | 关键结论 |
 | --- | --- | --- | --- |
-| UI 刷新恢复当前会话失败 | mock 会话数据没有跨 reload 持久，且 mock 列表未按 `updatedAt` 排序 | `tests/cdp/ui-scenarios.mjs` 增加持久 mock store，并按后端契约排序 | `ui` 通过，`all-mock` 通过 |
-| 侧栏大量会话不可滚动 | `.sidebar` 未限制高度，子滚动容器被父容器撑开 | `client/src/assets/app.css` 为 `.sidebar` 增加 `min-height: 0` 和 `overflow: hidden` | `ui` 大量会话滚动断言通过 |
-| 流式中断后部分正文被错误文案覆盖 | `MessageList` 在 `error` 状态优先渲染错误文案，隐藏已收到正文 | `MessageList.vue` 改为有正文时保留 Markdown 正文，并在下方显示错误状态 | `ui` 的中途网络断开、复制、重试断言通过 |
-| Markdown 流式 fixture 不进入正常渲染 | mock `/ask` 缺少 `X-Chat-Stream-Protocol: 1` | `markdown-rendering.mjs` 补协议 header | `markdown` 通过，`all-mock` 通过 |
-| Highlight 流式 fixture 不进入正常渲染 | mock `/ask` 缺少 `X-Chat-Stream-Protocol: 1` | `highlight-rendering.mjs` 补协议 header | `highlight` 通过，`all-mock` 通过 |
-| 真实接口首次失败 | runner 只启动 Vite，未启动后端，`/api` proxy 到 `127.0.0.1:7001` 被拒绝 | `run-cdp-regression.mjs` 为 real suite 增加 backend 自动启动 | `real` 通过 |
-| 真实 UI selector 失败 | 脚本依赖 `.message-text`，但 stopped/error/reasoning 结构变化后 selector 过窄 | `real-scenarios.mjs` 改为按 assistant 行和文本断言 | `real` 通过 |
-| 普通 assistant 消息写入空 `reasoningContent` | chatService 总是传入空字符串 | 仅在有 reasoning 时写 `reasoningContent`，仅在有 duration 时写 `reasoningDurationMs` | `p0`、`real`、服务端 typecheck 通过 |
-| runner 停止后端有 lifecycle 噪音 | 通过 `pnpm --dir server start` 启动，SIGTERM 被 pnpm 视为 lifecycle failure | runner 改为直接 `node ./bin/www.ts` 启动后端 | `real` 通过，噪音消失 |
-| root UI 脚本首次验证失败 | sandbox 拒绝本地 Vite 端口绑定，非产品或脚本逻辑失败 | 按审批流提权后重跑 | `pnpm run test:cdp:ui` 通过 |
+| 服务端类型检查 | `pnpm --dir server typecheck` | 通过 | SQLite 懒加载、存储接口和 LLM 相关类型通过 |
+| 前端类型检查 | `pnpm --dir client type-check` | 通过 | AppDialog、App.vue、stream composable 类型通过 |
+| 前端构建 | `pnpm --dir client build` | 通过 | Vite production build 通过，127 个模块完成转换 |
+| CDP 脚本语法 | `for f in tests/cdp/*.mjs tests/cdp/helpers/*.mjs; do node --check "$f" || exit 1; done` | 通过 | 新增 helpers、runner、SQLite/P0/real 脚本语法通过 |
+| whitespace | `git diff --check` | 通过 | 未发现尾随空白或补丁格式问题 |
+| mock 全量 | `node tests/cdp/run-cdp-regression.mjs all-mock` | 通过 | 结果写入 `.tmp/cdp-results/all-mock.json`，每个子脚本均解析到 JSON result |
+| 真实接口全量 SQLite | `CONVERSATION_STORE=sqlite CONVERSATION_DATA_DIR="$REAL_SQLITE_DIR" CONVERSATION_DB_PATH="$REAL_SQLITE_DIR/conversations.sqlite3" CDP_REAL_SCRIPT_RETRIES=1 node tests/cdp/run-cdp-regression.mjs real` | 通过 | 结果写入 `.tmp/cdp-results/real.json`，真实 UI、上下文、Markdown 均通过 |
 
-## 覆盖场景摘要
+## mock 全量覆盖
 
-- 停止生成：流式中停止、首 token 前停止、上游慢响应停止、新建聊天中断、tool answer 阶段停止。
-- 会话：列表、详情、新建、重命名、删除、清空、标题规则、上下文隔离、刷新恢复、旧数据迁移、损坏 JSON。
-- tool/function calling：成功、失败、未知 tool、非法 arguments、tool 上下文、reasoning 回灌。
-- 前端交互：复制、已复制状态、失败重试、自动滚动策略、suggestion、主题、输入框、多会话切换、生成中操作。
-- 渲染：Markdown、安全清洗、用户消息纯文本、代码高亮、Go/C/C++/Rust/JSX/MJS/TSX、大括号、注释、移动端布局。
-- 真实接口：真实停止、继续发送、滚动、上下文隔离、真实 Markdown、复制、移动端和测试数据清理。
+`all-mock` 最终覆盖以下子脚本：
 
-## 测试资产变更
+| 子脚本 | 关键覆盖 | 结果 |
+| --- | --- | --- |
+| `tests/cdp/upstream-abort.mjs` | 流式中停止、首 token 前停止、新建聊天自动中断、上游慢响应中断；断言前端 request canceled、上游 closeBeforeEnd、不持久化完整问答 | 通过 |
+| `tests/cdp/p0-api-tool.mjs` | 会话 API、JSON 文件存储、legacy migration、损坏 JSON、tool 成功/失败/未知/非法 arguments、strict tool preamble、reasoning 持久化、SQLite 迁移/ask/CRUD | 通过 |
+| `tests/cdp/ui-scenarios.mjs` | 应用内 modal、复制、重试、滚动策略、会话切换/新建中断、草稿清理、reasoning、主题、移动端、错误恢复 | 通过 |
+| `tests/cdp/markdown-rendering.mjs` | Markdown 标题/列表/代码/表格/引用/链接、安全清洗、用户消息纯文本、流式中间态、复制、移动端 | 通过 |
+| `tests/cdp/highlight-rendering.mjs` | JS/TS/JSON/Bash/Python/SQL、Go/C/C++/Rust、JSX/MJS/TSX、fallback、非法 JSON、长代码、移动端 | 通过 |
 
-- `tests/cdp/run-cdp-regression.mjs`: 新增 `ui` suite，real suite 自动启动后端。
-- `tests/cdp/ui-scenarios.mjs`: 覆盖 `UI-01` 到 `UI-40`。
-- `tests/cdp/markdown-rendering.mjs`: 补齐协议 header。
-- `tests/cdp/highlight-rendering.mjs`: 补齐协议 header。
-- `tests/cdp/real-scenarios.mjs`: 适配当前消息 DOM 结构。
-- `docs/regression-test-cases.md`: 补齐 P0/P1/UI/P2 场景和脚本映射。
+新增 SQLite 断言：
 
-## 后续测试优化
+- `P0-36`: 首次启用 SQLite 时从 `conversations/*.json`、`conversations.json` 导入；保留 `reasoningContent`；写入 `storage_meta`；重启幂等。
+- `P0-37`: SQLite 下 `/ask` 返回协议 header，用户和 assistant 消息落库，自动标题生成，重启后可读。
+- `P0-38`: SQLite 下重命名、清空、删除正常；默认文件 JSON 实现仍可通过原 P0/P1 覆盖。
 
-- 将各 CDP 脚本公共 CDP client、等待、截图、输入、服务启动逻辑抽成共享 helper，降低脚本维护成本。
-- 为真实接口测试增加机器可读 JSON 汇总文件，避免只能从 console 输出人工整理。
-- 增加专门的“长 tool preamble 后再 tool_call”场景，用于验证 tool 决策阶段内容缓冲策略的边界。
-- 对真实接口测试增加可配置超时和重试策略，降低真实模型偶发慢响应导致的误报。
+## 真实接口覆盖
+
+真实接口回归使用隔离环境：
+
+```bash
+REAL_SQLITE_DIR=$(mktemp -d /tmp/chatbot-real-sqlite-XXXXXX)
+CONVERSATION_STORE=sqlite \
+CONVERSATION_DATA_DIR="$REAL_SQLITE_DIR" \
+CONVERSATION_DB_PATH="$REAL_SQLITE_DIR/conversations.sqlite3" \
+CDP_REAL_SCRIPT_RETRIES=1 \
+node tests/cdp/run-cdp-regression.mjs real
+```
+
+| 子脚本 | 关键覆盖 | 结果 |
+| --- | --- | --- |
+| `tests/cdp/real-scenarios.mjs` | 真实停止、停止后继续发送、滚动位置保持、新建聊天中断、临时会话清理 | 通过 |
+| `tests/cdp/conversation-context-real.mjs` | 真实上下文隔离、刷新、重命名、清空、删除、临时会话清理 | 通过 |
+| `tests/cdp/markdown-real.mjs` | 真实 Markdown 最终态、流式中间态、复制原文、移动端布局、安全清洗、临时会话清理 | 通过 |
+
+真实 Markdown 中间态不再依赖模型在流式中已经输出完整标题或 marker，只断言存在 assistant 行、仍在生成、无错误态；完整 Markdown 结构在最终态验证。
+
+## Code Review 修复记录
+
+| 发现点 | 风险 | 修复 | 复测 |
+| --- | --- | --- | --- |
+| `node:sqlite` 顶层导入 | 即使默认使用文件 JSON，低版本 Node 也可能在启动时因缺少 `node:sqlite` 失败 | 改成仅在 `CONVERSATION_STORE=sqlite` 时通过 `createRequire` 懒加载，并给出明确错误信息 | `server typecheck`、`all-mock`、`real(SQLite)` 通过 |
+| runner JSON 结果提取只取最后一个 `{` | 子脚本输出 trailing logs 时，suite JSON 中 `scripts[].result` 可能为 `null` | 改为从输出末尾做平衡括号扫描，稳定提取最后一个完整 JSON object | `all-mock.json`、`real.json` 均有子脚本 result |
+| strict tool decision 改动影响旧中断断言 | tool 决策阶段不提前 flush 后，旧脚本等待可见 assistant token 会误判 | 上游中断脚本改为等待真实 mock upstream request，再断言 request cancel 和 closeBeforeEnd | `all-mock` 通过 |
+| 真实回归依赖模型具体长度/marker | 真实模型输出节奏变化会导致误报 | 真实 UI 使用 DOM fixture 验证滚动锁定，真实 Markdown 中间态改为状态机断言 | `real(SQLite)` 通过 |
+| 原生弹窗不利于 CDP 稳定断言 | prompt/confirm/alert 无法统一主题、键盘和移动端状态 | 替换为 `AppDialog.vue`，脚本改为操作应用内 modal | `ui`、`all-mock` 通过 |
+
+## 临时数据与截图
+
+- mock/CDP 测试创建的会话均由脚本按测试前缀或捕获 id 清理。
+- 真实接口回归使用临时 SQLite 数据目录，不写入现有 `server/data`。
+- 本轮未请求截图，因此未保存关键截图；失败截图机制仍可作为诊断使用。

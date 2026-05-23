@@ -1,10 +1,16 @@
-import { spawn } from 'node:child_process'
 import path from 'node:path'
+import { extractLastJsonObject, writeSuiteResult } from './helpers/results.mjs'
+import { spawnProcess, stopProcess, waitForHttp } from './helpers/services.mjs'
 
 const REPO_ROOT = process.cwd()
 const APP_URL = process.env.APP_URL || 'http://127.0.0.1:5173/'
 const BACKEND_URL = process.env.BACKEND_URL || 'http://127.0.0.1:7001/'
 const CAPTURE_SCREENSHOTS = process.env.CDP_SCREENSHOTS === '1' ? '1' : '0'
+
+function readNonNegativeInteger(name, fallback) {
+  const value = Number(process.env[name])
+  return Number.isInteger(value) && value >= 0 ? value : fallback
+}
 
 const SUITES = {
   p0: [
@@ -45,49 +51,6 @@ SUITES['all-mock'] = [
   ...SUITES.p0,
   ...SUITES.p1.filter((item) => item.script !== 'tests/cdp/ui-scenarios.mjs' && item.script !== 'tests/cdp/p0-api-tool.mjs'),
 ]
-
-function delay(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms))
-}
-
-async function waitForHttp(url, timeoutMs = 15000) {
-  const start = Date.now()
-
-  while (Date.now() - start < timeoutMs) {
-    try {
-      const response = await fetch(url)
-      if (response.ok) return true
-    } catch {
-      // keep polling
-    }
-
-    await delay(200)
-  }
-
-  return false
-}
-
-function spawnProcess(command, args, options = {}) {
-  const child = spawn(command, args, {
-    stdio: ['ignore', 'pipe', 'pipe'],
-    ...options,
-  })
-
-  child.stdout.on('data', (chunk) => process.stdout.write(chunk))
-  child.stderr.on('data', (chunk) => process.stderr.write(chunk))
-
-  return child
-}
-
-async function stopProcess(child) {
-  if (!child || child.exitCode !== null) return
-
-  child.kill('SIGTERM')
-  await Promise.race([
-    new Promise((resolve) => child.once('exit', resolve)),
-    delay(3000).then(() => child.kill('SIGKILL')),
-  ])
-}
 
 async function ensureVite() {
   if (await waitForHttp(APP_URL, 1000)) {
@@ -136,21 +99,47 @@ async function ensureBackend() {
 }
 
 async function runScript(item) {
-  console.log(`\n==> ${item.name}`)
+  const maxRetries = item.needsBackend
+    ? readNonNegativeInteger('CDP_REAL_SCRIPT_RETRIES', readNonNegativeInteger('CDP_SCRIPT_RETRIES', 0))
+    : readNonNegativeInteger('CDP_SCRIPT_RETRIES', 0)
+  const attempts = []
 
-  const child = spawnProcess('node', [item.script], {
-    cwd: REPO_ROOT,
-    env: {
-      ...process.env,
-      CDP_SCREENSHOTS: CAPTURE_SCREENSHOTS,
-      ...(item.env || {}),
-    },
-  })
+  for (let attempt = 1; attempt <= maxRetries + 1; attempt += 1) {
+    console.log(`\n==> ${item.name}${maxRetries ? ` (attempt ${attempt}/${maxRetries + 1})` : ''}`)
 
-  const code = await new Promise((resolve) => child.once('exit', resolve))
-  if (code !== 0) {
-    throw new Error(`${item.name} failed with exit code ${code}`)
+    const processHandle = spawnProcess('node', [item.script], {
+      cwd: REPO_ROOT,
+      env: {
+        ...process.env,
+        CDP_SCREENSHOTS: CAPTURE_SCREENSHOTS,
+        ...(item.env || {}),
+      },
+    })
+
+    const code = await new Promise((resolve) => processHandle.child.once('exit', resolve))
+    const output = processHandle.getOutput()
+    const result = extractLastJsonObject(output)
+    attempts.push({
+      attempt,
+      exitCode: code,
+      result,
+    })
+
+    if (code === 0) {
+      return {
+        name: item.name,
+        script: item.script,
+        attempts,
+        result,
+      }
+    }
+
+    if (attempt <= maxRetries) {
+      console.warn(`${item.name} failed with exit code ${code}; retrying`)
+    }
   }
+
+  throw new Error(`${item.name} failed with exit code ${attempts[attempts.length - 1]?.exitCode}`)
 }
 
 async function main() {
@@ -167,13 +156,36 @@ async function main() {
   const needsVite = suite.some((item) => item.needsVite)
   const backend = needsBackend ? await ensureBackend() : null
   const vite = needsVite ? await ensureVite() : null
+  const startedAt = new Date().toISOString()
+  const results = []
 
   try {
-    for (const item of suite) {
-      await runScript(item)
-    }
+    try {
+      for (const item of suite) {
+        results.push(await runScript(item))
+      }
 
-    console.log(`\nCDP regression suite passed: ${suiteName}`)
+      const resultFile = await writeSuiteResult(REPO_ROOT, suiteName, {
+        suite: suiteName,
+        allPassed: true,
+        startedAt,
+        finishedAt: new Date().toISOString(),
+        scripts: results,
+      })
+      console.log(`\nCDP regression suite passed: ${suiteName}`)
+      console.log(`CDP regression result file: ${resultFile}`)
+    } catch (err) {
+      const resultFile = await writeSuiteResult(REPO_ROOT, suiteName, {
+        suite: suiteName,
+        allPassed: false,
+        startedAt,
+        finishedAt: new Date().toISOString(),
+        scripts: results,
+        error: err instanceof Error ? err.message : String(err),
+      })
+      console.error(`CDP regression result file: ${resultFile}`)
+      throw err
+    }
   } finally {
     await stopProcess(vite)
     await stopProcess(backend)

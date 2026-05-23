@@ -51,6 +51,10 @@
 | P0-32 | 非法流式事件 | mock/CDP | 非法 `reasoning_delta`、非法 `done.reasoningDurationMs` 均进入可恢复错误态 |
 | P0-33 | reasoning 不污染复制内容 | mock/CDP | assistant 复制只复制最终回答正文，不混入 Thoughts/reasoning |
 | P0-34 | 会话操作清空未发送草稿 | mock/CDP | 新建、切换、删除、清空当前会话后 textarea 均为空 |
+| P0-35 | 长 tool preamble 不泄漏 | mock tool | 模型在 tool_call 前输出超过旧缓冲阈值的普通 content，最终响应仍不泄漏 preamble |
+| P0-36 | JSON 到 SQLite 迁移 | API/SQLite | `CONVERSATION_STORE=sqlite` 首次启动导入单会话 JSON 与 legacy JSON；保留 reasoning 字段；迁移元数据完整且重启幂等 |
+| P0-37 | SQLite ask 持久化 | API/SQLite + mock LLM | SQLite 后端下 `/ask` 正常返回协议 header；用户和 assistant 消息落库；自动标题生成；重启后仍可读 |
+| P0-38 | SQLite CRUD | API/SQLite | SQLite 后端下重命名、清空、删除均正常；默认文件 JSON 实现不受影响 |
 
 ## P1 常规回归
 
@@ -104,7 +108,7 @@
 | UI-01 | 首屏初始化加载态 | 侧栏、空态、suggestion、active 会话、composer 状态正确；无页面级横向溢出 |
 | UI-02 | 会话列表空/多/长标题 | 空列表自动创建会话；多会话和超长标题不挤压操作按钮 |
 | UI-03 | 会话列表滚动 | 大量会话时侧栏可滚动；当前会话保持高亮；操作按钮可点击 |
-| UI-04 | rename 取消 | `prompt` 取消后标题不变、会话数量不变 |
+| UI-04 | rename 取消 | 应用内 prompt 取消后标题不变、会话数量不变 |
 | UI-05 | rename 空白 | 空白标题不提交；原标题不丢 |
 | UI-06 | delete confirm 取消 | 取消删除后会话仍存在，当前会话不切换 |
 | UI-07 | clear confirm 取消 | 取消清空后消息和未发送草稿不被清掉 |
@@ -140,7 +144,7 @@
 | UI-37 | 浏览器刷新恢复当前会话 | reload 后会话列表和当前详情恢复；未发送草稿按当前设计清空 |
 | UI-38 | 后端返回旧数据格式 | messages 无 reasoning 字段时 UI 兼容，不显示空 reasoning 面板 |
 | UI-39 | 空 assistant content | 空正文但有 error/stopped 状态时不出现异常空白操作区 |
-| UI-40 | 弹窗 alert/confirm 流程 | rename/delete/clear/new-chat error 的 prompt/confirm/alert 被 CDP 处理，不阻塞脚本 |
+| UI-40 | 应用内弹窗 alert/confirm/prompt 流程 | rename/delete/clear/new-chat error 的 alert/confirm/prompt 均由 `AppDialog` 承载，可被 CDP 稳定断言 |
 
 ## P2 真实接口回归
 
@@ -163,8 +167,8 @@ P2 仅在明确要求“真实接口”时执行。
 | 普通重构或 bug 修复 | P0 |
 | UI、交互、按钮、滚动变更 | P0 + `ui`，必要时补 P1-01 到 P1-06 的结果定位 |
 | Markdown 或高亮变更 | P0 + P1-07 到 P1-17 |
-| 会话存储或路由变更 | P0-10 到 P0-13，再补 P0-01 到 P0-06 |
-| tool、weather、function call 变更 | P0-14 到 P0-17，再补 P0-01 到 P0-06 |
+| 会话存储或路由变更 | P0-10 到 P0-13、P0-36 到 P0-38，再补 P0-01 到 P0-06 |
+| tool、weather、function call 变更 | P0-14 到 P0-17、P0-35，再补 P0-01 到 P0-06 |
 | reasoning、思考过程、流式协议变更 | P0-26 到 P0-33，再补 P0-01 到 P0-07 |
 | composer 草稿、会话切换/清空/删除变更 | P0-34 + P1-18 到 P1-25 |
 | Vite dev server 或 LAN 访问变更 | P1-37，并手动确认目标机器可访问前端入口 |
@@ -215,7 +219,7 @@ P2 仅在明确要求“真实接口”时执行。
 | 统一 runner | `tests/cdp/run-cdp-regression.mjs` |
 | 完整 UI 矩阵 | `tests/cdp/run-cdp-regression.mjs ui` |
 | 停止生成、上游取消、request cancel | `tests/cdp/upstream-abort.mjs` |
-| 会话 API、持久化、错误 JSON、tool mock、流式协议 header、reasoning 持久化、tool 上下文、标题和存储边界 | `tests/cdp/p0-api-tool.mjs` |
+| 会话 API、JSON/SQLite 持久化、JSON 到 SQLite 迁移、错误 JSON、tool mock、流式协议 header、reasoning 持久化、tool 上下文、标题和存储边界 | `tests/cdp/p0-api-tool.mjs` |
 | 基础 UI、复制、重试、滚动、新建/切换中断、输入框、主题、移动端、reasoning 面板、流式协议错误、草稿清理 | `tests/cdp/ui-scenarios.mjs` |
 | 真实接口基础 UI | `tests/cdp/real-scenarios.mjs` |
 | 会话上下文、重命名、清空、删除 | `tests/cdp/conversation-context-real.mjs` |
@@ -236,6 +240,8 @@ node tests/cdp/run-cdp-regression.mjs highlight
 node tests/cdp/run-cdp-regression.mjs all-mock
 ```
 
+统一 runner 会写入机器可读汇总，例如 `.tmp/cdp-results/p0.json`、`.tmp/cdp-results/all-mock.json`。汇总文件包含 suite 名称、开始/结束时间、每个脚本的名称、路径和脚本末尾 JSON 结果，后续结果文档应优先从该文件提取。
+
 需要截图时：
 
 ```bash
@@ -245,5 +251,16 @@ CDP_SCREENSHOTS=1 node tests/cdp/run-cdp-regression.mjs all-mock
 真实接口只在明确要求时执行：
 
 ```bash
+node tests/cdp/run-cdp-regression.mjs real
+```
+
+若要验证 SQLite 存储路径，使用临时数据目录，避免污染现有本地 JSON 数据：
+
+```bash
+REAL_SQLITE_DIR=$(mktemp -d /tmp/chatbot-real-sqlite-XXXXXX)
+CONVERSATION_STORE=sqlite \
+CONVERSATION_DATA_DIR="$REAL_SQLITE_DIR" \
+CONVERSATION_DB_PATH="$REAL_SQLITE_DIR/conversations.sqlite3" \
+CDP_REAL_SCRIPT_RETRIES=1 \
 node tests/cdp/run-cdp-regression.mjs real
 ```
