@@ -1,0 +1,21 @@
+{
+  "name": "chatbot-dev",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev:server": "pnpm --dir server dev",
+    "dev:client": "pnpm --dir client dev",
+    "start:server": "pnpm --dir server start",
+    "typecheck:server": "pnpm --dir server typecheck",
+    "typecheck:client": "pnpm --dir client type-check",
+    "build:client": "pnpm --dir client build",
+    "lint:client": "pnpm --dir client lint",
+    "check": "pnpm run typecheck:server && pnpm run typecheck:client",
+    "test:cdp:p0": "node tests/cdp/run-cdp-regression.mjs p0",
+    "test:cdp:p1": "node tests/cdp/run-cdp-regression.mjs p1",
+    "test:cdp:markdown": "node tests/cdp/run-cdp-regression.mjs markdown",
+    "test:cdp:highlight": "node tests/cdp/run-cdp-regression.mjs highlight",
+    "test:cdp:all-mock": "node tests/cdp/run-cdp-regression.mjs all-mock",
+    "test:cdp:real": "node tests/cdp/run-cdp-regression.mjs real"
+  }
+}
