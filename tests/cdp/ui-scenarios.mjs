@@ -246,6 +246,60 @@ async function clickConversationAt(client, index) {
   )
 }
 
+async function clickConversationActionAt(client, index, title) {
+  const rect = await evaluate(
+    client,
+    `(() => {
+      const shell = [...document.querySelectorAll('.conversation-item-shell')][${index}];
+      if (!shell) throw new Error('Cannot find conversation shell at index ${index}');
+      const button = [...shell.querySelectorAll('.conversation-action-btn')]
+        .find((node) => node.getAttribute('title') === ${JSON.stringify(title)} || node.textContent.trim() === ${JSON.stringify(title)});
+      if (!button) throw new Error('Cannot find conversation action ${title} at index ${index}');
+      shell.scrollIntoView({ block: 'center', inline: 'nearest' });
+      shell.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, cancelable: true, view: window }));
+      button.focus();
+      const rect = button.getBoundingClientRect();
+      return {
+        x: rect.left + rect.width / 2,
+        y: rect.top + rect.height / 2,
+      };
+    })()`,
+  )
+  await client.send('Input.dispatchMouseEvent', {
+    type: 'mouseMoved',
+    x: rect.x,
+    y: rect.y,
+  })
+  await client.send('Input.dispatchMouseEvent', {
+    type: 'mousePressed',
+    x: rect.x,
+    y: rect.y,
+    button: 'left',
+    clickCount: 1,
+  })
+  await client.send('Input.dispatchMouseEvent', {
+    type: 'mouseReleased',
+    x: rect.x,
+    y: rect.y,
+    button: 'left',
+    clickCount: 1,
+  })
+}
+
+async function invokeConversationActionAt(client, index, title) {
+  await evaluate(
+    client,
+    `(() => {
+      const shell = [...document.querySelectorAll('.conversation-item-shell')][${index}];
+      if (!shell) throw new Error('Cannot find conversation shell at index ${index}');
+      const button = [...shell.querySelectorAll('.conversation-action-btn')]
+        .find((node) => node.getAttribute('title') === ${JSON.stringify(title)} || node.textContent.trim() === ${JSON.stringify(title)});
+      if (!button) throw new Error('Cannot find conversation action ${title} at index ${index}');
+      button.click();
+    })()`,
+  )
+}
+
 async function clickFirstSuggestion(client) {
   await evaluate(
     client,
@@ -255,6 +309,14 @@ async function clickFirstSuggestion(client) {
       item.click();
     })()`,
   )
+}
+
+async function seedConversations(client, conversations) {
+  await evaluate(client, `window.__resetMockData(${JSON.stringify(conversations)})`)
+}
+
+async function setMockFlags(client, flags) {
+  await evaluate(client, `window.__setMockFlags(${JSON.stringify(flags)})`)
 }
 
 async function typeText(client, text) {
@@ -281,7 +343,16 @@ const mockScript = `
   const encoder = new TextEncoder();
   let plans = [];
   let conversationSeq = 0;
+  const requests = [];
   const conversations = new Map();
+  const STORAGE_KEY = '__cdpMockConversations';
+  const flags = {
+    failNextCreate: false,
+    failNextDetail: false,
+    failNextRename: false,
+    failNextDelete: false,
+    failNextClear: false,
+  };
   window.__abortCount = 0;
   window.__askCount = 0;
 
@@ -290,6 +361,65 @@ const mockScript = `
     window.__abortCount = 0;
     window.__askCount = 0;
   };
+
+  window.__setMockFlags = (nextFlags) => {
+    Object.assign(flags, nextFlags || {});
+  };
+
+  function serializeConversations() {
+    return [...conversations.values()].map((conversation) => ({
+      ...conversation,
+      messages: conversation.messages.map((message) => ({ ...message })),
+    }));
+  }
+
+  function persistMockData() {
+    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(serializeConversations()));
+  }
+
+  function applyMockData(items = []) {
+    conversations.clear();
+    conversationSeq = 0;
+    for (const item of items) {
+      const numericId = String(item.id || '').match(/^ui-cdp-(\\d+)$/);
+      conversationSeq = Math.max(
+        conversationSeq + 1,
+        numericId ? Number(numericId[1]) : 0,
+      );
+      const timestamp = item.updatedAt || item.createdAt || now();
+      const conversation = {
+        id: item.id || 'ui-cdp-' + conversationSeq,
+        title: item.title || '新的聊天',
+        createdAt: item.createdAt || timestamp,
+        updatedAt: timestamp,
+        messages: Array.isArray(item.messages) ? item.messages.map((message) => ({ ...message })) : [],
+      };
+      conversations.set(conversation.id, conversation);
+    }
+  }
+
+  window.__resetMockData = (items = []) => {
+    applyMockData(items);
+    persistMockData();
+  };
+
+  window.__mockSnapshot = () => ({
+    conversations: serializeConversations(),
+    requests: requests.slice(),
+    askCount: window.__askCount,
+    abortCount: window.__abortCount,
+  });
+
+  function consumeFlag(name) {
+    const value = Boolean(flags[name]);
+    flags[name] = false;
+    return value;
+  }
+
+  const seededConversations = sessionStorage.getItem(STORAGE_KEY);
+  if (seededConversations) {
+    applyMockData(JSON.parse(seededConversations));
+  }
 
   function line(event) {
     return encoder.encode(JSON.stringify(event) + '\\n');
@@ -316,6 +446,16 @@ const mockScript = `
     });
   }
 
+  function streamHeaders(plan) {
+    const headers = { 'Content-Type': 'application/x-ndjson; charset=utf-8' };
+
+    if (!plan.omitProtocolHeader) {
+      headers['X-Chat-Stream-Protocol'] = plan.protocolVersion || '1';
+    }
+
+    return headers;
+  }
+
   function createConversation(title = '新的聊天') {
     conversationSeq += 1;
     const timestamp = now();
@@ -327,6 +467,7 @@ const mockScript = `
       messages: [],
     };
     conversations.set(conversation.id, conversation);
+    persistMockData();
     return conversation;
   }
 
@@ -335,12 +476,20 @@ const mockScript = `
     const parsed = new URL(url, window.location.origin);
     const pathname = parsed.pathname.replace(/^\\/api/, '');
     const method = (init.method || 'GET').toUpperCase();
+    requests.push({ method, pathname });
 
     if (pathname === '/conversations' && method === 'GET') {
-      return json({ conversations: [...conversations.values()].map(summary) });
+      return json({
+        conversations: [...conversations.values()]
+          .map(summary)
+          .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()),
+      });
     }
 
     if (pathname === '/conversations' && method === 'POST') {
+      if (consumeFlag('failNextCreate')) {
+        return json({ message: 'create failed' }, 500);
+      }
       const body = JSON.parse(init.body || '{}');
       const conversation = createConversation(body.title || '新的聊天');
       return json({ conversation }, 201);
@@ -348,32 +497,47 @@ const mockScript = `
 
     const detailMatch = pathname.match(/^\\/conversations\\/([^/]+)$/);
     if (detailMatch && method === 'GET') {
+      if (consumeFlag('failNextDetail')) {
+        return json({ message: 'detail failed' }, 500);
+      }
       const conversation = conversations.get(decodeURIComponent(detailMatch[1]));
       return conversation ? json({ conversation }) : json({ message: 'not found' }, 404);
     }
 
     if (detailMatch && method === 'PATCH') {
+      if (consumeFlag('failNextRename')) {
+        return json({ message: 'rename failed' }, 500);
+      }
       const conversation = conversations.get(decodeURIComponent(detailMatch[1]));
       if (!conversation) return json({ message: 'not found' }, 404);
       const body = JSON.parse(init.body || '{}');
       conversation.title = body.title || conversation.title;
       conversation.updatedAt = now();
+      persistMockData();
       return json({ conversation });
     }
 
     if (detailMatch && method === 'DELETE') {
+      if (consumeFlag('failNextDelete')) {
+        return json({ message: 'delete failed' }, 500);
+      }
       const id = decodeURIComponent(detailMatch[1]);
       if (!conversations.has(id)) return json({ message: 'not found' }, 404);
       conversations.delete(id);
-      return new Response('', { status: 204 });
+      persistMockData();
+      return new Response(null, { status: 204 });
     }
 
     const clearMatch = pathname.match(/^\\/conversations\\/([^/]+)\\/clear$/);
     if (clearMatch && method === 'POST') {
+      if (consumeFlag('failNextClear')) {
+        return json({ message: 'clear failed' }, 500);
+      }
       const conversation = conversations.get(decodeURIComponent(clearMatch[1]));
       if (!conversation) return json({ message: 'not found' }, 404);
       conversation.messages = [];
       conversation.updatedAt = now();
+      persistMockData();
       return json({ conversation });
     }
 
@@ -415,10 +579,16 @@ const mockScript = `
       return new Response('failed', { status: plan.status || 500 });
     }
 
+    if (plan.kind === 'networkError') {
+      throw new TypeError(plan.message || 'Failed to fetch');
+    }
+
     const stream = new ReadableStream({
       start(controller) {
         let index = 0;
+        let reasoningIndex = 0;
         let answer = '';
+        let reasoning = '';
         let timer;
         let closed = false;
 
@@ -454,12 +624,41 @@ const mockScript = `
             return;
           }
 
+          if (plan.kind === 'invalidReasoningEvent') {
+            controller.enqueue(line({ type: 'reasoning_delta', content: 123 }));
+            closed = true;
+            controller.close();
+            return;
+          }
+
+          if (plan.kind === 'invalidDoneEvent') {
+            controller.enqueue(line({ type: 'done', reasoningDurationMs: 'bad' }));
+            closed = true;
+            controller.close();
+            return;
+          }
+
+          if (reasoningIndex < (plan.reasoningChunks || []).length) {
+            const chunk = plan.reasoningChunks[reasoningIndex];
+            reasoning += chunk;
+            controller.enqueue(line({ type: 'reasoning_delta', content: chunk }));
+            reasoningIndex += 1;
+            timer = window.setTimeout(push, plan.reasoningInterval ?? plan.interval ?? 80);
+            return;
+          }
+
           if (index < (plan.chunks || []).length) {
             const chunk = plan.chunks[index];
             answer += chunk;
             controller.enqueue(line({ type: 'delta', content: chunk }));
             index += 1;
             timer = window.setTimeout(push, plan.interval ?? 80);
+            return;
+          }
+
+          if (plan.kind === 'abruptClose') {
+            closed = true;
+            controller.error(new TypeError(plan.message || 'network lost'));
             return;
           }
 
@@ -474,12 +673,39 @@ const mockScript = `
             return;
           }
 
-          controller.enqueue(line({ type: 'done' }));
+          if (plan.kind === 'extraAfterDone') {
+            controller.enqueue(line({ type: 'done' }));
+            controller.enqueue(line({ type: 'delta', content: plan.extraContent || '不应该显示的内容' }));
+            conversation.messages.push(
+              { role: 'user', content: question },
+              { role: 'assistant', content: answer },
+            );
+            conversation.updatedAt = now();
+            persistMockData();
+            closed = true;
+            controller.close();
+            return;
+          }
+
+          controller.enqueue(line({
+            type: 'done',
+            reasoningDurationMs: typeof plan.reasoningDurationMs === 'number'
+              ? plan.reasoningDurationMs
+              : reasoning
+                ? 123
+                : undefined,
+          }));
           conversation.messages.push(
             { role: 'user', content: question },
-            { role: 'assistant', content: answer },
+            {
+              role: 'assistant',
+              content: answer,
+              reasoningContent: reasoning || undefined,
+              reasoningDurationMs: reasoning ? 123 : undefined,
+            },
           );
           conversation.updatedAt = now();
+          persistMockData();
           closed = true;
           controller.close();
         };
@@ -493,7 +719,7 @@ const mockScript = `
 
     return new Response(stream, {
       status: 200,
-      headers: { 'Content-Type': 'application/x-ndjson; charset=utf-8' },
+      headers: streamHeaders(plan),
     });
   };
 })();
@@ -530,8 +756,16 @@ async function main() {
 
     await client.send('Page.enable')
     await client.send('Runtime.enable')
+    const dialogResponses = []
+    const queueDialog = (response) => {
+      dialogResponses.push(response)
+    }
     client.on('Page.javascriptDialogOpening', () => {
-      client.send('Page.handleJavaScriptDialog', { accept: true }).catch(() => {})
+      const response = dialogResponses.shift() || { accept: true }
+      client.send('Page.handleJavaScriptDialog', {
+        accept: response.accept !== false,
+        promptText: response.promptText,
+      }).catch(() => {})
     })
     await client.send('Browser.grantPermissions', {
       origin: APP_ORIGIN,
@@ -548,6 +782,388 @@ async function main() {
 
     await resetPage(client)
 
+    console.log('UI stage: initialization, sidebar, dialogs, and API failures')
+    const initialState = await evaluate(
+      client,
+      `(() => ({
+        hasSidebar: Boolean(document.querySelector('.sidebar')),
+        hasEmptyState: Boolean(document.querySelector('.empty-state')),
+        suggestionCount: document.querySelectorAll('.suggestion-card').length,
+        activeCount: document.querySelectorAll('.conversation-item-shell.active').length,
+        sendDisabled: [...document.querySelectorAll('button')].find((button) => button.textContent.trim() === '发送')?.disabled === true,
+        textareaDisabled: document.querySelector('textarea')?.disabled === false,
+        pageOverflowX: document.documentElement.scrollWidth > window.innerWidth,
+      }))()`,
+    )
+    if (
+      !initialState.hasSidebar ||
+      !initialState.hasEmptyState ||
+      initialState.suggestionCount !== 4 ||
+      initialState.activeCount !== 1 ||
+      !initialState.sendDisabled ||
+      !initialState.textareaDisabled ||
+      initialState.pageOverflowX
+    ) {
+      throw new Error(`Initial UI state failed: ${JSON.stringify(initialState)}`)
+    }
+
+    const oldDataMessages = [
+      { role: 'user', content: '旧格式用户消息' },
+      { role: 'assistant', content: '旧格式助手消息，没有 reasoning 字段' },
+    ]
+    const manyConversations = Array.from({ length: 48 }, (_, index) => ({
+      id: `ui-seed-${index + 1}`,
+      title:
+        index === 0
+          ? '这是一个非常非常非常非常非常非常长的会话标题用于测试侧栏省略和按钮布局'
+          : `侧栏会话 ${index + 1}`,
+      createdAt: new Date(Date.now() - index * 1000).toISOString(),
+      updatedAt: new Date(Date.now() - index * 1000).toISOString(),
+      messages: index === 0
+        ? oldDataMessages
+        : [
+            { role: 'user', content: `会话 ${index + 1} 用户消息` },
+            { role: 'assistant', content: `会话 ${index + 1} 助手消息` },
+          ],
+    }))
+    await seedConversations(client, manyConversations)
+    await client.send('Page.reload')
+    await waitFor(client, `document.body.innerText.includes('旧格式助手消息，没有 reasoning 字段')`)
+    const sidebarState = await evaluate(
+      client,
+      `(() => {
+        const panel = document.querySelector('.conversation-panel');
+        const title = document.querySelector('.conversation-title');
+        const activeShell = document.querySelector('.conversation-item-shell.active');
+        const actionRects = [...activeShell.querySelectorAll('.conversation-action-btn')]
+          .map((button) => button.getBoundingClientRect());
+        return {
+          count: document.querySelectorAll('.conversation-item-shell').length,
+          panelScrollable: panel.scrollHeight > panel.clientHeight,
+          activeCount: document.querySelectorAll('.conversation-item-shell.active').length,
+          longTitleConstrained: title.scrollWidth >= title.clientWidth,
+          actionsVisible: actionRects.length === 2 && actionRects.every((rect) => rect.width > 0 && rect.height > 0),
+          hasReasoningPanelForOldData: Boolean(document.querySelector('.reasoning-panel')),
+          pageOverflowX: document.documentElement.scrollWidth > window.innerWidth,
+        };
+      })()`,
+    )
+    if (
+      sidebarState.count !== manyConversations.length ||
+      !sidebarState.panelScrollable ||
+      sidebarState.activeCount !== 1 ||
+      !sidebarState.longTitleConstrained ||
+      !sidebarState.actionsVisible ||
+      sidebarState.hasReasoningPanelForOldData ||
+      sidebarState.pageOverflowX
+    ) {
+      throw new Error(`Sidebar boundary assertions failed: ${JSON.stringify(sidebarState)}`)
+    }
+
+    const titleBeforeRename = await evaluate(
+      client,
+      `document.querySelector('.conversation-item-shell.active .conversation-title')?.textContent.trim()`,
+    )
+    queueDialog({ accept: false })
+    await clickConversationActionAt(client, 0, '重命名')
+    await delay(100)
+    queueDialog({ accept: true, promptText: '   ' })
+    await clickConversationActionAt(client, 0, '重命名')
+    await delay(100)
+    await setMockFlags(client, { failNextRename: true })
+    queueDialog({ accept: true, promptText: '失败的新标题' })
+    queueDialog({ accept: true })
+    await clickConversationActionAt(client, 0, '重命名')
+    await delay(500)
+    const renameState = await evaluate(
+      client,
+      `(() => ({
+        title: document.querySelector('.conversation-item-shell.active .conversation-title')?.textContent.trim(),
+        count: document.querySelectorAll('.conversation-item-shell').length,
+      }))()`,
+    )
+    if (renameState.title !== titleBeforeRename || renameState.count !== manyConversations.length) {
+      throw new Error(`Rename cancel/blank/failure assertions failed: ${JSON.stringify(renameState)}`)
+    }
+
+    await waitFor(client, `document.querySelector('.clear-history-btn')?.disabled === false`)
+    await evaluate(client, `window.confirm = () => false`)
+    await clickConversationActionAt(client, 0, '删除')
+    await delay(100)
+    const deleteCancelCount = await evaluate(client, `document.querySelectorAll('.conversation-item-shell').length`)
+    if (deleteCancelCount !== manyConversations.length) {
+      throw new Error(`Delete cancel removed a conversation: ${deleteCancelCount}`)
+    }
+
+    await evaluate(client, `window.confirm = () => true`)
+    await clickConversationActionAt(client, 1, '删除')
+    await delay(100)
+    const afterMouseDeleteState = await evaluate(
+      client,
+      `(() => ({
+        domCount: document.querySelectorAll('.conversation-item-shell').length,
+        mockCount: window.__mockSnapshot().conversations.length,
+      }))()`,
+    )
+    if (
+      afterMouseDeleteState.domCount === manyConversations.length &&
+      afterMouseDeleteState.mockCount === manyConversations.length
+    ) {
+      await invokeConversationActionAt(client, 1, '删除')
+    }
+    try {
+      await waitFor(client, `document.querySelectorAll('.conversation-item-shell').length === ${manyConversations.length - 1}`)
+    } catch (err) {
+      const deleteDebugState = await evaluate(
+        client,
+        `(() => ({
+          domCount: document.querySelectorAll('.conversation-item-shell').length,
+          activeTitle: document.querySelector('.conversation-item-shell.active .conversation-title')?.textContent.trim(),
+          clearDisabled: document.querySelector('.clear-history-btn')?.disabled,
+          snapshot: window.__mockSnapshot(),
+        }))()`,
+      )
+      throw new Error(`Delete non-current did not update list: ${JSON.stringify(deleteDebugState)}`)
+    }
+    const deleteNonCurrentState = await evaluate(
+      client,
+      `(() => ({
+        count: document.querySelectorAll('.conversation-item-shell').length,
+        activeText: document.querySelector('.message-list')?.innerText || '',
+        activeTitle: document.querySelector('.conversation-item-shell.active .conversation-title')?.textContent.trim(),
+      }))()`,
+    )
+    if (
+      deleteNonCurrentState.count !== manyConversations.length - 1 ||
+      !deleteNonCurrentState.activeText.includes('旧格式助手消息') ||
+      deleteNonCurrentState.activeTitle !== titleBeforeRename
+    ) {
+      throw new Error(`Delete non-current conversation failed: ${JSON.stringify(deleteNonCurrentState)}`)
+    }
+
+    await typeText(client, '清空取消前草稿')
+    await evaluate(client, `window.confirm = () => false`)
+    await clickText(client, 'button', '清空当前会话')
+    await delay(100)
+    const clearCancelState = await evaluate(
+      client,
+      `(() => ({
+        value: document.querySelector('textarea')?.value,
+        text: document.querySelector('.message-list')?.innerText || '',
+      }))()`,
+    )
+    if (clearCancelState.value !== '清空取消前草稿' || !clearCancelState.text.includes('旧格式助手消息')) {
+      throw new Error(`Clear cancel failed: ${JSON.stringify(clearCancelState)}`)
+    }
+
+    await setMockFlags(client, { failNextCreate: true })
+    await clickText(client, 'button', '新建')
+    await delay(200)
+    const newChatFailureState = await evaluate(
+      client,
+      `(() => ({
+        text: document.querySelector('.message-list')?.innerText || '',
+        activeTitle: document.querySelector('.conversation-item-shell.active .conversation-title')?.textContent.trim(),
+      }))()`,
+    )
+    if (!newChatFailureState.text.includes('旧格式助手消息') || newChatFailureState.activeTitle !== titleBeforeRename) {
+      throw new Error(`New chat failure changed current state: ${JSON.stringify(newChatFailureState)}`)
+    }
+
+    await setMockFlags(client, { failNextDetail: true })
+    await clickConversationAt(client, 1)
+    await delay(200)
+    const switchFailureState = await evaluate(
+      client,
+      `(() => ({
+        text: document.querySelector('.message-list')?.innerText || '',
+        activeTitle: document.querySelector('.conversation-item-shell.active .conversation-title')?.textContent.trim(),
+      }))()`,
+    )
+    if (!switchFailureState.text.includes('旧格式助手消息') || switchFailureState.activeTitle !== titleBeforeRename) {
+      throw new Error(`Switch failure changed current state: ${JSON.stringify(switchFailureState)}`)
+    }
+
+    await seedConversations(client, [{
+      id: 'ui-only-one',
+      title: '唯一会话',
+      messages: [
+        { role: 'user', content: '唯一会话用户消息' },
+        { role: 'assistant', content: '唯一会话助手消息' },
+      ],
+    }])
+    await client.send('Page.reload')
+    await waitFor(client, `document.body.innerText.includes('唯一会话助手消息')`)
+    await evaluate(client, `window.confirm = () => true`)
+    await clickConversationActionAt(client, 0, '删除')
+    await waitFor(
+      client,
+      `document.querySelector('.empty-state') &&
+        document.querySelectorAll('.conversation-item-shell').length === 1 &&
+        document.querySelector('.conversation-item-shell.active .conversation-meta')?.textContent.includes('0 条消息')`,
+    )
+    const deleteLastState = await evaluate(
+      client,
+      `(() => ({
+        isEmpty: Boolean(document.querySelector('.empty-state')),
+        count: document.querySelectorAll('.conversation-item-shell').length,
+        canFocusComposer: document.activeElement === document.querySelector('textarea'),
+      }))()`,
+    )
+    if (!deleteLastState.isEmpty || deleteLastState.count !== 1 || !deleteLastState.canFocusComposer) {
+      throw new Error(`Delete last conversation failed: ${JSON.stringify(deleteLastState)}`)
+    }
+
+    await resetPage(client)
+
+    console.log('UI stage: reasoning panel and stream protocol')
+    await setPlan(client, [{
+      kind: 'success',
+      reasoningChunks: ['先分析问题。', '再给出结论。'],
+      chunks: ['最终回答。'],
+      reasoningInterval: 20,
+      interval: 20,
+      reasoningDurationMs: 88,
+    }])
+    await ask(client, '测试 reasoning 面板')
+    await waitFor(client, `document.body.innerText.includes('最终回答。')`)
+    await waitIdle(client)
+    const reasoningState = await evaluate(
+      client,
+      `(() => {
+        const panel = document.querySelector('.reasoning-panel');
+        const summary = document.querySelector('.reasoning-summary');
+        const body = document.querySelector('.reasoning-content-body');
+        const assistant = [...document.querySelectorAll('.message-row.assistant')].at(-1);
+        return {
+          hasPanel: Boolean(panel),
+          open: panel?.hasAttribute('open') ?? null,
+          summary: summary?.textContent.trim(),
+          reasoningText: body?.textContent.trim(),
+          answerText: assistant?.innerText || '',
+        };
+      })()`,
+    )
+    if (
+      !reasoningState.hasPanel ||
+      reasoningState.open !== false ||
+      reasoningState.summary !== 'Thoughts' ||
+      !reasoningState.reasoningText.includes('先分析问题。再给出结论。') ||
+      !reasoningState.answerText.includes('最终回答。')
+    ) {
+      throw new Error(`Reasoning panel assertions failed: ${JSON.stringify(reasoningState)}`)
+    }
+    await ensureClipboard(client)
+    await clickText(client, 'button', '复制')
+    await waitFor(client, `document.body.innerText.includes('已复制')`)
+    const reasoningCopyText = await evaluate(client, `navigator.clipboard.readText()`)
+    if (reasoningCopyText.includes('先分析问题') || reasoningCopyText !== '最终回答。') {
+      throw new Error(`Reasoning copy leaked non-answer text: ${JSON.stringify(reasoningCopyText)}`)
+    }
+    await evaluate(client, `document.querySelector('.reasoning-summary')?.click()`)
+    const reasoningExpanded = await evaluate(client, `document.querySelector('.reasoning-panel')?.hasAttribute('open')`)
+    await evaluate(client, `document.querySelector('.reasoning-summary')?.click()`)
+    const reasoningCollapsed = await evaluate(client, `document.querySelector('.reasoning-panel')?.hasAttribute('open')`)
+    if (reasoningExpanded !== true || reasoningCollapsed !== false) {
+      throw new Error(`Reasoning expand/collapse failed: ${JSON.stringify({ reasoningExpanded, reasoningCollapsed })}`)
+    }
+    await typeText(client, '切换前 reasoning 草稿')
+    await clickText(client, 'button', '新建')
+    await waitFor(client, `document.querySelector('.empty-state') && document.querySelector('textarea')?.value === ''`)
+    await clickConversationAt(client, 1)
+    const reasoningAfterSwitch = await waitFor(
+      client,
+      `(() => {
+        const panel = document.querySelector('.reasoning-panel');
+        return panel &&
+          document.querySelector('.reasoning-content-body')?.textContent.includes('先分析问题。再给出结论。') &&
+          document.body.innerText.includes('最终回答。');
+      })()`,
+    )
+    if (!reasoningAfterSwitch) {
+      throw new Error('Reasoning panel was not restored after conversation switch')
+    }
+
+    await resetPage(client)
+    await setPlan(client, [{
+      kind: 'success',
+      reasoningChunks: ['## reasoning 不应作为 Markdown 渲染'],
+      chunks: ['**Markdown 正文加粗**\n\n```ts\nconst ok = true\n```'],
+      interval: 20,
+    }])
+    await ask(client, 'reasoning + markdown')
+    await waitFor(
+      client,
+      `document.querySelector('.reasoning-content-body')?.textContent.includes('## reasoning 不应作为 Markdown 渲染') &&
+        document.querySelector('.message-row.assistant strong')?.textContent.includes('Markdown 正文加粗') &&
+        document.querySelector('.message-row.assistant pre code')?.textContent.includes('const ok')`,
+    )
+    await waitIdle(client)
+    const reasoningMarkdownState = await evaluate(
+      client,
+      `(() => ({
+        reasoningRenderedAsHeading: Boolean(document.querySelector('.reasoning-content-body h2')),
+        hasStrong: Boolean(document.querySelector('.message-row.assistant strong')),
+        hasCode: Boolean(document.querySelector('.message-row.assistant pre code')),
+      }))()`,
+    )
+    if (
+      reasoningMarkdownState.reasoningRenderedAsHeading ||
+      !reasoningMarkdownState.hasStrong ||
+      !reasoningMarkdownState.hasCode
+    ) {
+      throw new Error(`Reasoning + Markdown assertions failed: ${JSON.stringify(reasoningMarkdownState)}`)
+    }
+
+    await resetPage(client)
+    await setPlan(client, [{
+      kind: 'success',
+      reasoningChunks: ['这段 reasoning 会被停止。'],
+      chunks: ['不应该完整输出。'],
+      reasoningInterval: 300,
+      interval: 300,
+      done: false,
+    }])
+    await ask(client, 'reasoning 阶段停止')
+    await waitFor(client, `document.body.innerText.includes('这段 reasoning 会被停止。')`)
+    await clickText(client, 'button', '停止')
+    await waitFor(client, `document.body.innerText.includes('已停止生成')`)
+    await waitIdle(client)
+    const reasoningAbortCount = await waitFor(client, `window.__abortCount > 0 && window.__abortCount`)
+
+    await resetPage(client)
+    await setPlan(client, [{
+      kind: 'success',
+      reasoningChunks: ['只有 reasoning，没有正文。'],
+      chunks: [],
+      interval: 20,
+    }])
+    await ask(client, 'reasoning only error')
+    await waitFor(client, `document.body.innerText.includes('模型未返回内容')`)
+    await waitIdle(client)
+
+    await resetPage(client)
+    await setPlan(client, [
+      { kind: 'success', chunks: ['缺少协议 header。'], omitProtocolHeader: true, interval: 20 },
+      { kind: 'success', chunks: ['协议错误后恢复成功。'], interval: 20 },
+      { kind: 'invalidReasoningEvent' },
+      { kind: 'invalidDoneEvent' },
+    ])
+    await ask(client, '缺少协议 header')
+    await waitFor(client, `document.body.innerText.includes('不支持的流式协议版本')`)
+    await waitIdle(client)
+    await ask(client, '协议错误后恢复')
+    await waitFor(client, `document.body.innerText.includes('协议错误后恢复成功。')`)
+    await waitIdle(client)
+    await ask(client, '非法 reasoning event')
+    await waitFor(client, `document.body.innerText.includes('服务端返回了无效的流式内容')`)
+    await waitIdle(client)
+    await ask(client, '非法 done event')
+    await waitFor(client, `document.body.innerText.includes('服务端返回了无效的完成事件')`)
+    await waitIdle(client)
+
+    await resetPage(client)
+
     console.log('UI stage: stop/copy/recovery')
     await setPlan(client, [{
       kind: 'success',
@@ -558,6 +1174,19 @@ async function main() {
     await ask(client, '测试停止按钮')
     await waitFor(client, `[...document.querySelectorAll('button')].some((button) => button.textContent.trim() === '停止')`)
     await waitFor(client, `document.body.innerText.includes('正在生成第一段。')`)
+    const streamingActionState = await evaluate(
+      client,
+      `(() => ({
+        hasCopy: [...document.querySelectorAll('.message-row.assistant .message-action-btn')]
+          .some((button) => button.textContent.trim() === '复制'),
+        hasRetry: [...document.querySelectorAll('.message-row.assistant .message-action-btn')]
+          .some((button) => button.textContent.trim() === '重试'),
+        textareaDisabled: document.querySelector('textarea')?.disabled === true,
+      }))()`,
+    )
+    if (streamingActionState.hasCopy || streamingActionState.hasRetry || !streamingActionState.textareaDisabled) {
+      throw new Error(`Streaming action visibility failed: ${JSON.stringify(streamingActionState)}`)
+    }
     await screenshot(client, '01-generating-stop-button')
     await clickText(client, 'button', '停止')
     await waitFor(client, `document.body.innerText.includes('已停止生成') && [...document.querySelectorAll('button')].some((button) => button.textContent.trim() === '发送')`)
@@ -565,6 +1194,17 @@ async function main() {
     await ensureClipboard(client)
     await clickText(client, 'button', '复制')
     await waitFor(client, `document.body.innerText.includes('已复制')`)
+    const stoppedActionState = await evaluate(
+      client,
+      `(() => ({
+        hasCopied: document.body.innerText.includes('已复制'),
+        hasRetry: [...document.querySelectorAll('.message-row.assistant .message-action-btn')]
+          .some((button) => button.textContent.trim() === '重试'),
+      }))()`,
+    )
+    if (!stoppedActionState.hasCopied || stoppedActionState.hasRetry) {
+      throw new Error(`Stopped action visibility failed: ${JSON.stringify(stoppedActionState)}`)
+    }
     await screenshot(client, '01-stopped-copy')
 
     await setPlan(client, [{
@@ -742,6 +1382,88 @@ async function main() {
     await waitFor(client, `document.body.innerText.includes('第一会话历史内容。') && !document.body.innerText.includes('第二会话正在生成。')`)
     const switchAbortCount = await waitFor(client, `window.__abortCount > 0 && window.__abortCount`)
 
+    console.log('UI stage: composer draft reset across conversations')
+    await resetPage(client)
+    await setPlan(client, [{ kind: 'success', chunks: ['第一会话已保存。'], interval: 20 }])
+    await ask(client, '第一会话问题')
+    await waitFor(client, `document.body.innerText.includes('第一会话已保存。')`)
+    await waitIdle(client)
+    await typeText(client, '新建前未发送草稿')
+    await clickText(client, 'button', '新建')
+    await waitFor(
+      client,
+      `document.querySelector('.empty-state') && document.querySelector('textarea')?.value === ''`,
+    )
+    const newChatDraftValue = await evaluate(client, `document.querySelector('textarea')?.value`)
+
+    await typeText(client, '第二会话未发送草稿')
+    await clickConversationAt(client, 1)
+    await waitFor(
+      client,
+      `document.body.innerText.includes('第一会话已保存。') &&
+        document.querySelector('textarea')?.value === ''`,
+    )
+    const switchDraftValue = await evaluate(client, `document.querySelector('textarea')?.value`)
+
+    await typeText(client, '删除当前会话前未发送草稿')
+    await evaluate(client, `window.confirm = () => true`)
+    await evaluate(
+      client,
+      `(() => {
+        const button = document.querySelector('.conversation-item-shell.active .conversation-action-btn.danger');
+        if (!button) throw new Error('Cannot find active delete button');
+        button.click();
+      })()`,
+    )
+    await waitFor(
+      client,
+      `document.querySelector('.empty-state') &&
+        document.querySelector('textarea')?.value === '' &&
+        document.querySelector('.conversation-item-shell.active .conversation-meta')?.textContent.includes('0 条消息')`,
+    )
+    const deleteDraftState = await evaluate(
+      client,
+      `(() => ({
+        value: document.querySelector('textarea')?.value,
+        activeCount: document.querySelectorAll('.conversation-item-shell.active').length,
+        activeMeta: document.querySelector('.conversation-item-shell.active .conversation-meta')?.textContent.trim(),
+      }))()`,
+    )
+    if (newChatDraftValue !== '' || switchDraftValue !== '' || deleteDraftState.value !== '') {
+      throw new Error(
+        `Composer draft reset failed: ${JSON.stringify({
+          newChatDraftValue,
+          switchDraftValue,
+          deleteDraftState,
+        })}`,
+      )
+    }
+
+    await setPlan(client, [{ kind: 'success', chunks: ['清空前会话内容。'], interval: 20 }])
+    await ask(client, '清空当前会话前的问题')
+    await waitFor(client, `document.body.innerText.includes('清空前会话内容。')`)
+    await waitIdle(client)
+    await typeText(client, '清空当前会话前未发送草稿')
+    await evaluate(client, `window.confirm = () => true`)
+    await clickText(client, 'button', '清空当前会话')
+    await waitFor(
+      client,
+      `document.querySelector('.empty-state') &&
+        document.querySelector('textarea')?.value === '' &&
+        document.querySelector('.conversation-item-shell.active .conversation-meta')?.textContent.includes('0 条消息')`,
+    )
+    const clearDraftState = await evaluate(
+      client,
+      `(() => ({
+        value: document.querySelector('textarea')?.value,
+        activeMeta: document.querySelector('.conversation-item-shell.active .conversation-meta')?.textContent.trim(),
+        isEmpty: Boolean(document.querySelector('.empty-state')),
+      }))()`,
+    )
+    if (clearDraftState.value !== '' || !clearDraftState.isEmpty) {
+      throw new Error(`Clear conversation draft reset failed: ${JSON.stringify(clearDraftState)}`)
+    }
+
     await resetPage(client)
     await setPlan(client, [{
       kind: 'success',
@@ -877,6 +1599,16 @@ async function main() {
     await client.send('Page.reload')
     await waitFor(client, `document.querySelector('.app-shell')?.dataset.theme === ${JSON.stringify(toggledTheme)}`)
     await waitFor(client, `document.querySelector('textarea') && document.querySelector('form')`)
+    const themePersistenceState = await evaluate(
+      client,
+      `(() => ({
+        theme: document.querySelector('.app-shell')?.dataset.theme,
+        storedTheme: localStorage.getItem('chatbot-theme'),
+      }))()`,
+    )
+    if (themePersistenceState.theme !== toggledTheme || themePersistenceState.storedTheme !== toggledTheme) {
+      throw new Error(`Theme persistence failed: ${JSON.stringify(themePersistenceState)}`)
+    }
     await setPlan(client, [{ kind: 'success', chunks: ['主题切换生成中保持。'], interval: 300, done: false }])
     await ask(client, '主题生成中')
     await waitFor(client, `document.body.innerText.includes('主题切换生成中保持。')`)
@@ -893,6 +1625,31 @@ async function main() {
     }
     await clickText(client, 'button', '停止')
     await waitFor(client, `document.body.innerText.includes('已停止生成')`)
+
+    await resetPage(client)
+    await setPlan(client, [{ kind: 'success', chunks: ['刷新恢复当前会话内容。'], interval: 20 }])
+    await ask(client, '刷新恢复当前会话')
+    await waitFor(client, `document.body.innerText.includes('刷新恢复当前会话内容。')`)
+    await waitIdle(client)
+    await typeText(client, '刷新前草稿会清空')
+    await client.send('Page.reload')
+    await waitFor(
+      client,
+      `document.body.innerText.includes('刷新恢复当前会话内容。') &&
+        document.querySelector('textarea')?.value === '' &&
+        document.querySelectorAll('.conversation-item-shell.active').length === 1`,
+    )
+    const reloadRecoveryState = await evaluate(
+      client,
+      `(() => ({
+        hasMessage: document.body.innerText.includes('刷新恢复当前会话内容。'),
+        draftValue: document.querySelector('textarea')?.value,
+        activeCount: document.querySelectorAll('.conversation-item-shell.active').length,
+      }))()`,
+    )
+    if (!reloadRecoveryState.hasMessage || reloadRecoveryState.draftValue !== '' || reloadRecoveryState.activeCount !== 1) {
+      throw new Error(`Reload recovery failed: ${JSON.stringify(reloadRecoveryState)}`)
+    }
 
     console.log('UI stage: mobile layout and frontend errors')
     await client.send('Emulation.setDeviceMetricsOverride', {
@@ -948,12 +1705,128 @@ async function main() {
     ) {
       throw new Error(`Mobile layout failed: ${JSON.stringify(mobileState)}`)
     }
+    await resetPage(client)
+    await setPlan(client, [{
+      kind: 'success',
+      reasoningChunks: ['移动端 reasoning 长文本 '.repeat(80)],
+      chunks: ['移动端 reasoning 正文。'],
+      interval: 20,
+    }])
+    await ask(client, '移动端 reasoning 布局')
+    await waitFor(client, `document.body.innerText.includes('移动端 reasoning 正文。')`)
+    await waitIdle(client)
+    const mobileReasoningState = await evaluate(
+      client,
+      `(() => {
+        const panel = document.querySelector('.reasoning-panel');
+        const body = document.querySelector('.reasoning-content-body');
+        return {
+          hasPanel: Boolean(panel),
+          pageOverflowX: document.documentElement.scrollWidth > window.innerWidth,
+          panelWidth: Math.ceil(panel?.getBoundingClientRect().width || 0),
+          bodyWidth: Math.ceil(body?.getBoundingClientRect().width || 0),
+          viewportWidth: window.innerWidth,
+        };
+      })()`,
+    )
+    if (
+      !mobileReasoningState.hasPanel ||
+      mobileReasoningState.pageOverflowX ||
+      mobileReasoningState.panelWidth > mobileReasoningState.viewportWidth ||
+      mobileReasoningState.bodyWidth > mobileReasoningState.viewportWidth
+    ) {
+      throw new Error(`Mobile reasoning layout failed: ${JSON.stringify(mobileReasoningState)}`)
+    }
     await client.send('Emulation.setDeviceMetricsOverride', {
       width: 1280,
       height: 900,
       deviceScaleFactor: 1,
       mobile: false,
     })
+
+    console.log('UI stage: send failures, timeout, done handling, and fast actions')
+    await resetPage(client)
+    await setPlan(client, [
+      { kind: 'httpError', status: 500 },
+      { kind: 'networkError', message: 'Failed to fetch' },
+      { kind: 'abruptClose', chunks: ['部分正文已经到达。'], interval: 20, message: 'network lost' },
+      { kind: 'extraAfterDone', chunks: ['done 前内容。'], extraContent: 'done 后不应显示。', interval: 20 },
+      { kind: 'success', chunks: ['快速点击只发送一次。'], interval: 80 },
+      { kind: 'success', chunks: ['超时后恢复成功。'], interval: 20 },
+    ])
+    await ask(client, 'HTTP 500 错误')
+    await waitFor(client, `document.body.innerText.includes('请求失败：500')`)
+    await waitIdle(client)
+    await ask(client, '网络错误')
+    await waitFor(client, `document.body.innerText.includes('Failed to fetch')`)
+    await waitIdle(client)
+    await ask(client, '中途网络断开')
+    await waitFor(
+      client,
+      `document.body.innerText.includes('部分正文已经到达。') &&
+        document.body.innerText.includes('响应中断') &&
+        document.body.innerText.includes('复制') &&
+        document.body.innerText.includes('重试')`,
+    )
+    await waitIdle(client)
+    await ask(client, 'done 后多余内容')
+    await waitFor(client, `document.body.innerText.includes('done 前内容。')`)
+    await waitIdle(client)
+    const extraAfterDoneState = await evaluate(
+      client,
+      `(() => ({
+        hasExpected: document.body.innerText.includes('done 前内容。'),
+        hasExtra: document.body.innerText.includes('done 后不应显示。'),
+      }))()`,
+    )
+    if (!extraAfterDoneState.hasExpected || extraAfterDoneState.hasExtra) {
+      throw new Error(`Extra after done was rendered: ${JSON.stringify(extraAfterDoneState)}`)
+    }
+
+    const fastBeforeAskCount = await evaluate(client, `window.__askCount`)
+    await typeText(client, '快速连续点击发送')
+    await evaluate(
+      client,
+      `(() => {
+        const form = document.querySelector('form');
+        form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+        form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+      })()`,
+    )
+    await waitFor(client, `document.body.innerText.includes('快速点击只发送一次。')`)
+    await waitIdle(client)
+    const fastSubmitState = await evaluate(
+      client,
+      `(() => ({
+        askCountDelta: window.__askCount - ${fastBeforeAskCount},
+        userRows: [...document.querySelectorAll('.message-row.user')]
+          .filter((row) => row.innerText.includes('快速连续点击发送')).length,
+      }))()`,
+    )
+    if (fastSubmitState.askCountDelta !== 1 || fastSubmitState.userRows !== 1) {
+      throw new Error(`Fast submit caused duplicate request: ${JSON.stringify(fastSubmitState)}`)
+    }
+
+    await setPlan(client, [
+      { kind: 'success', chunks: ['这条不会及时返回。'], firstDelay: 16000, interval: 20 },
+      { kind: 'success', chunks: ['超时后恢复成功。'], interval: 20 },
+    ])
+    await ask(client, '等待超时')
+    await waitFor(client, `document.body.innerText.includes('响应超时或连接中断')`, 20000)
+    await waitIdle(client)
+    await ask(client, '超时后恢复')
+    await waitFor(client, `document.body.innerText.includes('超时后恢复成功。')`)
+    await waitIdle(client)
+    const timeoutRecoveryState = await evaluate(
+      client,
+      `(() => ({
+        hasTimeout: document.body.innerText.includes('响应超时或连接中断'),
+        hasRecovery: document.body.innerText.includes('超时后恢复成功。'),
+      }))()`,
+    )
+    if (!timeoutRecoveryState.hasTimeout || !timeoutRecoveryState.hasRecovery) {
+      throw new Error(`Timeout recovery failed: ${JSON.stringify(timeoutRecoveryState)}`)
+    }
 
     await resetPage(client)
     await setPlan(client, [
@@ -980,12 +1853,29 @@ async function main() {
       bottomGap,
       newChatAbortCount,
       switchAbortCount,
+      streamingActionState,
+      stoppedActionState,
+      newChatDraftValue,
+      switchDraftValue,
+      deleteDraftState,
+      clearDraftState,
       operationState,
       composerState,
       suggestionState,
       suggestionDuringGeneration,
+      themePersistenceState,
       themeStreamingState,
+      reloadRecoveryState,
       mobileState,
+      mobileReasoningState,
+      reasoningState,
+      reasoningAbortCount,
+      reasoningExpanded,
+      reasoningCollapsed,
+      reasoningMarkdownState,
+      extraAfterDoneState,
+      fastSubmitState,
+      timeoutRecoveryState,
     }, null, 2))
 
     client.close()

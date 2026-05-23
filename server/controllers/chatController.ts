@@ -7,6 +7,7 @@ import {
   parseRequestId,
   registerRequest
 } from '../utils/requestRegistry.ts'
+import type { LlmStreamChunkType } from '../types/llm.ts'
 import type { RequestHandler, Response } from 'express'
 
 type AskConversationParams = {
@@ -91,14 +92,16 @@ const askConversation: RequestHandler<AskConversationParams, unknown, AskConvers
   res.on('close', abortOnClientClose)
 
   try {
-    const writeDelta = (chunk: string): void => {
-      if (!writeStreamEvent(res, { type: 'delta', content: chunk })) {
+    const writeDelta = (chunk: string, type: LlmStreamChunkType): void => {
+      const eventType = type === 'reasoning' ? 'reasoning_delta' : 'delta'
+
+      if (!writeStreamEvent(res, { type: eventType, content: chunk })) {
         abortUpstream('write_closed')
         throw createAbortError()
       }
     }
 
-    await generateConversationAnswer({
+    const answer = await generateConversationAnswer({
       conversation,
       conversationId: req.params.id,
       question,
@@ -106,7 +109,7 @@ const askConversation: RequestHandler<AskConversationParams, unknown, AskConvers
       onDelta: writeDelta
     })
 
-    writeStreamEvent(res, { type: 'done' })
+    writeStreamEvent(res, { type: 'done', reasoningDurationMs: answer.reasoningDurationMs })
   } catch (err: unknown) {
     if (abortReason || (err instanceof Error && err.name === 'AbortError')) {
       console.info(

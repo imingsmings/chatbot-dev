@@ -13,7 +13,10 @@ function buildStandardPrompt(userInput: string, conversations: StoredMessage[]):
       role: 'system',
       content: '你是一个中文智能助手，请使用中文回答用户的问题。'
     },
-    ...conversations,
+    ...conversations.map((message) => ({
+      role: message.role,
+      content: message.content
+    })),
     {
       role: 'user',
       content: userInput

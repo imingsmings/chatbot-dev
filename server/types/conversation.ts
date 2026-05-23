@@ -7,6 +7,8 @@ export type PromptMessageRole = StoredMessageRole | 'system' | 'tool'
 export type StoredMessage = {
   role: StoredMessageRole
   content: string
+  reasoningContent?: string
+  reasoningDurationMs?: number
 }
 
 export type PromptMessage = {

@@ -356,7 +356,10 @@ const injectedFetch = `
 
       return new Response(stream, {
         status: 200,
-        headers: { 'Content-Type': 'application/x-ndjson; charset=utf-8' },
+        headers: {
+          'Content-Type': 'application/x-ndjson; charset=utf-8',
+          'X-Chat-Stream-Protocol': '1',
+        },
       });
     }
 

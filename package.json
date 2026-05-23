@@ -13,6 +13,7 @@
     "check": "pnpm run typecheck:server && pnpm run typecheck:client",
     "test:cdp:p0": "node tests/cdp/run-cdp-regression.mjs p0",
     "test:cdp:p1": "node tests/cdp/run-cdp-regression.mjs p1",
+    "test:cdp:ui": "node tests/cdp/run-cdp-regression.mjs ui",
     "test:cdp:markdown": "node tests/cdp/run-cdp-regression.mjs markdown",
     "test:cdp:highlight": "node tests/cdp/run-cdp-regression.mjs highlight",
     "test:cdp:all-mock": "node tests/cdp/run-cdp-regression.mjs all-mock",

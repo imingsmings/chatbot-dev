@@ -7,17 +7,32 @@
     >
       <div v-if="msg.role === 'assistant'" class="message-avatar">AI</div>
       <div class="message-content">
+        <details
+          v-if="msg.role === 'assistant' && msg.reasoningText"
+          class="reasoning-panel"
+          :open="msg.status === 'streaming'"
+        >
+          <summary class="reasoning-summary">
+            {{ getReasoningLabel(msg) }}
+          </summary>
+          <div class="reasoning-content">
+            <div class="reasoning-content-body">{{ msg.reasoningText.trim() }}</div>
+          </div>
+        </details>
         <div v-if="msg.status === 'pending'" class="message-text thinking-text">Thinking...</div>
-        <div v-else-if="msg.status === 'error'" class="message-text error-text">
+        <div v-else-if="msg.status === 'error' && !msg.text" class="message-text error-text">
           {{ msg.error || '响应失败，请重试' }}
         </div>
         <div v-else-if="msg.role === 'user'" class="message-text">{{ msg.text }}</div>
         <MarkdownMessage
-          v-else
+          v-else-if="msg.text"
           class="message-text"
           :content="msg.text"
           :streaming="msg.status === 'streaming'"
         />
+        <div v-if="msg.status === 'error' && msg.text" class="message-status-text error-text">
+          {{ msg.error || '响应失败，请重试' }}
+        </div>
         <div v-if="msg.status === 'stopped'" class="message-status-text">已停止生成</div>
         <div v-if="msg.role === 'assistant'" class="message-actions">
           <button
@@ -57,4 +72,12 @@ defineEmits<{
   copyMessage: [message: ChatMessage]
   retryMessage: [index: number]
 }>()
+
+function getReasoningLabel(message: ChatMessage) {
+  if (message.status === 'streaming' && !message.text) {
+    return 'Thinking...'
+  }
+
+  return 'Thoughts'
+}
 </script>

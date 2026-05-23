@@ -92,6 +92,10 @@ function focusComposer() {
   composer.value?.focus()
 }
 
+function clearComposerDraft() {
+  input.value = ''
+}
+
 const {
   copiedMessageId,
   copyMessage,
@@ -137,6 +141,7 @@ async function startNewChat() {
 
   try {
     await createNewConversation()
+    clearComposerDraft()
     await settleConversationView({ focus: true })
   } catch (err) {
     console.error('Failed to create conversation:', err)
@@ -155,6 +160,7 @@ async function selectConversation(id: string) {
 
   try {
     await loadConversation(id)
+    clearComposerDraft()
     await settleConversationView({ scroll: true })
   } catch (err) {
     console.error('Failed to select conversation:', err)
@@ -191,6 +197,7 @@ async function handleDeleteConversation(id: string) {
 
   try {
     await removeConversation(id)
+    clearComposerDraft()
     await settleConversationView({ focus: true, scroll: true })
   } catch (err) {
     console.error('Failed to delete conversation:', err)
@@ -209,6 +216,8 @@ async function handleClearCurrentConversation() {
 
   try {
     await clearCurrentConversation()
+    clearComposerDraft()
+    await settleConversationView()
   } catch (err) {
     console.error('Failed to clear conversation:', err)
     alert('清空会话失败，请稍候再试')

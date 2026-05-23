@@ -17,7 +17,7 @@ tests/cdp/
 ```
 
 The frontend calls `/api/*`. During development, Vite proxies those requests to
-the backend on `http://localhost:7001` and strips the `/api` prefix.
+the backend on `http://127.0.0.1:7001` and strips the `/api` prefix.
 
 The streaming response path is:
 
@@ -65,16 +65,16 @@ Then fill in the model and tool credentials in `server/.env`.
 
 Key variables:
 
-| Name | Purpose |
-| --- | --- |
-| `PORT` | Backend port. Defaults to `7001`. |
-| `LLM_PROVIDER` | LLM adapter name. Currently `deepseek`. |
-| `LLM_ENDPOINT` | Chat completions endpoint. |
-| `LLM_MODEL` | Model name sent to the provider. |
-| `LLM_TIMEOUT_MS` | Upstream model request timeout. |
-| `DEEPSEEK_API_KEY` | API key used by the DeepSeek adapter. |
-| `HEFENG_API_HOST` | Weather API host for the weather tool. |
-| `HEFENG_API_KEY` | Weather API key. |
+| Name                    | Purpose                                                            |
+| ----------------------- | ------------------------------------------------------------------ |
+| `PORT`                  | Backend port. Defaults to `7001`.                                  |
+| `LLM_PROVIDER`          | LLM adapter name. Currently `deepseek`.                            |
+| `LLM_ENDPOINT`          | Chat completions endpoint.                                         |
+| `LLM_MODEL`             | Model name sent to the provider.                                   |
+| `LLM_TIMEOUT_MS`        | Upstream model request timeout.                                    |
+| `DEEPSEEK_API_KEY`      | API key used by the DeepSeek adapter.                              |
+| `HEFENG_API_HOST`       | Weather API host for the weather tool.                             |
+| `HEFENG_API_KEY`        | Weather API key.                                                   |
 | `CONVERSATION_DATA_DIR` | Optional override for conversation data storage. Useful for tests. |
 
 ## Development
@@ -97,6 +97,16 @@ Open:
 http://localhost:5173
 ```
 
+For another machine on the same LAN, open the frontend with this machine's LAN
+IP address:
+
+```text
+http://<your-lan-ip>:5173
+```
+
+The frontend dev server listens on `0.0.0.0`, and API requests are proxied back
+to the local backend at `127.0.0.1:7001`.
+
 ## Root Scripts
 
 The root `package.json` provides shortcuts that delegate to the existing client,
@@ -117,6 +127,7 @@ CDP regression suites:
 ```bash
 pnpm run test:cdp:p0
 pnpm run test:cdp:p1
+pnpm run test:cdp:ui
 pnpm run test:cdp:markdown
 pnpm run test:cdp:highlight
 pnpm run test:cdp:all-mock
@@ -129,7 +140,8 @@ pnpm run test:cdp:real
 ```
 
 Run real-provider tests only when the local environment is configured with real
-LLM and tool credentials.
+LLM and tool credentials. The real-provider runner starts the local backend and
+frontend when they are not already running.
 
 ## Backend Boundaries
 
@@ -153,10 +165,14 @@ LLM and tool credentials.
 ## Testing Notes
 
 Regression test definitions live in `docs/regression-test-cases.md`.
+Recent full-run evidence is recorded in `docs/cdp-regression-results-2026-05-23.md`.
+Current follow-up architecture notes are recorded in
+`docs/architecture-review-2026-05-23.md`.
 
 Default guidance:
 
 - Run P0 after backend, streaming, cancellation, tool, or persistence changes.
+- Run the UI suite after sidebar, composer, message rendering, scroll, theme, or responsive changes.
 - Add Markdown/highlight suites after rendering changes.
 - Add UI scenarios after interaction, layout, copy, retry, or scroll changes.
 - Use real-provider tests only when explicitly validating real model/tool behavior.

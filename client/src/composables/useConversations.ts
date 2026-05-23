@@ -24,6 +24,8 @@ function mapStoredMessages(conversation: ConversationDetail): ChatMessage[] {
     id: `${conversation.id}-${index}-${message.role}`,
     role: message.role,
     text: message.content,
+    reasoningText: message.reasoningContent,
+    reasoningDurationMs: message.reasoningDurationMs,
     status: 'done',
   }))
 }

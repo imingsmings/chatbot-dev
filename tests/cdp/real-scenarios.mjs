@@ -269,7 +269,11 @@ async function main() {
 
     await newChat(client)
     await ask(client, '真实接口测试二：请只回复一句话：真实接口复制测试通过。')
-    await waitFor(client, `document.querySelectorAll('.message-row.assistant .message-text').length > 0`)
+    await waitFor(
+      client,
+      `[...document.querySelectorAll('.message-row.assistant')]
+        .some((row) => row.innerText.trim().length > 0)`,
+    )
     await waitIdle(client)
     await clickText(client, 'button', '复制')
     await waitFor(client, `document.body.innerText.includes('已复制')`)
@@ -296,7 +300,7 @@ async function main() {
         assistantRows: [...document.querySelectorAll('.message-row.assistant')].length,
         hasRetry: [...document.querySelectorAll('button')].some((node) => node.textContent.trim() === '重试'),
         hasStoppedText: document.body.innerText.includes('已停止生成'),
-        partialTextLength: document.querySelector('.message-row.assistant .message-text')?.textContent.trim().length || 0,
+        partialTextLength: document.querySelector('.message-row.assistant')?.innerText.trim().length || 0,
         askCount: window.__realAskCount,
         abortCount: window.__realAbortCount,
       }))()`,
@@ -306,7 +310,7 @@ async function main() {
     }
     await screenshot(client, '03-real-stopped-no-retry')
     await ask(client, '真实接口测试三续：请只回复一句话：停止后继续发送成功。')
-    await waitFor(client, `document.querySelectorAll('.message-row.assistant .message-text').length >= 2`)
+    await waitFor(client, `document.querySelectorAll('.message-row.assistant').length >= 2`)
     await waitIdle(client)
     const retryState = await evaluate(
       client,

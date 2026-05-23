@@ -3,6 +3,7 @@ import path from 'node:path'
 
 const REPO_ROOT = process.cwd()
 const APP_URL = process.env.APP_URL || 'http://127.0.0.1:5173/'
+const BACKEND_URL = process.env.BACKEND_URL || 'http://127.0.0.1:7001/'
 const CAPTURE_SCREENSHOTS = process.env.CDP_SCREENSHOTS === '1' ? '1' : '0'
 
 const SUITES = {
@@ -30,10 +31,13 @@ const SUITES = {
   highlight: [
     { name: 'Highlight rendering scenarios', script: 'tests/cdp/highlight-rendering.mjs', needsVite: true },
   ],
+  ui: [
+    { name: 'UI interaction scenarios', script: 'tests/cdp/ui-scenarios.mjs', needsVite: true },
+  ],
   real: [
-    { name: 'Real UI scenarios', script: 'tests/cdp/real-scenarios.mjs', needsVite: true },
-    { name: 'Real conversation context scenarios', script: 'tests/cdp/conversation-context-real.mjs', needsVite: true },
-    { name: 'Real Markdown scenarios', script: 'tests/cdp/markdown-real.mjs', needsVite: true },
+    { name: 'Real UI scenarios', script: 'tests/cdp/real-scenarios.mjs', needsVite: true, needsBackend: true },
+    { name: 'Real conversation context scenarios', script: 'tests/cdp/conversation-context-real.mjs', needsVite: true, needsBackend: true },
+    { name: 'Real Markdown scenarios', script: 'tests/cdp/markdown-real.mjs', needsVite: true, needsBackend: true },
   ],
 }
 
@@ -109,6 +113,28 @@ async function ensureVite() {
   return vite
 }
 
+async function ensureBackend() {
+  const healthUrl = new URL('/conversations', BACKEND_URL).toString()
+
+  if (await waitForHttp(healthUrl, 1000)) {
+    console.log(`Reusing existing backend service at ${BACKEND_URL}`)
+    return null
+  }
+
+  const backend = spawnProcess('node', ['./bin/www.ts'], {
+    cwd: path.join(REPO_ROOT, 'server'),
+    env: process.env,
+  })
+
+  const ready = await waitForHttp(healthUrl, 15000)
+  if (!ready) {
+    await stopProcess(backend)
+    throw new Error(`Timed out waiting for backend at ${BACKEND_URL}`)
+  }
+
+  return backend
+}
+
 async function runScript(item) {
   console.log(`\n==> ${item.name}`)
 
@@ -137,7 +163,9 @@ async function main() {
     return
   }
 
+  const needsBackend = suite.some((item) => item.needsBackend)
   const needsVite = suite.some((item) => item.needsVite)
+  const backend = needsBackend ? await ensureBackend() : null
   const vite = needsVite ? await ensureVite() : null
 
   try {
@@ -148,6 +176,7 @@ async function main() {
     console.log(`\nCDP regression suite passed: ${suiteName}`)
   } finally {
     await stopProcess(vite)
+    await stopProcess(backend)
   }
 }
 

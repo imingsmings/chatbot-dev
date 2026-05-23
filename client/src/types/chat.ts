@@ -6,6 +6,8 @@ export type ChatMessage = {
   id: string
   role: 'user' | 'assistant'
   text: string
+  reasoningText?: string
+  reasoningDurationMs?: number
   status: MessageStatus
   error?: string
 }
@@ -13,6 +15,8 @@ export type ChatMessage = {
 export type StoredMessage = {
   role: 'user' | 'assistant'
   content: string
+  reasoningContent?: string
+  reasoningDurationMs?: number
 }
 
 export type ConversationSummary = {

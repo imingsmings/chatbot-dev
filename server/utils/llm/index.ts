@@ -6,17 +6,18 @@ import type {
   LlmAdapter,
   LlmCallOptions,
   LlmStreamCallback,
+  LlmStreamResult,
   LlmStreamToolCallDelta,
   LlmStreamWithToolsResult
 } from '../../types/llm.ts'
 import type { PromptMessage } from '../../types/conversation.ts'
 import type { ChatCompletionToolCall } from '../../types/tools.ts'
 
-const TOOL_STREAM_CONTENT_BUFFER_MS = 120
-
 const adapters: Record<string, LlmAdapter> = {
   deepseek: deepseekAdapter
 }
+
+const TOOL_DECISION_CONTENT_FLUSH_CHARS = 80
 
 const LLM_PROVIDER = process.env.LLM_PROVIDER || 'deepseek'
 const LLM_ENDPOINT = process.env.LLM_ENDPOINT
@@ -166,7 +167,14 @@ async function requestModel(
   )
 }
 
-async function callLLM({ prompt, stream = false, callback, signal, tools, toolChoice }: CallLLMInput): Promise<string> {
+async function callLLM({
+  prompt,
+  stream = false,
+  callback,
+  signal,
+  tools,
+  toolChoice
+}: CallLLMInput): Promise<string | LlmStreamResult> {
   const adapter = getAdapter()
   const upstream = await requestModel(adapter, {
     prompt,
@@ -189,6 +197,7 @@ async function callLLM({ prompt, stream = false, callback, signal, tools, toolCh
     }
 
     let fullResponse = ''
+    let reasoningContent = ''
 
     if (!response.body) {
       throw new Error('模型未返回流式响应')
@@ -206,9 +215,14 @@ async function callLLM({ prompt, stream = false, callback, signal, tools, toolCh
         return
       }
 
+      if (event.reasoningContent) {
+        reasoningContent += event.reasoningContent
+        callback?.(event.reasoningContent, 'reasoning')
+      }
+
       if (event.content) {
         fullResponse += event.content
-        callback?.(event.content)
+        callback?.(event.content, 'content')
       }
     }
 
@@ -217,7 +231,10 @@ async function callLLM({ prompt, stream = false, callback, signal, tools, toolCh
       onAbort: upstream.abortUpstream
     })
 
-    return fullResponse
+    return {
+      content: fullResponse,
+      reasoningContent
+    }
   } finally {
     upstream.cleanup()
   }
@@ -251,7 +268,6 @@ async function callLLMStreamWithTools(
     let reasoningContent = ''
     let finishReason: string | undefined
     let pendingContent = ''
-    let pendingContentStartedAt = 0
     let contentUnlocked = false
     const toolCalls = new Map<number, ChatCompletionToolCall>()
 
@@ -261,9 +277,8 @@ async function callLLMStreamWithTools(
       }
 
       contentUnlocked = true
-      callback(pendingContent)
+      callback(pendingContent, 'content')
       pendingContent = ''
-      pendingContentStartedAt = 0
     }
 
     const handleStreamLine = (line: string): false | void => {
@@ -280,11 +295,11 @@ async function callLLMStreamWithTools(
 
       if (event.reasoningContent) {
         reasoningContent += event.reasoningContent
+        callback(event.reasoningContent, 'reasoning')
       }
 
       if (event.toolCallDeltas?.length) {
         pendingContent = ''
-        pendingContentStartedAt = 0
         applyToolCallDeltas(toolCalls, event.toolCallDeltas)
       }
 
@@ -292,14 +307,13 @@ async function callLLMStreamWithTools(
         fullResponse += event.content
 
         if (contentUnlocked) {
-          callback(event.content)
+          callback(event.content, 'content')
           return
         }
 
         pendingContent += event.content
-        pendingContentStartedAt ||= Date.now()
 
-        if (Date.now() - pendingContentStartedAt >= TOOL_STREAM_CONTENT_BUFFER_MS) {
+        if (pendingContent.length >= TOOL_DECISION_CONTENT_FLUSH_CHARS) {
           flushPendingContent()
         }
       }
@@ -331,20 +345,20 @@ function callLLMOnce(prompt: PromptMessage[], options: LlmCallOptions = {}): Pro
   return callLLM({
     prompt,
     signal: options.signal
-  })
+  }) as Promise<string>
 }
 
 function callLLMStream(
   prompt: PromptMessage[],
   callback: LlmStreamCallback,
   options: LlmCallOptions = {}
-): Promise<string> {
+): Promise<LlmStreamResult> {
   return callLLM({
     prompt,
     stream: true,
     callback,
     signal: options.signal
-  })
+  }) as Promise<LlmStreamResult>
 }
 
 export {

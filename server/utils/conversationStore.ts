@@ -44,11 +44,26 @@ function isNodeError(error: unknown): error is NodeJS.ErrnoException {
 
 function normalizeMessage(message: unknown): StoredMessage {
   const rawMessage = isRecord(message) ? message : {}
-
-  return {
-    role: rawMessage.role === 'assistant' ? 'assistant' : 'user',
+  const role = rawMessage.role === 'assistant' ? 'assistant' : 'user'
+  const normalizedMessage: StoredMessage = {
+    role,
     content: typeof rawMessage.content === 'string' ? rawMessage.content : ''
   }
+
+  if (role === 'assistant' && typeof rawMessage.reasoningContent === 'string') {
+    normalizedMessage.reasoningContent = rawMessage.reasoningContent
+  }
+
+  if (
+    role === 'assistant' &&
+    typeof rawMessage.reasoningDurationMs === 'number' &&
+    Number.isFinite(rawMessage.reasoningDurationMs) &&
+    rawMessage.reasoningDurationMs >= 0
+  ) {
+    normalizedMessage.reasoningDurationMs = rawMessage.reasoningDurationMs
+  }
+
+  return normalizedMessage
 }
 
 function normalizeConversation(conversation: unknown): Conversation {
@@ -73,7 +88,7 @@ function normalizeConversation(conversation: unknown): Conversation {
 function cloneConversation(conversation: Conversation): Conversation {
   return {
     ...conversation,
-    messages: [...conversation.messages]
+    messages: conversation.messages.map((message) => ({ ...message }))
   }
 }
 

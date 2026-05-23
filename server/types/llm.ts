@@ -37,6 +37,11 @@ export type LlmStreamWithToolsResult = {
   finishReason?: string
 }
 
+export type LlmStreamResult = {
+  content: string
+  reasoningContent: string
+}
+
 export type LlmAdapter = {
   name: string
   buildHeaders: () => Record<string, string>
@@ -57,4 +62,6 @@ export type LlmCallOptions = {
   toolChoice?: LlmToolChoice
 }
 
-export type LlmStreamCallback = (chunk: string) => void
+export type LlmStreamChunkType = 'content' | 'reasoning'
+
+export type LlmStreamCallback = (chunk: string, type?: LlmStreamChunkType) => void

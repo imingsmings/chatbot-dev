@@ -3,7 +3,8 @@ import { callLLMStream, callLLMStreamWithTools } from '../utils/llm/index.ts'
 import { buildStandardPrompt, buildToolResultPrompt } from '../utils/promptTemplates.ts'
 import { throwIfAborted } from '../utils/abort.ts'
 import { executeToolCalls, getToolDefinitions } from './toolService.ts'
-import type { Conversation } from '../types/conversation.ts'
+import type { Conversation, StoredMessage } from '../types/conversation.ts'
+import type { LlmStreamChunkType } from '../types/llm.ts'
 import type { ChatCompletionToolCall, ToolCall } from '../types/tools.ts'
 
 type GenerateConversationAnswerOptions = {
@@ -11,7 +12,12 @@ type GenerateConversationAnswerOptions = {
   conversationId: string
   question: string
   signal: AbortSignal
-  onDelta: (chunk: string) => void
+  onDelta: (chunk: string, type: LlmStreamChunkType) => void
+}
+
+type GenerateConversationAnswerResult = {
+  content: string
+  reasoningDurationMs?: number
 }
 
 function parseAssistantToolCalls(toolCalls: ChatCompletionToolCall[]): ToolCall[] {
@@ -28,10 +34,25 @@ async function generateConversationAnswer({
   question,
   signal,
   onDelta
-}: GenerateConversationAnswerOptions): Promise<string> {
+}: GenerateConversationAnswerOptions): Promise<GenerateConversationAnswerResult> {
   let finalResponse = ''
+  let finalReasoningContent = ''
+  let reasoningStartedAt = 0
+  let reasoningEndedAt = 0
   const prompt = buildStandardPrompt(question, conversation.messages)
-  const firstResponse = await callLLMStreamWithTools(prompt, onDelta, {
+  const forwardStreamChunk = (chunk: string, type: LlmStreamChunkType = 'content'): void => {
+    if (type === 'reasoning') {
+      reasoningStartedAt ||= Date.now()
+      finalReasoningContent += chunk
+    }
+
+    if (type === 'content' && reasoningStartedAt && !reasoningEndedAt) {
+      reasoningEndedAt = Date.now()
+    }
+
+    onDelta(chunk, type)
+  }
+  const firstResponse = await callLLMStreamWithTools(prompt, forwardStreamChunk, {
     tools: getToolDefinitions(),
     toolChoice: 'auto',
     signal
@@ -47,9 +68,10 @@ async function generateConversationAnswer({
       toolCalls = parseAssistantToolCalls(firstResponse.toolCalls)
     } catch (err) {
       console.warn('Failed to parse function call arguments, falling back to standard answer:', err)
-      finalResponse = await callLLMStream(prompt, onDelta, {
+      const fallbackResponse = await callLLMStream(prompt, forwardStreamChunk, {
         signal
       })
+      finalResponse = fallbackResponse.content
       toolCalls = []
     }
 
@@ -62,15 +84,17 @@ async function generateConversationAnswer({
       })
 
       throwIfAborted(signal)
+      const currentTurnPrompt = buildStandardPrompt(question, [])
       const answerPrompt = buildToolResultPrompt(
-        prompt,
+        currentTurnPrompt,
         firstResponse.toolCalls,
         toolResults,
         firstResponse.reasoningContent
       )
-      finalResponse = await callLLMStream(answerPrompt, onDelta, {
+      const answerResponse = await callLLMStream(answerPrompt, forwardStreamChunk, {
         signal
       })
+      finalResponse = answerResponse.content
     }
   }
 
@@ -80,12 +104,35 @@ async function generateConversationAnswer({
     throw new Error('模型未返回内容')
   }
 
+  if (reasoningStartedAt && !reasoningEndedAt) {
+    reasoningEndedAt = Date.now()
+  }
+
+  const reasoningDurationMs =
+    reasoningStartedAt && reasoningEndedAt ? Math.max(0, reasoningEndedAt - reasoningStartedAt) : undefined
+
+  const assistantMessage: StoredMessage = {
+    role: 'assistant',
+    content: finalResponse
+  }
+
+  if (finalReasoningContent) {
+    assistantMessage.reasoningContent = finalReasoningContent
+  }
+
+  if (reasoningDurationMs !== undefined) {
+    assistantMessage.reasoningDurationMs = reasoningDurationMs
+  }
+
   await appendMessages(conversationId, [
     { role: 'user', content: question },
-    { role: 'assistant', content: finalResponse }
+    assistantMessage
   ])
 
-  return finalResponse
+  return {
+    content: finalResponse,
+    reasoningDurationMs
+  }
 }
 
 export {

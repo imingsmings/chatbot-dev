@@ -1,6 +1,7 @@
 import { computed, nextTick, reactive, ref, type Ref } from 'vue'
 import { cancelRequest, requestConversationAnswer } from '@/api/conversations'
 import type { ChatMessage, ConversationDetail } from '@/types/chat'
+import { assertChatStreamProtocol, parseChatStreamEvent } from '@/utils/streamProtocol'
 
 const STREAM_IDLE_TIMEOUT_MS = 15000
 
@@ -75,6 +76,7 @@ export function useChatStream(options: {
       id: createMessageId(),
       role: 'assistant',
       text: '',
+      reasoningText: '',
       status: 'pending',
     })
 
@@ -128,6 +130,8 @@ export function useChatStream(options: {
         throw new Error(`请求失败：${res.status}`)
       }
 
+      assertChatStreamProtocol(res)
+
       const reader = res.body?.getReader()
       if (!reader) {
         throw new Error('响应内容为空')
@@ -136,29 +140,42 @@ export function useChatStream(options: {
       const decoder = new TextDecoder('utf-8')
       let buffer = ''
       let streamDone = false
+      let reasoningStartedAt = 0
       resetStreamIdleTimer()
 
       const handleStreamLine = (line: string) => {
         const text = line.trim()
         if (!text) return
 
-        const data = JSON.parse(text)
+        const event = parseChatStreamEvent(text)
 
-        if (data.type === 'error') {
-          throw new Error(data.message || '模型响应失败')
-        }
-
-        if (data.type === 'done') {
-          streamDone = true
-          return
-        }
-
-        const delta = data.type === 'delta' ? data.content : data.response
-        if (typeof delta === 'string' && delta) {
-          const shouldFollow = options.shouldFollowNewContent()
-          assistantMessage.status = 'streaming'
-          assistantMessage.text += delta
-          void options.followNewContent(shouldFollow)
+        switch (event.type) {
+          case 'error':
+            throw new Error(event.message || '模型响应失败')
+          case 'done':
+            if (typeof event.reasoningDurationMs === 'number') {
+              assistantMessage.reasoningDurationMs = event.reasoningDurationMs
+            }
+            streamDone = true
+            return
+          case 'reasoning_delta':
+            if (!event.content) return
+            const shouldFollow = options.shouldFollowNewContent()
+            reasoningStartedAt ||= Date.now()
+            assistantMessage.status = 'streaming'
+            assistantMessage.reasoningText = `${assistantMessage.reasoningText ?? ''}${event.content}`
+            void options.followNewContent(shouldFollow)
+            return
+          case 'delta': {
+            if (!event.content) return
+            const shouldFollow = options.shouldFollowNewContent()
+            if (reasoningStartedAt && assistantMessage.reasoningDurationMs === undefined) {
+              assistantMessage.reasoningDurationMs = Date.now() - reasoningStartedAt
+            }
+            assistantMessage.status = 'streaming'
+            assistantMessage.text += event.content
+            void options.followNewContent(shouldFollow)
+          }
         }
       }
 
@@ -194,6 +211,10 @@ export function useChatStream(options: {
 
       if (!streamDone) {
         throw new Error('响应未完整结束')
+      }
+
+      if (reasoningStartedAt && assistantMessage.reasoningDurationMs === undefined) {
+        assistantMessage.reasoningDurationMs = Date.now() - reasoningStartedAt
       }
 
       assistantMessage.status = 'done'

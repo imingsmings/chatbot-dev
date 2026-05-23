@@ -38,7 +38,11 @@ function buildBody({
   const body: Record<string, unknown> = {
     model,
     messages: prompt,
-    stream
+    stream,
+    thinking: {
+      type: 'enabled'
+    },
+    reasoning_effort: 'max'
   }
 
   if (tools?.length) {

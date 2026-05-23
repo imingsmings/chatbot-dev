@@ -236,6 +236,11 @@ function createMockLlmServer() {
           argsText: '{"city":"北京","date":"明天"}',
           reasoningContent: '需要先调用天气工具。'
         }
+      } else if (
+        latestUserContent.includes('P0_TOOL_CONTEXT_QUERY') &&
+        content.includes('P0_TOOL_CONTEXT_CITY_BEIJING')
+      ) {
+        toolCall = { name: 'getWeather', argsText: '{"city":"北京","date":"明天"}' }
       } else if (latestUserContent.includes('P0_TOOL_PREAMBLE')) {
         toolCall = {
           name: 'getWeather',
@@ -308,6 +313,8 @@ function createMockLlmServer() {
             assistantToolMessage?.reasoning_content === '需要先调用天气工具。'
             ? 'reasoning 已回传，北京明天天气：晴。'
             : 'reasoning 未回传。'
+        } else if (content.includes('P0_TOOL_CONTEXT_QUERY')) {
+          answer = '上下文城市工具调用成功，北京明天天气：晴。'
         } else {
           answer = '北京明天天气：晴，气温 18°C ~ 26°C。'
         }
@@ -428,7 +435,11 @@ async function ask(client, conversationId, question) {
         text += decoder.decode(chunk.value, { stream: true });
       }
       text += decoder.decode();
-      return { status: response.status, text };
+      return {
+        status: response.status,
+        protocol: response.headers.get('X-Chat-Stream-Protocol'),
+        text
+      };
     })`,
   )
 }
@@ -660,7 +671,10 @@ async function main() {
     const toolPreamble = await ask(client, toolId, 'P0_TOOL_PREAMBLE 工具调用前先输出一些文字')
     const toolFailure = await ask(client, toolId, 'P0_TOOL_FAILURE 查询异常城今天天气')
     const toolUnknown = await ask(client, toolId, 'P0_TOOL_UNKNOWN 调用不存在工具')
+    await ask(client, toolId, 'P0_TOOL_CONTEXT_MEMORY P0_TOOL_CONTEXT_CITY_BEIJING 请记住我的城市是北京')
+    const toolContext = await ask(client, toolId, 'P0_TOOL_CONTEXT_QUERY 请按刚才记住的城市查询明天天气')
     assert(toolSuccess.text.includes('北京明天天气'), 'P0-14 tool success failed')
+    assert(toolSuccess.protocol === '1', 'P0-26 stream protocol header missing')
     assert(toolReasoning.text.includes('reasoning 已回传'), 'P0-14 tool reasoning_content was not passed back')
     assert(
       toolPreamble.text.includes('北京明天天气') && !toolPreamble.text.includes('我先看一下天气'),
@@ -668,6 +682,21 @@ async function main() {
     )
     assert(toolFailure.text.includes('天气服务暂时不可用'), 'P0-15 tool failure fallback failed')
     assert(toolUnknown.text.includes('未找到相关工具'), 'P0-16 unknown tool fallback failed')
+    assert(toolContext.text.includes('上下文城市工具调用成功'), 'P0-27 tool decision did not use conversation context')
+    const toolDetail = await api(client, `/conversations/${toolId}`)
+    const reasoningMessage = toolDetail.data.conversation.messages.find(
+      (message) =>
+        message.role === 'assistant' &&
+        message.content.includes('reasoning 已回传')
+    )
+    assert(
+      reasoningMessage?.reasoningContent === '需要先调用天气工具。',
+      'P0-28 assistant reasoning content was not persisted'
+    )
+    assert(
+      typeof reasoningMessage?.reasoningDurationMs === 'number' && reasoningMessage.reasoningDurationMs >= 0,
+      'P0-28 assistant reasoning duration was not persisted'
+    )
 
     const stopConv = await api(client, '/conversations', {
       method: 'POST',
@@ -816,6 +845,9 @@ async function main() {
         'P0-23': 'passed',
         'P0-24': 'passed',
         'P0-25': 'passed',
+        'P0-26': 'passed',
+        'P0-27': 'passed',
+        'P0-28': 'passed',
         'P1-26': 'passed',
         'P1-27': 'passed',
         'P1-28': 'passed',
@@ -828,6 +860,8 @@ async function main() {
       toolPreamble: toolPreamble.text,
       toolFailure: toolFailure.text,
       toolUnknown: toolUnknown.text,
+      toolContext: toolContext.text,
+      reasoningMessage,
       stopped,
       answerStopped,
       llmRequestCount: mock.requests.length,
