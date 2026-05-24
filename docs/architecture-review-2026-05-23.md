@@ -171,8 +171,9 @@
 整改：
 
 - 新增 `CONVERSATION_STORE=sqlite` 切换 SQLite 存储，默认 `file/json` 不变。
-- 新增 `CONVERSATION_DB_PATH` 指定数据库路径，默认落在 `CONVERSATION_DATA_DIR/conversations.sqlite3`。
+- 文件 JSON 默认落在 `CONVERSATION_DATA_DIR/file/conversations/*.json`，也可用 `CONVERSATION_FILE_DATA_DIR` 单独指定文件存储根目录。
+- 新增 `CONVERSATION_DB_PATH` 指定数据库路径，默认落在 `CONVERSATION_DATA_DIR/sqlite/conversations.sqlite3`。
 - SQLite 仅在选择 `CONVERSATION_STORE=sqlite` 时加载 `node:sqlite`；默认文件 JSON 实现仍可在不启用 SQLite 时独立启动。
-- SQLite 首次启用时会从 `conversations/*.json`、`conversations.json` 和 `conversations.json.migrated` 导入数据；导入使用 `INSERT OR IGNORE` 和 `storage_meta` 标记保证幂等。
+- SQLite 首次启用时会从 `file/conversations/*.json`、`file/conversations.json`、`file/conversations.json.migrated` 以及旧根目录 `conversations/*.json`、`conversations.json(.migrated)` 导入数据；导入使用 `INSERT OR IGNORE` 和 `storage_meta` 标记保证幂等。
 - 迁移只复制 JSON 数据到 SQLite，不删除、不重命名已有 JSON 文件。
 - 已新增 `P0-36` 到 `P0-38` 覆盖迁移、重启幂等、ask 持久化、标题生成和 SQLite CRUD。

@@ -16,7 +16,7 @@
 | CDP 脚本语法 | `for f in tests/cdp/*.mjs tests/cdp/helpers/*.mjs; do node --check "$f" || exit 1; done` | 通过 | 新增 helpers、runner、SQLite/P0/real 脚本语法通过 |
 | whitespace | `git diff --check` | 通过 | 未发现尾随空白或补丁格式问题 |
 | mock 全量 | `node tests/cdp/run-cdp-regression.mjs all-mock` | 通过 | 结果写入 `.tmp/cdp-results/all-mock.json`，每个子脚本均解析到 JSON result |
-| 真实接口全量 SQLite | `CONVERSATION_STORE=sqlite CONVERSATION_DATA_DIR="$REAL_SQLITE_DIR" CONVERSATION_DB_PATH="$REAL_SQLITE_DIR/conversations.sqlite3" CDP_REAL_SCRIPT_RETRIES=1 node tests/cdp/run-cdp-regression.mjs real` | 通过 | 结果写入 `.tmp/cdp-results/real.json`，真实 UI、上下文、Markdown 均通过 |
+| 真实接口全量 SQLite | `CONVERSATION_STORE=sqlite CONVERSATION_DATA_DIR="$REAL_SQLITE_DIR" CONVERSATION_DB_PATH="$REAL_SQLITE_DIR/sqlite/conversations.sqlite3" CDP_REAL_SCRIPT_RETRIES=1 node tests/cdp/run-cdp-regression.mjs real` | 通过 | 结果写入 `.tmp/cdp-results/real.json`，真实 UI、上下文、Markdown 均通过 |
 
 ## mock 全量覆盖
 
@@ -44,7 +44,7 @@
 REAL_SQLITE_DIR=$(mktemp -d /tmp/chatbot-real-sqlite-XXXXXX)
 CONVERSATION_STORE=sqlite \
 CONVERSATION_DATA_DIR="$REAL_SQLITE_DIR" \
-CONVERSATION_DB_PATH="$REAL_SQLITE_DIR/conversations.sqlite3" \
+CONVERSATION_DB_PATH="$REAL_SQLITE_DIR/sqlite/conversations.sqlite3" \
 CDP_REAL_SCRIPT_RETRIES=1 \
 node tests/cdp/run-cdp-regression.mjs real
 ```

@@ -510,8 +510,9 @@ async function fileExists(filePath) {
 
 async function runSqliteStorageScenario() {
   const sqliteDataDir = await mkdtemp(path.join(tmpdir(), 'chatbot-sqlite-data-'))
-  const sqliteConversationsDir = path.join(sqliteDataDir, 'conversations')
-  const sqliteDbPath = path.join(sqliteDataDir, 'conversations.sqlite3')
+  const sqliteFileDataDir = path.join(sqliteDataDir, 'file')
+  const sqliteConversationsDir = path.join(sqliteFileDataDir, 'conversations')
+  const sqliteDbPath = path.join(sqliteDataDir, 'sqlite', 'conversations.sqlite3')
   const sqliteUrl = 'http://127.0.0.1:7705'
   const timestamp = new Date().toISOString()
   const fileSeed = {
@@ -532,7 +533,7 @@ async function runSqliteStorageScenario() {
 
   await mkdir(sqliteConversationsDir, { recursive: true })
   await writeFile(path.join(sqliteConversationsDir, `${fileSeed.id}.json`), `${JSON.stringify(fileSeed, null, 2)}\n`, 'utf8')
-  await writeFile(path.join(sqliteDataDir, 'conversations.json'), JSON.stringify({ conversations: [legacySeed] }), 'utf8')
+  await writeFile(path.join(sqliteFileDataDir, 'conversations.json'), JSON.stringify({ conversations: [legacySeed] }), 'utf8')
 
   async function startSqliteServer() {
     const server = spawnProcess('node', ['./bin/www.ts'], {
@@ -646,7 +647,7 @@ async function main() {
   const mock = createMockLlmServer()
   await mock.start()
   const dataDir = await mkdtemp(path.join(tmpdir(), 'chatbot-p0-data-'))
-  const conversationsDir = path.join(dataDir, 'conversations')
+  const conversationsDir = path.join(dataDir, 'file', 'conversations')
 
   const server = spawnProcess('node', ['./bin/www.ts'], {
     cwd: path.resolve(process.cwd(), 'server'),
@@ -892,6 +893,10 @@ async function main() {
       await waitForHttp('http://127.0.0.1:7703/conversations')
       const legacyList = await (await fetch('http://127.0.0.1:7703/conversations')).json()
       assert(legacyList.conversations.some((item) => item.id === 'conv_legacy_cdp'), 'P1-29 legacy conversation was not migrated')
+      assert(
+        await fileExists(path.join(legacyDataDir, 'file', 'conversations', 'conv_legacy_cdp.json')),
+        'P1-29 legacy conversation was not migrated into file store folder'
+      )
       assert(await fileExists(path.join(legacyDataDir, 'conversations.json.migrated')), 'P1-29 legacy migrated marker missing')
       const legacyListAgain = await (await fetch('http://127.0.0.1:7703/conversations')).json()
       assert(legacyListAgain.conversations.filter((item) => item.id === 'conv_legacy_cdp').length === 1, 'P1-30 legacy migration was repeated')
@@ -900,8 +905,8 @@ async function main() {
     }
 
     const corruptDataDir = await mkdtemp(path.join(tmpdir(), 'chatbot-corrupt-data-'))
-    await mkdir(path.join(corruptDataDir, 'conversations'), { recursive: true })
-    await writeFile(path.join(corruptDataDir, 'conversations', 'conv_corrupt_cdp.json'), '{broken json', 'utf8')
+    await mkdir(path.join(corruptDataDir, 'file', 'conversations'), { recursive: true })
+    await writeFile(path.join(corruptDataDir, 'file', 'conversations', 'conv_corrupt_cdp.json'), '{broken json', 'utf8')
     const corruptServer = spawnProcess('node', ['./bin/www.ts'], {
       cwd: path.resolve(process.cwd(), 'server'),
       env: {

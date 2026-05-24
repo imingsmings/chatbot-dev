@@ -19,6 +19,9 @@ pids
 server/data/conversations.json
 server/data/conversations.json.migrated
 server/data/conversations/
+server/data/file/
+server/data/sqlite/
+server/data/*.sqlite3*
 
 # Coverage
 coverage

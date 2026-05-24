@@ -9,6 +9,7 @@
 - 默认不截图，只输出结果摘要和失败原因。
 - 只有明确要求“真实接口”时，才执行真实模型或真实外部 API 测试。
 - 只有明确要求“截图”时，才保存并返回截图。
+- 所有 SQLite 回归必须使用 `mktemp` 创建的临时数据目录和临时数据库，不直接使用或写入 `server/data/sqlite`。
 - 每次重构或问题修复后，默认至少执行 P0。
 - 涉及 UI、Markdown、样式、复制、重试、滚动时，加跑对应 P1。
 - 涉及真实模型质量、真实 tool API、真实上下文表现时，加跑 P2。
@@ -207,6 +208,7 @@ P2 仅在明确要求“真实接口”时执行。
 
 - mock/CDP 测试创建的临时会话必须在脚本结束时删除。
 - 真实接口测试建议使用固定前缀，例如 `CDP-`、`CDPCTX-`、`CDPMDREAL-`。
+- SQLite 测试必须设置临时 `CONVERSATION_DATA_DIR`，必要时同时设置临时 `CONVERSATION_DB_PATH`；禁止用真实本地库做自动化回归。
 - 测试结束后必须调用会话列表接口确认临时会话已清理。
 - 不要删除人工创建的业务会话，除非用户明确指定。
 
@@ -260,7 +262,7 @@ node tests/cdp/run-cdp-regression.mjs real
 REAL_SQLITE_DIR=$(mktemp -d /tmp/chatbot-real-sqlite-XXXXXX)
 CONVERSATION_STORE=sqlite \
 CONVERSATION_DATA_DIR="$REAL_SQLITE_DIR" \
-CONVERSATION_DB_PATH="$REAL_SQLITE_DIR/conversations.sqlite3" \
+CONVERSATION_DB_PATH="$REAL_SQLITE_DIR/sqlite/conversations.sqlite3" \
 CDP_REAL_SCRIPT_RETRIES=1 \
 node tests/cdp/run-cdp-regression.mjs real
 ```

@@ -11,9 +11,12 @@ const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 const requireNodeModule = createRequire(import.meta.url)
 const DATA_DIR = process.env.CONVERSATION_DATA_DIR || path.join(__dirname, '..', 'data')
-const CONVERSATIONS_DIR = path.join(DATA_DIR, 'conversations')
-const LEGACY_DATA_FILE = path.join(DATA_DIR, 'conversations.json')
-const SQLITE_DB_PATH = process.env.CONVERSATION_DB_PATH || path.join(DATA_DIR, 'conversations.sqlite3')
+const FILE_DATA_DIR = process.env.CONVERSATION_FILE_DATA_DIR || path.join(DATA_DIR, 'file')
+const CONVERSATIONS_DIR = path.join(FILE_DATA_DIR, 'conversations')
+const LEGACY_DATA_FILE = path.join(FILE_DATA_DIR, 'conversations.json')
+const ROOT_CONVERSATIONS_DIR = path.join(DATA_DIR, 'conversations')
+const ROOT_LEGACY_DATA_FILE = path.join(DATA_DIR, 'conversations.json')
+const SQLITE_DB_PATH = process.env.CONVERSATION_DB_PATH || path.join(DATA_DIR, 'sqlite', 'conversations.sqlite3')
 const DEFAULT_TITLE = '新的聊天'
 const SQLITE_JSON_MIGRATION_KEY = 'json_migration_completed'
 
@@ -171,6 +174,10 @@ function applyAppendedMessages(conversation: Conversation, messages: StoredMessa
   return conversation
 }
 
+function isSamePath(firstPath: string, secondPath: string): boolean {
+  return path.resolve(firstPath) === path.resolve(secondPath)
+}
+
 async function ensureConversationDir(): Promise<void> {
   await fs.mkdir(CONVERSATIONS_DIR, { recursive: true })
 }
@@ -195,6 +202,26 @@ async function writeConversationFile(conversation: Conversation): Promise<void> 
       writeQueues.delete(conversation.id)
     }
   }
+}
+
+async function writeConversationFileIfAbsent(conversation: Conversation): Promise<void> {
+  await ensureConversationDir()
+
+  const filePath = getConversationFilePath(conversation.id)
+  if (!filePath) {
+    throw new Error('会话 ID 不合法')
+  }
+
+  try {
+    await fs.access(filePath)
+    return
+  } catch (err: unknown) {
+    if (!isNodeError(err) || err.code !== 'ENOENT') {
+      throw err
+    }
+  }
+
+  await writeConversationFile(conversation)
 }
 
 async function readConversationFile(id: string): Promise<Conversation | null> {
@@ -230,29 +257,55 @@ async function readAllConversationFiles(): Promise<Conversation[]> {
   return conversations
 }
 
+async function importConversationFilesIntoFileStore(sourceDir: string): Promise<void> {
+  if (isSamePath(sourceDir, CONVERSATIONS_DIR) || !existsSync(sourceDir)) {
+    return
+  }
+
+  const entries = await fs.readdir(sourceDir, { withFileTypes: true })
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.endsWith('.json')) {
+      continue
+    }
+
+    const filePath = path.join(sourceDir, entry.name)
+    const raw = await fs.readFile(filePath, 'utf8')
+    await writeConversationFileIfAbsent(normalizeConversation(JSON.parse(raw)))
+  }
+}
+
+async function importLegacyAggregateIntoFileStore(filePath: string, options: { renameAfterImport: boolean }): Promise<void> {
+  let raw
+  try {
+    raw = await fs.readFile(filePath, 'utf8')
+  } catch (err: unknown) {
+    if (isNodeError(err) && err.code === 'ENOENT') return
+    throw err
+  }
+
+  const data = JSON.parse(raw) as unknown
+  const conversations =
+    isRecord(data) && Array.isArray(data.conversations) ? data.conversations.map(normalizeConversation) : []
+
+  for (const conversation of conversations) {
+    await writeConversationFileIfAbsent(conversation)
+  }
+
+  if (options.renameAfterImport) {
+    await fs.rename(filePath, `${filePath}.migrated`)
+  }
+}
+
 async function migrateLegacyFileStore(): Promise<void> {
   if (fileMigrationPromise) return fileMigrationPromise
 
   fileMigrationPromise = (async () => {
     await ensureConversationDir()
-
-    let raw
-    try {
-      raw = await fs.readFile(LEGACY_DATA_FILE, 'utf8')
-    } catch (err: unknown) {
-      if (isNodeError(err) && err.code === 'ENOENT') return
-      throw err
-    }
-
-    const data = JSON.parse(raw) as unknown
-    const conversations =
-      isRecord(data) && Array.isArray(data.conversations) ? data.conversations.map(normalizeConversation) : []
-
-    for (const conversation of conversations) {
-      await writeConversationFile(conversation)
-    }
-
-    await fs.rename(LEGACY_DATA_FILE, `${LEGACY_DATA_FILE}.migrated`)
+    await importConversationFilesIntoFileStore(ROOT_CONVERSATIONS_DIR)
+    await importLegacyAggregateIntoFileStore(LEGACY_DATA_FILE, { renameAfterImport: true })
+    await importLegacyAggregateIntoFileStore(`${LEGACY_DATA_FILE}.migrated`, { renameAfterImport: false })
+    await importLegacyAggregateIntoFileStore(ROOT_LEGACY_DATA_FILE, { renameAfterImport: true })
+    await importLegacyAggregateIntoFileStore(`${ROOT_LEGACY_DATA_FILE}.migrated`, { renameAfterImport: false })
   })()
 
   return fileMigrationPromise
@@ -471,17 +524,17 @@ function insertSqliteConversationIfAbsent(conversation: Conversation): void {
     )
 }
 
-async function readJsonConversationFilesForSqliteMigration(): Promise<Conversation[]> {
-  if (!existsSync(CONVERSATIONS_DIR)) {
+async function readJsonConversationFilesForSqliteMigration(sourceDir: string): Promise<Conversation[]> {
+  if (!existsSync(sourceDir)) {
     return []
   }
 
-  const entries = await fs.readdir(CONVERSATIONS_DIR, { withFileTypes: true })
+  const entries = await fs.readdir(sourceDir, { withFileTypes: true })
   return Promise.all(
     entries
       .filter((entry) => entry.isFile() && entry.name.endsWith('.json'))
       .map(async (entry) => {
-        const filePath = path.join(CONVERSATIONS_DIR, entry.name)
+        const filePath = path.join(sourceDir, entry.name)
         const raw = await fs.readFile(filePath, 'utf8')
         return normalizeConversation(JSON.parse(raw))
       })
@@ -503,9 +556,12 @@ async function readLegacyJsonConversations(filePath: string): Promise<Conversati
 
 async function readJsonConversationsForSqliteMigration(): Promise<Conversation[]> {
   const conversations = [
-    ...(await readJsonConversationFilesForSqliteMigration()),
+    ...(await readJsonConversationFilesForSqliteMigration(CONVERSATIONS_DIR)),
+    ...(await readJsonConversationFilesForSqliteMigration(ROOT_CONVERSATIONS_DIR)),
     ...(await readLegacyJsonConversations(LEGACY_DATA_FILE)),
-    ...(await readLegacyJsonConversations(`${LEGACY_DATA_FILE}.migrated`))
+    ...(await readLegacyJsonConversations(`${LEGACY_DATA_FILE}.migrated`)),
+    ...(await readLegacyJsonConversations(ROOT_LEGACY_DATA_FILE)),
+    ...(await readLegacyJsonConversations(`${ROOT_LEGACY_DATA_FILE}.migrated`))
   ]
   const uniqueConversations = new Map<string, Conversation>()
 
@@ -534,7 +590,7 @@ async function migrateJsonToSqliteStore(): Promise<void> {
         insertSqliteConversationIfAbsent(conversation)
       }
       setSqliteMeta(SQLITE_JSON_MIGRATION_KEY, '1')
-      setSqliteMeta('json_migration_source_dir', DATA_DIR)
+      setSqliteMeta('json_migration_source_dir', FILE_DATA_DIR)
       setSqliteMeta('json_migration_imported_count', String(conversations.length))
     })
   })()
