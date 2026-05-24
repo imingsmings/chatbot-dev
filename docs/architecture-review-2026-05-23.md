@@ -17,7 +17,7 @@
 - real runner 改为直接启动后端，避免正常 SIGTERM 产生 pnpm lifecycle 噪音。
 - 流式错误态保留已收到正文，错误文案作为状态显示。
 - 侧栏父容器增加高度约束，保证大量会话时滚动正常。
-- tool decision 阶段改为严格不提前 flush 普通 content，避免长 preamble 在 tool_call 前泄漏。
+- tool decision 阶段曾改为严格不提前 flush 普通 content；2026-05-24 发现会导致普通回答不流式和前端 idle 超时，已改为短窗口缓冲后解锁普通回答流式。
 - DeepSeek reasoning 参数支持环境变量配置，默认行为保持 `enabled/max`。
 - 原生 `prompt/confirm/alert` 替换为应用内 modal，便于主题、键盘、移动端和 CDP 断言统一。
 - CDP runner 生成 `.tmp/cdp-results/<suite>.json` 机器可读结果，并支持真实接口脚本超时/重试配置。
@@ -69,8 +69,10 @@
 
 整改：
 
-- 已选择严格不泄漏策略，`callLLMStreamWithTools` 在 tool decision 阶段仅累计普通 content；确认无 tool_call 后才 flush。
-- 已新增 `P0-35` 长 preamble 回归，覆盖超过旧缓冲阈值后再返回 tool_call 的边界。
+- 初始整改曾选择严格不泄漏策略，`callLLMStreamWithTools` 在 tool decision 阶段仅累计普通 content；确认无 tool_call 后才 flush。
+- 2026-05-24 复盘确认该策略会让无 tool 的普通回答直到上游结束才一次性输出，前端在长回答中可能触发 idle 超时。
+- 当前实现改为 `120ms` 短窗口缓冲：窗口内出现 tool call 则丢弃 preamble；普通 content 持续输出超过窗口则解锁流式 `delta`。
+- 已保留 `P0-35` 覆盖单 chunk 长 preamble 不泄漏，并新增 `P0-39` 覆盖 reasoning 后无 tool 普通回答必须产生多个 `delta` 且早于 `done`。
 
 ## O3. 原生 prompt/confirm/alert 限制了 UI 一致性
 

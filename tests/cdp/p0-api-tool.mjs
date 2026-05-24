@@ -219,6 +219,25 @@ function createMockLlmServer() {
         return
       }
 
+      if (latestUserContent.includes('P0_TOOLLESS_STREAM')) {
+        res.write(`data: ${JSON.stringify({ choices: [{ delta: { reasoning_content: '先思考普通回答。' } }] })}\n\n`)
+        record.chunksSent += 1
+
+        const chunks = ['普通流式回答第一段，', '第二段继续输出，', '第三段仍在流式，', '普通流式回答结束。']
+        for (const chunk of chunks) {
+          if (res.destroyed) return
+          writeSse(res, chunk)
+          record.chunksSent += 1
+          await delay(90)
+        }
+
+        if (!res.destroyed) {
+          record.responseEnded = true
+          res.end('data: [DONE]\n\n')
+        }
+        return
+      }
+
       let answer = '标准回答'
       if (content.includes('P0CTX_QUERY_A')) {
         const match = content.match(/A_SECRET_[0-9]+/)
@@ -385,6 +404,61 @@ async function ask(client, conversationId, question) {
       return {
         status: response.status,
         protocol: response.headers.get('X-Chat-Stream-Protocol'),
+        text
+      };
+    })`,
+  )
+}
+
+async function askStreamEvents(client, conversationId, question) {
+  const requestId = `req_${Math.random().toString(36).slice(2)}_${Date.now()}`
+  const url = `${BASE_URL}/conversations/${conversationId}/ask`
+  return evaluate(
+    client,
+    `fetch(${JSON.stringify(url)}, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question: ${JSON.stringify(question)}, requestId: ${JSON.stringify(requestId)} })
+    }).then(async (response) => {
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder('utf-8');
+      const startedAt = performance.now();
+      const events = [];
+      const chunks = [];
+      let buffer = '';
+      let text = '';
+
+      const eventTime = () => Math.round(performance.now() - startedAt);
+      const handleLine = (line) => {
+        const trimmed = line.trim();
+        if (!trimmed) return;
+        try {
+          events.push({ ...JSON.parse(trimmed), atMs: eventTime() });
+        } catch {
+          events.push({ type: 'parse_error', content: trimmed, atMs: eventTime() });
+        }
+      };
+
+      while (true) {
+        const chunk = await reader.read();
+        if (chunk.done) break;
+        const chunkText = decoder.decode(chunk.value, { stream: true });
+        chunks.push({ atMs: eventTime(), text: chunkText });
+        text += chunkText;
+        buffer += chunkText;
+        const lines = buffer.split('\\n');
+        buffer = lines.pop() || '';
+        for (const line of lines) handleLine(line);
+      }
+
+      buffer += decoder.decode();
+      if (buffer.trim()) handleLine(buffer);
+
+      return {
+        status: response.status,
+        protocol: response.headers.get('X-Chat-Stream-Protocol'),
+        events,
+        chunks,
         text
       };
     })`,
@@ -773,6 +847,7 @@ async function main() {
     const toolReasoning = await ask(client, toolId, 'P0_TOOL_REASONING 查询北京明天天气')
     const toolPreamble = await ask(client, toolId, 'P0_TOOL_PREAMBLE 工具调用前先输出一些文字')
     const toolLongPreamble = await ask(client, toolId, 'P0_TOOL_LONG_PREAMBLE 工具调用前输出超过缓冲阈值的文字')
+    const toollessStream = await askStreamEvents(client, toolId, 'P0_TOOLLESS_STREAM 普通回答需要持续流式输出')
     const toolFailure = await ask(client, toolId, 'P0_TOOL_FAILURE 查询异常城今天天气')
     const toolUnknown = await ask(client, toolId, 'P0_TOOL_UNKNOWN 调用不存在工具')
     await ask(client, toolId, 'P0_TOOL_CONTEXT_MEMORY P0_TOOL_CONTEXT_CITY_BEIJING 请记住我的城市是北京')
@@ -787,6 +862,17 @@ async function main() {
     assert(
       toolLongPreamble.text.includes('北京明天天气') && !toolLongPreamble.text.includes('LONG_PREAMBLE_MARKER'),
       'P0-35 long tool preamble leaked before tool result answer'
+    )
+    const toollessDeltaEvents = toollessStream.events.filter((event) => event.type === 'delta')
+    const toollessReasoningEvents = toollessStream.events.filter((event) => event.type === 'reasoning_delta')
+    const toollessDoneEvent = toollessStream.events.find((event) => event.type === 'done')
+    assert(toollessStream.protocol === '1', 'P0-39 stream protocol header missing')
+    assert(toollessReasoningEvents.length >= 1, 'P0-39 reasoning delta was not streamed')
+    assert(toollessDeltaEvents.length >= 2, 'P0-39 ordinary answer was buffered instead of streamed')
+    assert(toollessDoneEvent && toollessDeltaEvents[0].atMs < toollessDoneEvent.atMs, 'P0-39 first delta did not arrive before done')
+    assert(
+      toollessDeltaEvents.map((event) => event.content || '').join('').includes('普通流式回答结束'),
+      'P0-39 streamed ordinary answer content missing'
     )
     assert(toolFailure.text.includes('天气服务暂时不可用'), 'P0-15 tool failure fallback failed')
     assert(toolUnknown.text.includes('未找到相关工具'), 'P0-16 unknown tool fallback failed')
@@ -963,6 +1049,7 @@ async function main() {
         'P0-27': 'passed',
         'P0-28': 'passed',
         'P0-35': 'passed',
+        'P0-39': 'passed',
         'P0-36': 'passed',
         'P0-37': 'passed',
         'P0-38': 'passed',
@@ -977,6 +1064,12 @@ async function main() {
       toolReasoning: toolReasoning.text,
       toolPreamble: toolPreamble.text,
       toolLongPreamble: toolLongPreamble.text,
+      toollessStream: {
+        eventCount: toollessStream.events.length,
+        deltaCount: toollessDeltaEvents.length,
+        firstDeltaAtMs: toollessDeltaEvents[0]?.atMs,
+        doneAtMs: toollessDoneEvent?.atMs,
+      },
       toolFailure: toolFailure.text,
       toolUnknown: toolUnknown.text,
       toolContext: toolContext.text,

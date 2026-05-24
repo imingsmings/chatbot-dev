@@ -71,4 +71,53 @@ node tests/cdp/run-cdp-regression.mjs real
 
 - mock/CDP 测试创建的会话均由脚本按测试前缀或捕获 id 清理。
 - 真实接口回归使用临时 SQLite 数据目录，不写入现有 `server/data`。
-- 本轮未请求截图，因此未保存关键截图；失败截图机制仍可作为诊断使用。
+- 2026-05-23 本轮未请求截图，因此未保存关键截图；2026-05-24 流式补测截图见下节。
+
+## 2026-05-24 流式回归修复补测
+
+问题：
+
+- 严格 tool decision 缓冲导致无 tool 的普通回答只在上游结束后一次性 flush。
+- 前端能收到 `reasoning_delta`，但收不到普通回答 `delta`，超过 `STREAM_IDLE_TIMEOUT_MS` 后显示“响应超时或连接中断”。
+
+修复：
+
+- `callLLMStreamWithTools` 改为 `120ms` 短窗口缓冲。
+- 窗口内出现 `toolCallDeltas` 时丢弃待发送 preamble。
+- 普通 content 持续超过窗口时解锁，后续按 `delta` 流式写给前端。
+
+已完成验证：
+
+| 范围 | 命令 | 结果 | 关键结论 |
+| --- | --- | --- | --- |
+| 服务端类型检查 | `pnpm --dir server typecheck` | 通过 | `callLLMStreamWithTools` 类型通过 |
+| 前端类型检查 | `pnpm --dir client type-check` | 通过 | `useChatStream` 当前协议解析类型保持通过 |
+| 前端构建 | `pnpm --dir client build` | 通过 | Vite production build 通过，127 个模块完成转换 |
+| P0 脚本语法 | `node --check tests/cdp/p0-api-tool.mjs` | 通过 | 新增 `P0-39` 语法通过 |
+| 核心算法 mock 直测 | `LLM_ENDPOINT=http://127.0.0.1:7019/chat/completions node --input-type=module ...` | 通过 | 普通回答产生 2 次 content callback，首次约 `194ms`；tool preamble 未经 content callback 泄漏 |
+| mock 全量截图回归 | `CDP_SCREENSHOTS=1 node tests/cdp/run-cdp-regression.mjs all-mock` | 通过 | `.tmp/cdp-results/all-mock.json`，5 个子脚本全部 1 次通过 |
+| 真实接口全量 SQLite 截图回归 | `CONVERSATION_STORE=sqlite CONVERSATION_DATA_DIR="$REAL_SQLITE_DIR" CONVERSATION_DB_PATH="$REAL_SQLITE_DIR/sqlite/conversations.sqlite3" CDP_SCREENSHOTS=1 CDP_REAL_SCRIPT_RETRIES=1 node tests/cdp/run-cdp-regression.mjs real` | 通过 | `.tmp/cdp-results/real.json`，真实 UI/上下文/Markdown 全部 1 次通过 |
+| 真实 tool smoke | 临时 SQLite 后端 + `/conversations/:id/ask` + 真实天气工具 | 通过 | `protocol = 1`，`deltaCount = 62`，`hasDone = true`，真实天气日志成功，测试会话已删除 |
+
+新增覆盖：
+
+- `P0-39`: tool-choice 请求中先收到 reasoning，最终没有 tool call 时，普通回答必须产生多个 `delta`，且第一个 `delta` 早于 `done`。
+
+全量结果：
+
+- `all-mock`: `2026-05-24T05:16:50.429Z` 到 `2026-05-24T05:18:09.139Z`，覆盖 upstream abort、P0 API/tool、UI、Markdown、Highlight。
+- `real`: `2026-05-24T05:18:46.603Z` 到 `2026-05-24T05:20:49.954Z`，使用临时 SQLite 目录 `/tmp/chatbot-real-sqlite-3cKhXW`。
+- 临时 SQLite 校验：`conversation_count = 3`，`json_migration_completed = 1`，`json_migration_imported_count = 0`，`json_migration_source_dir = /tmp/chatbot-real-sqlite-3cKhXW/file`。
+- `P0-39` 关键值：`deltaCount = 2`，`firstDeltaAtMs = 181`，`doneAtMs = 365`。
+- 模拟超时场景：`ui-scenarios.mjs` 的 `timeoutRecoveryState.hasTimeout = true` 且 `hasRecovery = true`。
+- 真实 tool smoke 使用临时 SQLite 目录 `/tmp/chatbot-real-tool-sqlite-28jxTG`，结束后 `conversation_count = 0`；后端日志包含 `天气查询成功`。
+
+关键流式截图：
+
+- mock Markdown 流式中间态：`.tmp/cdp-markdown-screenshots/08-streaming-mid-render.png`。
+- mock Markdown 流式完成态：`.tmp/cdp-markdown-screenshots/09-streaming-done-render.png`。
+- mock Highlight 流式中间态：`.tmp/cdp-highlight-screenshots/09-streaming-mid.png`。
+- mock 上游中断前流式态：`.tmp/cdp-upstream-abort-screenshots/01-tc01-streaming-before-stop.png`。
+- 真实 UI 生成中状态：`.tmp/cdp-real-screenshots/01-real-generating-stop-button.png`。
+- 真实 Markdown 流式中间态：`.tmp/cdp-markdown-real-screenshots/08-real-streaming-mid-render.png`。
+- 真实 Markdown 流式完成态：`.tmp/cdp-markdown-real-screenshots/09-real-streaming-done-render.png`。

@@ -56,6 +56,7 @@
 | P0-36 | JSON 到 SQLite 迁移 | API/SQLite | `CONVERSATION_STORE=sqlite` 首次启动导入单会话 JSON 与 legacy JSON；保留 reasoning 字段；迁移元数据完整且重启幂等 |
 | P0-37 | SQLite ask 持久化 | API/SQLite + mock LLM | SQLite 后端下 `/ask` 正常返回协议 header；用户和 assistant 消息落库；自动标题生成；重启后仍可读 |
 | P0-38 | SQLite CRUD | API/SQLite | SQLite 后端下重命名、清空、删除均正常；默认文件 JSON 实现不受影响 |
+| P0-39 | tool-choice 普通回答流式输出 | mock LLM/API | tool-choice 请求中先收到 `reasoning_delta`、最终无 tool call 时，普通回答必须产生多个 `delta`，且第一个 `delta` 早于 `done` |
 
 ## P1 常规回归
 
@@ -160,6 +161,7 @@ P2 仅在明确要求“真实接口”时执行。
 | P2-05 | 真实代码高亮输出 | 真实 LLM | Go/C/Rust/TSX 等 fenced code 高亮正常 |
 | P2-06 | 真实 tool 调用 | 真实 tool API | tool 成功调用并回答；失败时友好降级 |
 | P2-07 | 真实接口临时数据清理 | API | 所有测试会话被删除，不污染侧栏 |
+| P2-08 | 真实普通回答流式中间态截图 | 真实 LLM + CDP 截图 | 流式中间态有 assistant 行、处于生成中、已有正文片段、无错误态；保存中间态和完成态截图 |
 
 ## 执行策略
 
@@ -169,8 +171,8 @@ P2 仅在明确要求“真实接口”时执行。
 | UI、交互、按钮、滚动变更 | P0 + `ui`，必要时补 P1-01 到 P1-06 的结果定位 |
 | Markdown 或高亮变更 | P0 + P1-07 到 P1-17 |
 | 会话存储或路由变更 | P0-10 到 P0-13、P0-36 到 P0-38，再补 P0-01 到 P0-06 |
-| tool、weather、function call 变更 | P0-14 到 P0-17、P0-35，再补 P0-01 到 P0-06 |
-| reasoning、思考过程、流式协议变更 | P0-26 到 P0-33，再补 P0-01 到 P0-07 |
+| tool、weather、function call 变更 | P0-14 到 P0-17、P0-35、P0-39，再补 P0-01 到 P0-06 |
+| reasoning、思考过程、流式协议变更 | P0-26 到 P0-33、P0-39，再补 P0-01 到 P0-07 |
 | composer 草稿、会话切换/清空/删除变更 | P0-34 + P1-18 到 P1-25 |
 | Vite dev server 或 LAN 访问变更 | P1-37，并手动确认目标机器可访问前端入口 |
 | 真实模型链路验证 | P0 + P2 |

@@ -20,6 +20,7 @@ const adapters: Record<string, LlmAdapter> = {
 const LLM_PROVIDER = process.env.LLM_PROVIDER || 'deepseek'
 const LLM_ENDPOINT = process.env.LLM_ENDPOINT
 const LLM_MODEL = process.env.LLM_MODEL
+const TOOL_STREAM_CONTENT_BUFFER_MS = 120
 
 function getAdapter(): LlmAdapter {
   const adapter = adapters[LLM_PROVIDER]
@@ -266,6 +267,8 @@ async function callLLMStreamWithTools(
     let reasoningContent = ''
     let finishReason: string | undefined
     let pendingContent = ''
+    let pendingContentStartedAt = 0
+    let contentUnlocked = false
     const toolCalls = new Map<number, ChatCompletionToolCall>()
 
     const flushPendingContent = (): void => {
@@ -273,8 +276,10 @@ async function callLLMStreamWithTools(
         return
       }
 
+      contentUnlocked = true
       callback(pendingContent, 'content')
       pendingContent = ''
+      pendingContentStartedAt = 0
     }
 
     const handleStreamLine = (line: string): false | void => {
@@ -296,13 +301,24 @@ async function callLLMStreamWithTools(
 
       if (event.toolCallDeltas?.length) {
         pendingContent = ''
+        pendingContentStartedAt = 0
         applyToolCallDeltas(toolCalls, event.toolCallDeltas)
       }
 
       if (event.content) {
         fullResponse += event.content
 
+        if (contentUnlocked) {
+          callback(event.content, 'content')
+          return
+        }
+
         pendingContent += event.content
+        pendingContentStartedAt ||= Date.now()
+
+        if (Date.now() - pendingContentStartedAt >= TOOL_STREAM_CONTENT_BUFFER_MS) {
+          flushPendingContent()
+        }
       }
     }
 
