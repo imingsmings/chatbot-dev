@@ -5,7 +5,10 @@ import express from 'express'
 import cookieParser from 'cookie-parser'
 import logger from 'morgan'
 import indexRouter from './routes/index.ts'
+import { validateStartupConfig } from './utils/runtimeConfig.ts'
 import type { ErrorRequestHandler, RequestHandler } from 'express'
+
+validateStartupConfig()
 
 const app = express()
 

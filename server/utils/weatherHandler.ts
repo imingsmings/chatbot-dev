@@ -1,8 +1,5 @@
+import { getWeatherConfig } from './runtimeConfig.ts'
 import type { ToolExecutionOptions, WeatherToolArgs } from '../types/tools.ts'
-
-const HEFENG_API_HOST = process.env.HEFENG_API_HOST
-const HEFENG_API_KEY = process.env.HEFENG_API_KEY
-const HEFENG_HEADERS = HEFENG_API_KEY ? { 'X-QW-Api-Key': HEFENG_API_KEY } : undefined
 
 type QWeatherCityLookupResponse = {
   code?: string
@@ -47,12 +44,13 @@ function formatDate(text: string): string | null {
 
 async function getCityLocation(city: string, options: ToolExecutionOptions = {}): Promise<string | null> {
   const { signal } = options
-  const url = `https://${HEFENG_API_HOST}/geo/v2/city/lookup?location=${encodeURIComponent(city)}`
+  const { host, headers } = getWeatherConfig()
+  const url = `https://${host}/geo/v2/city/lookup?location=${encodeURIComponent(city)}`
 
   const res = await fetch(url, {
     method: 'GET',
     signal,
-    headers: HEFENG_HEADERS
+    headers
   })
 
   const data = (await res.json()) as QWeatherCityLookupResponse
@@ -91,11 +89,12 @@ async function getWeather(args: unknown, options: ToolExecutionOptions = {}): Pr
   }
 
   try {
-    const url = `https://${HEFENG_API_HOST}/v7/weather/7d?location=${locationId}`
+    const { host, headers } = getWeatherConfig()
+    const url = `https://${host}/v7/weather/7d?location=${locationId}`
     const res = await fetch(url, {
       method: 'GET',
       signal,
-      headers: HEFENG_HEADERS
+      headers
     })
     const data = (await res.json()) as QWeatherDailyResponse // 拿到的是一周的天气
 

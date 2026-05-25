@@ -65,17 +65,40 @@ Then fill in the model and tool credentials in `server/.env`.
 
 Key variables:
 
-| Name                    | Purpose                                                            |
-| ----------------------- | ------------------------------------------------------------------ |
-| `PORT`                  | Backend port. Defaults to `7001`.                                  |
-| `LLM_PROVIDER`          | LLM adapter name. Currently `deepseek`.                            |
-| `LLM_ENDPOINT`          | Chat completions endpoint.                                         |
-| `LLM_MODEL`             | Model name sent to the provider.                                   |
-| `LLM_TIMEOUT_MS`        | Upstream model request timeout.                                    |
-| `DEEPSEEK_API_KEY`      | API key used by the DeepSeek adapter.                              |
-| `HEFENG_API_HOST`       | Weather API host for the weather tool.                             |
-| `HEFENG_API_KEY`        | Weather API key.                                                   |
-| `CONVERSATION_DATA_DIR` | Optional override for conversation data storage. Useful for tests. |
+| Name                         | Purpose                                                            |
+| ---------------------------- | ------------------------------------------------------------------ |
+| `PORT`                       | Backend port. Defaults to `7001`.                                  |
+| `LLM_PROVIDER`               | LLM adapter name. Currently `deepseek`.                            |
+| `LLM_ENDPOINT`               | Chat completions endpoint. Required at startup.                    |
+| `LLM_MODEL`                  | Model name sent to the provider. Required at startup.              |
+| `LLM_TIMEOUT_MS`             | Upstream model request timeout in milliseconds.                    |
+| `LLM_REASONING_ENABLED`      | Enables provider thinking/reasoning. Defaults to enabled.          |
+| `LLM_REASONING_EFFORT`       | Reasoning effort sent to the provider when reasoning is enabled.   |
+| `DEEPSEEK_API_KEY`           | API key used by the DeepSeek adapter. Required for DeepSeek.       |
+| `HEFENG_API_HOST`            | Weather API host for the weather tool. Required when weather runs. |
+| `HEFENG_API_KEY`             | Weather API key. Required when weather runs.                       |
+| `CONVERSATION_STORE`         | Conversation backend: `file`, `json`, `fs`, `sqlite`, or `sqlite3`. |
+| `CONVERSATION_DATA_DIR`      | Optional base directory for conversation data. Useful for tests.   |
+| `CONVERSATION_FILE_DATA_DIR` | Optional file-store directory override.                            |
+| `CONVERSATION_DB_PATH`       | Optional SQLite database path override.                            |
+
+Startup validates core LLM variables and the selected storage backend. Weather
+tool credentials are validated when the weather tool is called, so non-weather
+chat and storage checks can still run without weather credentials.
+
+Real-provider CDP tests also read shell-level test variables:
+
+| Name                             | Purpose                                                   |
+| -------------------------------- | --------------------------------------------------------- |
+| `APP_URL`                        | Frontend URL used by CDP tests.                           |
+| `BACKEND_URL`                    | Backend URL used when the real suite starts a backend.    |
+| `CHROME_PATH`                    | Chrome executable path for CDP automation.                |
+| `CDP_SCREENSHOTS`                | Set to `1` to keep screenshots. Defaults to off.          |
+| `CDP_REAL_WAIT_TIMEOUT_MS`       | Default wait timeout for real-provider tests.             |
+| `CDP_REAL_CONTEXT_WAIT_TIMEOUT_MS` | Context real-test wait timeout override.                |
+| `CDP_REAL_MARKDOWN_WAIT_TIMEOUT_MS` | Markdown real-test wait timeout override.               |
+| `CDP_SCRIPT_RETRIES`             | Retry count for mock CDP scripts.                         |
+| `CDP_REAL_SCRIPT_RETRIES`        | Retry count for real-provider CDP scripts.                |
 
 ## Development
 
