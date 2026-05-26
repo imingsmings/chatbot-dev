@@ -1,7 +1,8 @@
 import { appendMessages } from '../utils/conversationStore.ts'
 import { callLLMStream, callLLMStreamWithTools } from '../utils/llm/index.ts'
-import { buildStandardPrompt, buildToolResultPrompt } from '../utils/promptTemplates.ts'
+import { buildToolResultPrompt } from '../utils/promptTemplates.ts'
 import { throwIfAborted } from '../utils/abort.ts'
+import { buildContextMessages } from './contextService.ts'
 import { executeToolCalls, getToolDefinitions } from './toolService.ts'
 import type { Conversation, StoredMessage } from '../types/conversation.ts'
 import type { LlmStreamChunkType } from '../types/llm.ts'
@@ -39,7 +40,7 @@ async function generateConversationAnswer({
   let finalReasoningContent = ''
   let reasoningStartedAt = 0
   let reasoningEndedAt = 0
-  const prompt = buildStandardPrompt(question, conversation.messages)
+  const { messages: prompt } = buildContextMessages(conversation, question)
   const forwardStreamChunk = (chunk: string, type: LlmStreamChunkType = 'content'): void => {
     if (type === 'reasoning') {
       reasoningStartedAt ||= Date.now()
@@ -84,9 +85,8 @@ async function generateConversationAnswer({
       })
 
       throwIfAborted(signal)
-      const currentTurnPrompt = buildStandardPrompt(question, [])
       const answerPrompt = buildToolResultPrompt(
-        currentTurnPrompt,
+        prompt,
         firstResponse.toolCalls,
         toolResults,
         firstResponse.reasoningContent

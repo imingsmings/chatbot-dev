@@ -100,6 +100,16 @@
 | P1-36 | 无效 reasoningDurationMs normalize | API/fixture | 非数字、负数、非有限值被丢弃 |
 | P1-37 | LAN dev 配置 | 本地配置检查 | Vite 监听 `0.0.0.0`；API proxy 仍指向 `127.0.0.1:7001` |
 | P1-38 | 完整 UI 交互矩阵 | mock/CDP | 覆盖 UI-01 到 UI-40，包含弹窗、错误态、刷新恢复、移动端、快速操作和流式边界 |
+| P1-39 | 最近上下文窗口 | Node test + mock fetch | `buildContextMessages` 只保留配置范围内的最近历史消息；当前用户问题始终保留 |
+| P1-40 | 上下文字符预算边界 | Node test + mock fetch | 边界消息加入后会超过字符预算时，整条消息被丢弃，不做半条截断 |
+| P1-41 | 最新超长历史消息 | Node test + mock fetch | 最新一条历史消息本身超过字符预算时，完整保留该消息，避免历史上下文为空 |
+| P1-42 | 普通回答使用 managed context | Node test + mock fetch | `generateConversationAnswer` 发给模型的 request body 不包含被窗口裁掉的旧历史 |
+| P1-43 | tool answer 复用 managed context | Node test + mock fetch | tool decision 和 tool result answer 阶段都不重新带回被裁掉的旧历史；tool result 仍正常参与回答 |
+| P1-44 | 上下文配置 fallback | Node test | `CONTEXT_MAX_HISTORY_MESSAGES` 或 `CONTEXT_MAX_HISTORY_CHARS` 非法时回退默认值，不导致历史窗口为空或异常扩大 |
+| P1-45 | 字符预算等值边界 | Node test | 历史消息累计字符数刚好等于预算时保留该边界消息；再旧的消息仍被丢弃 |
+| P1-46 | 空历史 prompt | Node test | 无历史消息时仍发送 system prompt 和当前用户问题；统计信息为 0 |
+| P1-47 | 历史顺序和统计 | Node test | 选中的最近历史按原始时间顺序进入 prompt；`selectedHistoryMessages`、`droppedHistoryMessages`、`selectedHistoryChars` 准确 |
+| P1-48 | 当前问题预算隔离 | Node test | 当前用户问题不受历史字符预算影响，即使问题很长也必须完整发送 |
 
 ## UI 场景矩阵
 
@@ -173,6 +183,7 @@ P2 仅在明确要求“真实接口”时执行。
 | 会话存储或路由变更 | P0-10 到 P0-13、P0-36 到 P0-38，再补 P0-01 到 P0-06 |
 | tool、weather、function call 变更 | P0-14 到 P0-17、P0-35、P0-39，再补 P0-01 到 P0-06 |
 | reasoning、思考过程、流式协议变更 | P0-26 到 P0-33、P0-39，再补 P0-01 到 P0-07 |
+| 上下文窗口、prompt 构造或 `chatService` 模型请求变更 | `pnpm run test:context` + `pnpm run check`；重点覆盖 P1-39 到 P1-48，涉及 tool prompt 时补 P0-14、P0-27、P0-39 |
 | composer 草稿、会话切换/清空/删除变更 | P0-34 + P1-18 到 P1-25 |
 | Vite dev server 或 LAN 访问变更 | P1-37，并手动确认目标机器可访问前端入口 |
 | 真实模型链路验证 | P0 + P2 |
@@ -224,6 +235,7 @@ P2 仅在明确要求“真实接口”时执行。
 | 完整 UI 矩阵 | `tests/cdp/run-cdp-regression.mjs ui` |
 | 停止生成、上游取消、request cancel | `tests/cdp/upstream-abort.mjs` |
 | 会话 API、JSON/SQLite 持久化、JSON 到 SQLite 迁移、错误 JSON、tool mock、流式协议 header、reasoning 持久化、tool 上下文、标题和存储边界 | `tests/cdp/p0-api-tool.mjs` |
+| 上下文窗口、字符预算边界、配置 fallback、空历史、顺序统计、prompt 裁剪、tool answer managed context | `tests/server/contextService.test.ts` |
 | 基础 UI、复制、重试、滚动、新建/切换中断、输入框、主题、移动端、reasoning 面板、流式协议错误、草稿清理 | `tests/cdp/ui-scenarios.mjs` |
 | 真实接口基础 UI | `tests/cdp/real-scenarios.mjs` |
 | 会话上下文、重命名、清空、删除 | `tests/cdp/conversation-context-real.mjs` |
@@ -236,6 +248,7 @@ P2 仅在明确要求“真实接口”时执行。
 默认不截图：
 
 ```bash
+pnpm run test:context
 node tests/cdp/run-cdp-regression.mjs p0
 node tests/cdp/run-cdp-regression.mjs p1
 node tests/cdp/run-cdp-regression.mjs ui

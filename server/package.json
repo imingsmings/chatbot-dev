@@ -9,7 +9,8 @@
   "scripts": {
     "dev": "node --watch ./bin/www.ts",
     "start": "node ./bin/www.ts",
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test:context": "node --test ../tests/server/contextService.test.ts"
   },
   "dependencies": {
     "cookie-parser": "~1.4.4",

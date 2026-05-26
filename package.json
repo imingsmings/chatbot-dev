@@ -11,6 +11,7 @@
     "build:client": "pnpm --dir client build",
     "lint:client": "pnpm --dir client lint",
     "check": "pnpm run typecheck:server && pnpm run typecheck:client",
+    "test:context": "node --test ./tests/server/contextService.test.ts",
     "test:cdp:p0": "node tests/cdp/run-cdp-regression.mjs p0",
     "test:cdp:p1": "node tests/cdp/run-cdp-regression.mjs p1",
     "test:cdp:ui": "node tests/cdp/run-cdp-regression.mjs ui",
