@@ -1,4 +1,9 @@
-import type { ConversationDetail, ConversationSummary } from '@/types/chat'
+import type {
+  ContextPreview,
+  ConversationDetail,
+  ConversationSearchResult,
+  ConversationSummary,
+} from '@/types/chat'
 
 async function readJson<T>(response: Response): Promise<T> {
   if (!response.ok) {
@@ -11,6 +16,15 @@ async function readJson<T>(response: Response): Promise<T> {
 export async function getConversations() {
   const response = await fetch('/api/conversations')
   const data = await readJson<{ conversations: ConversationSummary[] }>(response)
+  return data.conversations
+}
+
+export async function searchConversations(query: string) {
+  const params = new URLSearchParams({
+    q: query,
+  })
+  const response = await fetch(`/api/conversations/search?${params.toString()}`)
+  const data = await readJson<{ conversations: ConversationSearchResult[] }>(response)
   return data.conversations
 }
 
@@ -56,6 +70,16 @@ export async function clearConversation(id: string) {
   })
   const data = await readJson<{ conversation: ConversationDetail }>(response)
   return data.conversation
+}
+
+export async function getConversationContextPreview(id: string, question: string) {
+  const response = await fetch(`/api/conversations/${encodeURIComponent(id)}/context-preview`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ question }),
+  })
+  const data = await readJson<{ context: ContextPreview }>(response)
+  return data.context
 }
 
 export async function requestConversationAnswer(params: {

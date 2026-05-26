@@ -4,8 +4,10 @@ import {
   findConversation,
   listConversationSummaries,
   removeConversation,
+  searchConversationSummaries,
   updateConversationTitle
 } from '../services/conversationService.ts'
+import { buildContextPreview } from '../services/contextDebugService.ts'
 import type { RequestHandler, Response } from 'express'
 
 type ConversationParams = {
@@ -18,6 +20,14 @@ type CreateConversationBody = {
 
 type RenameConversationBody = {
   title?: unknown
+}
+
+type ContextPreviewBody = {
+  question?: unknown
+}
+
+type SearchConversationQuery = {
+  q?: unknown
 }
 
 function writeNotFound(res: Response): void {
@@ -58,6 +68,53 @@ const getConversation: RequestHandler<ConversationParams> = async (req, res, nex
 
     res.json({
       conversation
+    })
+  } catch (err) {
+    next(err)
+  }
+}
+
+const searchConversations: RequestHandler<unknown, unknown, unknown, SearchConversationQuery> = async (
+  req,
+  res,
+  next
+) => {
+  try {
+    const query = typeof req.query.q === 'string' ? req.query.q.trim() : ''
+
+    if (!query) {
+      res.status(400).json({
+        message: '搜索关键词不能为空'
+      })
+      return
+    }
+
+    res.json({
+      conversations: await searchConversationSummaries(query)
+    })
+  } catch (err) {
+    next(err)
+  }
+}
+
+const previewConversationContext: RequestHandler<ConversationParams, unknown, ContextPreviewBody> = async (
+  req,
+  res,
+  next
+) => {
+  try {
+    const conversation = await findConversation(req.params.id)
+
+    if (!conversation) {
+      writeNotFound(res)
+      return
+    }
+
+    res.json({
+      context: buildContextPreview(
+        conversation,
+        typeof req.body.question === 'string' ? req.body.question : ''
+      )
     })
   } catch (err) {
     next(err)
@@ -130,5 +187,7 @@ export {
   deleteConversation,
   getConversation,
   listConversations,
-  renameConversation
+  previewConversationContext,
+  renameConversation,
+  searchConversations
 }

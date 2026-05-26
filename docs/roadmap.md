@@ -77,7 +77,7 @@ pnpm run test:cdp:p0
 
 ### R1.1 最近 N 轮上下文窗口
 
-状态：待做。
+状态：已完成。
 
 内容：
 
@@ -95,6 +95,11 @@ pnpm run test:cdp:p0
 - 长会话只发送窗口内消息给模型。
 - 不影响前端历史展示。
 - 不破坏 tool calling 和 reasoning。
+
+落地记录：
+
+- 已新增 `server/services/contextService.ts`，按消息数和字符预算构造 managed context。
+- 已新增 `pnpm run test:context`，覆盖最近窗口、字符预算边界、空历史、顺序统计、tool answer managed context 等场景。
 
 ### R1.2 会话摘要
 
@@ -119,12 +124,18 @@ pnpm run test:cdp:p0
 
 ### R1.3 调试当前模型上下文
 
-状态：待做。
+状态：已完成。
 
 内容：
 
 - 提供“查看本次发送给模型的上下文”能力。
 - 展示最终 messages、tool definitions、模型参数。
+
+落地记录：
+
+- 已新增 `/conversations/:id/context-preview`，返回本次预览的 messages、上下文统计、模型参数和 tool definitions。
+- 已在前端 composer 增加“上下文”入口，通过调试面板查看当前会话实际发送给模型的上下文。
+- API key 只展示是否已配置，不返回 secret 原值。
 
 设计建议：
 
@@ -178,7 +189,7 @@ pnpm run test:cdp:p0
 
 ### R3.1 会话搜索
 
-状态：待做。
+状态：已完成。
 
 内容：
 
@@ -195,6 +206,12 @@ pnpm run test:cdp:p0
 
 - 搜索关键词能命中标题和历史消息。
 - 不影响会话列表默认排序。
+
+落地记录：
+
+- 已新增 `GET /conversations/search?q=...`，按标题和消息内容搜索，不引入全文索引。
+- 已在侧栏增加搜索框，支持匹配标签、消息片段和点击结果跳转。
+- 已新增 `pnpm run test:conversation-search` 与 `pnpm run test:cdp:conversation-search`，覆盖 file/SQLite store、只读性、路由顺序、特殊字符、前端交互、无结果、失败恢复、竞态保护和移动端布局。
 
 ### R3.2 会话导出
 

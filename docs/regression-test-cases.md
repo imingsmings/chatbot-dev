@@ -110,6 +110,20 @@
 | P1-46 | 空历史 prompt | Node test | 无历史消息时仍发送 system prompt 和当前用户问题；统计信息为 0 |
 | P1-47 | 历史顺序和统计 | Node test | 选中的最近历史按原始时间顺序进入 prompt；`selectedHistoryMessages`、`droppedHistoryMessages`、`selectedHistoryChars` 准确 |
 | P1-48 | 当前问题预算隔离 | Node test | 当前用户问题不受历史字符预算影响，即使问题很长也必须完整发送 |
+| P1-49 | 上下文预览接口 | Node test | 预览结果包含最终 messages、统计、模型参数和 tool definitions；不暴露 API key 或 secret 原值 |
+| P1-50 | 上下文调试面板 | mock/CDP + 截图 | 点击“上下文”后打开调试面板，显示当前草稿问题、被选中的历史、模型参数和工具定义 |
+| P1-51 | 上下文预览不落库 | mock/CDP | 打开预览只调用 `/context-preview`，不会触发 `/ask`，不会修改会话 messages |
+| P1-52 | 上下文调试移动端布局 | mock/CDP + 截图 | 390px 宽度下面板不产生页面级横向溢出，modal 宽度不超过视口 |
+| P1-53 | 会话搜索 service | Node test | 标题和消息内容均可命中；特殊字符按普通文本搜索；空关键词不返回结果 |
+| P1-54 | 会话搜索只读性 | Node test | 搜索不会修改会话 messages 或 updatedAt |
+| P1-55 | 侧栏标题搜索 | mock/CDP | 输入标题关键词后只显示标题命中会话，并展示“标题匹配” |
+| P1-56 | 侧栏消息搜索 | mock/CDP | 输入消息关键词后显示消息命中会话、匹配片段和“消息匹配” |
+| P1-57 | 搜索结果跳转和清空 | mock/CDP | 点击搜索结果进入对应会话；清空搜索恢复默认列表排序 |
+| P1-58 | 搜索特殊字符和移动端布局 | mock/CDP | `[a+b]?` 等特殊字符可搜索；390px 下不产生页面级横向溢出 |
+| P1-59 | 会话搜索路由顺序 | Node test | `/conversations/search` 注册在 `/conversations/:id` 前，避免被动态 id 路由吞掉 |
+| P1-60 | 会话搜索无结果和失败恢复 | mock/CDP | 无命中显示“无匹配会话”；接口失败显示“搜索失败”并清空旧结果；清空关键词后状态恢复 |
+| P1-61 | 会话搜索竞态保护 | mock/CDP | 慢响应先发、快响应后发时，最终只展示最新关键词结果，旧响应不能覆盖当前 UI |
+| P1-62 | SQLite 会话搜索 | Node test + 临时 SQLite | `CONVERSATION_STORE=sqlite` 时标题和消息内容搜索语义与 file store 一致；特殊字符按普通文本匹配；搜索不修改消息或 updatedAt；数据库写入临时路径 |
 
 ## UI 场景矩阵
 
@@ -183,7 +197,9 @@ P2 仅在明确要求“真实接口”时执行。
 | 会话存储或路由变更 | P0-10 到 P0-13、P0-36 到 P0-38，再补 P0-01 到 P0-06 |
 | tool、weather、function call 变更 | P0-14 到 P0-17、P0-35、P0-39，再补 P0-01 到 P0-06 |
 | reasoning、思考过程、流式协议变更 | P0-26 到 P0-33、P0-39，再补 P0-01 到 P0-07 |
-| 上下文窗口、prompt 构造或 `chatService` 模型请求变更 | `pnpm run test:context` + `pnpm run check`；重点覆盖 P1-39 到 P1-48，涉及 tool prompt 时补 P0-14、P0-27、P0-39 |
+| 上下文窗口、prompt 构造或 `chatService` 模型请求变更 | `pnpm run test:context` + `pnpm run check`；重点覆盖 P1-39 到 P1-49，涉及 tool prompt 时补 P0-14、P0-27、P0-39 |
+| 上下文调试面板或预览 UI 变更 | `pnpm run test:context` + `CDP_SCREENSHOTS=1 pnpm run test:cdp:context-debug` + `pnpm run check`；覆盖 P1-49 到 P1-52 |
+| 会话搜索 API、侧栏搜索或搜索结果跳转变更 | `pnpm run test:conversation-search` + `pnpm run test:cdp:conversation-search` + `pnpm run check`；覆盖 P1-53 到 P1-62 |
 | composer 草稿、会话切换/清空/删除变更 | P0-34 + P1-18 到 P1-25 |
 | Vite dev server 或 LAN 访问变更 | P1-37，并手动确认目标机器可访问前端入口 |
 | 真实模型链路验证 | P0 + P2 |
@@ -235,7 +251,11 @@ P2 仅在明确要求“真实接口”时执行。
 | 完整 UI 矩阵 | `tests/cdp/run-cdp-regression.mjs ui` |
 | 停止生成、上游取消、request cancel | `tests/cdp/upstream-abort.mjs` |
 | 会话 API、JSON/SQLite 持久化、JSON 到 SQLite 迁移、错误 JSON、tool mock、流式协议 header、reasoning 持久化、tool 上下文、标题和存储边界 | `tests/cdp/p0-api-tool.mjs` |
-| 上下文窗口、字符预算边界、配置 fallback、空历史、顺序统计、prompt 裁剪、tool answer managed context | `tests/server/contextService.test.ts` |
+| 上下文窗口、字符预算边界、配置 fallback、空历史、顺序统计、prompt 裁剪、tool answer managed context、上下文预览接口 | `tests/server/contextService.test.ts` |
+| 上下文调试面板、预览不落库、移动端布局和截图 | `tests/cdp/context-debug.mjs` |
+| 会话搜索 file store service、标题/消息命中、特殊字符、只读性、路由顺序 | `tests/server/conversationSearch.test.ts` |
+| 会话搜索 SQLite store、标题/消息命中、特殊字符、只读性、临时数据库隔离 | `tests/server/conversationSearchSqlite.test.ts` |
+| 侧栏搜索、搜索结果跳转、清空搜索、无结果、失败恢复、竞态保护、移动端布局 | `tests/cdp/conversation-search.mjs` |
 | 基础 UI、复制、重试、滚动、新建/切换中断、输入框、主题、移动端、reasoning 面板、流式协议错误、草稿清理 | `tests/cdp/ui-scenarios.mjs` |
 | 真实接口基础 UI | `tests/cdp/real-scenarios.mjs` |
 | 会话上下文、重命名、清空、删除 | `tests/cdp/conversation-context-real.mjs` |
@@ -249,6 +269,9 @@ P2 仅在明确要求“真实接口”时执行。
 
 ```bash
 pnpm run test:context
+pnpm run test:conversation-search
+pnpm run test:cdp:context-debug
+pnpm run test:cdp:conversation-search
 node tests/cdp/run-cdp-regression.mjs p0
 node tests/cdp/run-cdp-regression.mjs p1
 node tests/cdp/run-cdp-regression.mjs ui

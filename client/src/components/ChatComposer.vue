@@ -11,6 +11,14 @@
         @keydown.enter.exact.prevent="$emit('submit')"
       ></textarea>
       <button
+        class="context-preview-btn"
+        type="button"
+        :disabled="!canPreviewContext || isContextPreviewLoading"
+        @click="$emit('previewContext')"
+      >
+        {{ isContextPreviewLoading ? '加载中' : '上下文' }}
+      </button>
+      <button
         v-if="isResponding"
         class="send-btn stop-btn"
         type="button"
@@ -31,7 +39,9 @@ import { ref } from 'vue'
 
 defineProps<{
   canSubmit: boolean
+  canPreviewContext: boolean
   disabled: boolean
+  isContextPreviewLoading: boolean
   isResponding: boolean
   modelValue: string
 }>()
@@ -39,6 +49,7 @@ defineProps<{
 const emit = defineEmits<{
   stop: []
   submit: []
+  previewContext: []
   'update:modelValue': [value: string]
 }>()
 

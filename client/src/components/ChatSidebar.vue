@@ -13,9 +13,23 @@
       </div>
     </div>
 
+    <div class="conversation-search">
+      <input
+        class="conversation-search-input"
+        type="search"
+        placeholder="搜索会话"
+        :value="searchQuery"
+        @input="$emit('updateSearchQuery', ($event.target as HTMLInputElement).value)"
+      >
+      <p v-if="searchError" class="conversation-search-status error">{{ searchError }}</p>
+      <p v-else-if="isSearching" class="conversation-search-status">搜索中...</p>
+    </div>
+
     <nav class="conversation-panel" aria-label="会话">
       <p class="section-label">会话</p>
-      <div v-if="conversations.length === 0" class="empty-sidebar-state">暂无会话</div>
+      <div v-if="conversations.length === 0" class="empty-sidebar-state">
+        {{ searchQuery.trim() ? '无匹配会话' : '暂无会话' }}
+      </div>
       <div
         v-for="conversation in conversations"
         :key="conversation.id"
@@ -31,6 +45,12 @@
         >
           <span class="conversation-title">{{ conversation.title }}</span>
           <span class="conversation-meta">{{ conversation.messageCount }} 条消息</span>
+          <span v-if="'matchedIn' in conversation" class="conversation-match">
+            {{ getMatchLabel(conversation.matchedIn) }}
+          </span>
+          <span v-if="'snippet' in conversation && conversation.snippet" class="conversation-snippet">
+            {{ conversation.snippet }}
+          </span>
         </button>
         <div class="conversation-actions">
           <button
@@ -67,12 +87,21 @@
 </template>
 
 <script setup lang="ts">
-import type { ConversationSummary } from '@/types/chat'
+import type {
+  ConversationSearchMatchLocation,
+  ConversationSearchResult,
+  ConversationSummary,
+} from '@/types/chat'
+
+type SidebarConversation = ConversationSummary | ConversationSearchResult
 
 defineProps<{
-  conversations: ConversationSummary[]
+  conversations: SidebarConversation[]
   currentConversationId: string | null
+  isSearching: boolean
   isResponding: boolean
+  searchError: string
+  searchQuery: string
   themeToggleLabel: string
 }>()
 
@@ -83,5 +112,10 @@ defineEmits<{
   renameConversation: [conversation: ConversationSummary]
   selectConversation: [id: string]
   toggleTheme: []
+  updateSearchQuery: [query: string]
 }>()
+
+function getMatchLabel(location: ConversationSearchMatchLocation): string {
+  return location === 'title' ? '标题匹配' : '消息匹配'
+}
 </script>

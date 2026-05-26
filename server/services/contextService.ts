@@ -11,6 +11,7 @@ type ContextConfig = {
 
 type ContextBuildResult = {
   messages: PromptMessage[]
+  config: ContextConfig
   selectedHistoryMessages: number
   droppedHistoryMessages: number
   selectedHistoryChars: number
@@ -69,6 +70,7 @@ function buildContextMessages(conversation: Conversation, question: string): Con
 
   return {
     messages: buildStandardPrompt(question, recentHistory),
+    config,
     selectedHistoryMessages: recentHistory.length,
     droppedHistoryMessages: Math.max(0, conversation.messages.length - recentHistory.length),
     selectedHistoryChars
@@ -76,5 +78,7 @@ function buildContextMessages(conversation: Conversation, question: string): Con
 }
 
 export {
+  type ContextBuildResult,
+  type ContextConfig,
   buildContextMessages
 }

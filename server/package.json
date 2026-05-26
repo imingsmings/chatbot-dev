@@ -10,7 +10,8 @@
     "dev": "node --watch ./bin/www.ts",
     "start": "node ./bin/www.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test:context": "node --test ../tests/server/contextService.test.ts"
+    "test:context": "node --test ../tests/server/contextService.test.ts",
+    "test:conversation-search": "node --test ../tests/server/conversationSearch.test.ts ../tests/server/conversationSearchSqlite.test.ts"
   },
   "dependencies": {
     "cookie-parser": "~1.4.4",

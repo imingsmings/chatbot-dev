@@ -5,13 +5,17 @@ import {
   deleteConversation,
   getConversation,
   listConversations,
-  renameConversation
+  previewConversationContext,
+  renameConversation,
+  searchConversations
 } from '../controllers/conversationController.ts'
 
 const router = express.Router()
 
 router.get('/conversations', listConversations)
 router.post('/conversations', createConversation)
+router.get('/conversations/search', searchConversations)
+router.post('/conversations/:id/context-preview', previewConversationContext)
 router.get('/conversations/:id', getConversation)
 router.patch('/conversations/:id', renameConversation)
 router.delete('/conversations/:id', deleteConversation)

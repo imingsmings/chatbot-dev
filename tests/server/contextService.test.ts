@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import assert from 'node:assert/strict'
 import { after, test } from 'node:test'
+import { buildContextPreview } from '../../server/services/contextDebugService.ts'
 import { buildContextMessages } from '../../server/services/contextService.ts'
 import type { Conversation, PromptMessage, StoredMessage } from '../../server/types/conversation.ts'
 
@@ -15,6 +16,7 @@ const originalEnv = {
   LLM_MODEL: process.env.LLM_MODEL,
   LLM_PROVIDER: process.env.LLM_PROVIDER,
   LLM_REASONING_ENABLED: process.env.LLM_REASONING_ENABLED,
+  LLM_REASONING_EFFORT: process.env.LLM_REASONING_EFFORT,
   DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY
 }
 
@@ -285,6 +287,42 @@ test('buildContextMessages always keeps the current question outside the history
   assert.equal(result.selectedHistoryChars, 5)
   assert(content.includes('SHORT'))
   assert(!content.includes('OLD_SHOULD_DROP'))
+})
+
+test('buildContextPreview exposes managed context details without leaking secrets', () => {
+  process.env.CONTEXT_MAX_HISTORY_MESSAGES = '2'
+  process.env.CONTEXT_MAX_HISTORY_CHARS = '1000'
+  process.env.LLM_PROVIDER = 'deepseek'
+  process.env.LLM_ENDPOINT = 'http://mock.local/chat/completions'
+  process.env.LLM_MODEL = 'context-preview-model'
+  process.env.LLM_REASONING_ENABLED = 'true'
+  process.env.LLM_REASONING_EFFORT = 'medium'
+  process.env.DEEPSEEK_API_KEY = 'context-preview-secret'
+
+  const conversation = makeConversation([
+    user('PREVIEW_OLD_SHOULD_DROP'),
+    assistant('PREVIEW_KEEP_ASSISTANT'),
+    user('PREVIEW_KEEP_USER')
+  ])
+  const preview = buildContextPreview(conversation, 'PREVIEW_CURRENT_QUESTION')
+  const serializedPreview = JSON.stringify(preview)
+  const content = promptContent(preview.messages)
+
+  assert.equal(preview.conversationId, conversation.id)
+  assert.equal(preview.question, 'PREVIEW_CURRENT_QUESTION')
+  assert.equal(preview.stats.totalHistoryMessages, 3)
+  assert.equal(preview.stats.selectedHistoryMessages, 2)
+  assert.equal(preview.stats.droppedHistoryMessages, 1)
+  assert.equal(preview.stats.maxHistoryMessages, 2)
+  assert.equal(preview.model.model, 'context-preview-model')
+  assert.equal(preview.model.apiKeyConfigured, true)
+  assert.equal(preview.model.reasoningEffort, 'medium')
+  assert.equal(preview.tools.count, 1)
+  assert(!serializedPreview.includes('context-preview-secret'))
+  assert(!content.includes('PREVIEW_OLD_SHOULD_DROP'))
+  assert(content.includes('PREVIEW_KEEP_ASSISTANT'))
+  assert(content.includes('PREVIEW_KEEP_USER'))
+  assert(content.includes('PREVIEW_CURRENT_QUESTION'))
 })
 
 test('generateConversationAnswer sends managed context to the model instead of full history', async () => {

@@ -27,7 +27,52 @@ export type ConversationSummary = {
   messageCount: number
 }
 
+export type ConversationSearchMatchLocation = 'title' | 'message'
+
+export type ConversationSearchResult = ConversationSummary & {
+  matchedIn: ConversationSearchMatchLocation
+  snippet?: string
+}
+
 export type ConversationDetail = ConversationSummary & {
   titleManuallyEdited?: boolean
   messages: StoredMessage[]
+}
+
+export type PromptMessageRole = StoredMessage['role'] | 'system' | 'tool'
+
+export type ContextPreviewMessage = {
+  role: PromptMessageRole
+  content: string | null
+  reasoning_content?: string
+  tool_call_id?: string
+  tool_calls?: unknown[]
+}
+
+export type ContextPreview = {
+  conversationId: string
+  question: string
+  messages: ContextPreviewMessage[]
+  stats: {
+    totalHistoryMessages: number
+    selectedHistoryMessages: number
+    droppedHistoryMessages: number
+    selectedHistoryChars: number
+    maxHistoryMessages: number
+    maxHistoryChars: number
+  }
+  model: {
+    provider: string
+    model: string | null
+    endpointConfigured: boolean
+    apiKeyConfigured: boolean
+    reasoningEnabled: boolean
+    reasoningEffort: string
+    stream: true
+    toolChoice: 'auto'
+  }
+  tools: {
+    count: number
+    definitions: unknown[]
+  }
 }

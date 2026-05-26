@@ -40,6 +40,12 @@ const SUITES = {
   ui: [
     { name: 'UI interaction scenarios', script: 'tests/cdp/ui-scenarios.mjs', needsVite: true },
   ],
+  'context-debug': [
+    { name: 'Context debug scenarios', script: 'tests/cdp/context-debug.mjs', needsVite: true },
+  ],
+  'conversation-search': [
+    { name: 'Conversation search scenarios', script: 'tests/cdp/conversation-search.mjs', needsVite: true },
+  ],
   real: [
     { name: 'Real UI scenarios', script: 'tests/cdp/real-scenarios.mjs', needsVite: true, needsBackend: true },
     { name: 'Real conversation context scenarios', script: 'tests/cdp/conversation-context-real.mjs', needsVite: true, needsBackend: true },

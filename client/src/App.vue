@@ -1,9 +1,12 @@
 <template>
   <div class="app-shell" :data-theme="theme">
     <ChatSidebar
-      :conversations="conversations"
+      :conversations="visibleConversations"
       :current-conversation-id="currentConversationId"
+      :is-searching="isConversationSearching"
       :is-responding="isResponding"
+      :search-error="conversationSearchError"
+      :search-query="conversationSearchQuery"
       :theme-toggle-label="themeToggleLabel"
       @clear-conversation="handleClearCurrentConversation"
       @delete-conversation="handleDeleteConversation"
@@ -11,6 +14,7 @@
       @rename-conversation="handleRenameConversation"
       @select-conversation="selectConversation"
       @toggle-theme="toggleTheme"
+      @update-search-query="handleConversationSearchQuery"
     />
 
     <main class="chat-main">
@@ -36,8 +40,11 @@
         ref="composer"
         v-model="input"
         :can-submit="canSubmit"
+        :can-preview-context="canPreviewContext"
         :disabled="isResponding || !currentConversationId"
+        :is-context-preview-loading="isContextPreviewLoading"
         :is-responding="isResponding"
+        @preview-context="openContextPreview"
         @stop="stopGenerating"
         @submit="handleSubmit"
       />
@@ -55,13 +62,21 @@
       @cancel="handleDialogCancel"
       @confirm="handleDialogConfirm"
     />
+
+    <ContextDebugModal
+      :context="contextPreview"
+      :open="isContextPreviewOpen"
+      @close="closeContextPreview"
+    />
   </div>
 </template>
 
 <script lang="ts" setup>
 import { computed, nextTick, onMounted, ref } from 'vue'
+import { getConversationContextPreview, searchConversations } from '@/api/conversations'
 import AppDialog from '@/components/AppDialog.vue'
 import ChatComposer from '@/components/ChatComposer.vue'
+import ContextDebugModal from '@/components/ContextDebugModal.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import MessageList from '@/components/MessageList.vue'
 import ChatSidebar from '@/components/ChatSidebar.vue'
@@ -69,7 +84,11 @@ import { useAutoScroll } from '@/composables/useAutoScroll'
 import { useChatStream } from '@/composables/useChatStream'
 import { useConversations } from '@/composables/useConversations'
 import { useTheme } from '@/composables/useTheme'
-import type { ConversationSummary } from '@/types/chat'
+import type {
+  ContextPreview,
+  ConversationSearchResult,
+  ConversationSummary,
+} from '@/types/chat'
 
 type DialogMode = 'alert' | 'confirm' | 'prompt'
 
@@ -87,6 +106,13 @@ type DialogState = {
 const input = ref('')
 const chatBox = ref<HTMLElement | null>(null)
 const composer = ref<InstanceType<typeof ChatComposer> | null>(null)
+const contextPreview = ref<ContextPreview | null>(null)
+const isContextPreviewLoading = ref(false)
+const isContextPreviewOpen = ref(false)
+const conversationSearchQuery = ref('')
+const conversationSearchResults = ref<ConversationSearchResult[]>([])
+const conversationSearchError = ref('')
+const isConversationSearching = ref(false)
 const dialog = ref<DialogState>({
   cancelLabel: '取消',
   confirmLabel: '确定',
@@ -98,6 +124,7 @@ const dialog = ref<DialogState>({
   title: '',
 })
 let resolveDialog: ((value: string | boolean | null) => void) | null = null
+let conversationSearchRequestId = 0
 
 const suggestions = [
   '帮我总结一下今天的工作重点',
@@ -121,6 +148,9 @@ const {
   renameConversation,
 } = useConversations()
 const { followNewContent, scrollChatToBottom, shouldFollowNewContent } = useAutoScroll(chatBox)
+const visibleConversations = computed(() =>
+  conversationSearchQuery.value.trim() ? conversationSearchResults.value : conversations.value,
+)
 
 function resizeComposer() {
   composer.value?.resizeComposer()
@@ -222,7 +252,7 @@ const {
   currentConversationId,
   followNewContent,
   messages,
-  refreshConversationList,
+  refreshConversationList: refreshConversationListAndSearch,
   resizeComposer,
   shouldFollowNewContent,
   showError,
@@ -232,6 +262,72 @@ const canSubmit = computed(
   () =>
     Boolean(currentConversationId.value) && input.value.trim().length > 0 && !isResponding.value,
 )
+const canPreviewContext = computed(
+  () => Boolean(currentConversationId.value) && !isResponding.value,
+)
+
+function clearConversationSearch() {
+  conversationSearchQuery.value = ''
+  conversationSearchResults.value = []
+  conversationSearchError.value = ''
+  isConversationSearching.value = false
+  conversationSearchRequestId += 1
+}
+
+async function runConversationSearch(query: string) {
+  const trimmedQuery = query.trim()
+  const requestId = ++conversationSearchRequestId
+
+  if (!trimmedQuery) {
+    conversationSearchResults.value = []
+    conversationSearchError.value = ''
+    isConversationSearching.value = false
+    return
+  }
+
+  isConversationSearching.value = true
+  conversationSearchError.value = ''
+
+  try {
+    const results = await searchConversations(trimmedQuery)
+
+    if (requestId !== conversationSearchRequestId) {
+      return
+    }
+
+    conversationSearchResults.value = results
+  } catch (err) {
+    if (requestId !== conversationSearchRequestId) {
+      return
+    }
+
+    console.error('Failed to search conversations:', err)
+    conversationSearchResults.value = []
+    conversationSearchError.value = '搜索失败'
+  } finally {
+    if (requestId === conversationSearchRequestId) {
+      isConversationSearching.value = false
+    }
+  }
+}
+
+function handleConversationSearchQuery(query: string) {
+  conversationSearchQuery.value = query
+  void runConversationSearch(query)
+}
+
+async function refreshActiveConversationSearch() {
+  if (!conversationSearchQuery.value.trim()) {
+    return
+  }
+
+  await runConversationSearch(conversationSearchQuery.value)
+}
+
+async function refreshConversationListAndSearch() {
+  await refreshConversationList()
+  await refreshActiveConversationSearch()
+}
 
 async function settleConversationView(options: { focus?: boolean; scroll?: boolean } = {}) {
   await nextTick()
@@ -253,6 +349,7 @@ async function startNewChat() {
 
   try {
     await createNewConversation()
+    clearConversationSearch()
     clearComposerDraft()
     await settleConversationView({ focus: true })
   } catch (err) {
@@ -293,6 +390,7 @@ async function handleRenameConversation(conversation: ConversationSummary) {
 
   try {
     await renameConversation(conversation, title)
+    await refreshActiveConversationSearch()
   } catch (err) {
     console.error('Failed to rename conversation:', err)
     await showError('重命名失败，请稍候再试')
@@ -318,6 +416,7 @@ async function handleDeleteConversation(id: string) {
 
   try {
     await removeConversation(id)
+    await refreshActiveConversationSearch()
     clearComposerDraft()
     await settleConversationView({ focus: true, scroll: true })
   } catch (err) {
@@ -342,12 +441,37 @@ async function handleClearCurrentConversation() {
 
   try {
     await clearCurrentConversation()
+    await refreshActiveConversationSearch()
     clearComposerDraft()
     await settleConversationView()
   } catch (err) {
     console.error('Failed to clear conversation:', err)
     await showError('清空会话失败，请稍候再试')
   }
+}
+
+async function openContextPreview() {
+  const conversationId = currentConversationId.value
+
+  if (!conversationId || isResponding.value || isContextPreviewLoading.value) {
+    return
+  }
+
+  isContextPreviewLoading.value = true
+
+  try {
+    contextPreview.value = await getConversationContextPreview(conversationId, input.value.trim())
+    isContextPreviewOpen.value = true
+  } catch (err) {
+    console.error('Failed to preview context:', err)
+    await showError('上下文预览失败，请稍候再试')
+  } finally {
+    isContextPreviewLoading.value = false
+  }
+}
+
+function closeContextPreview() {
+  isContextPreviewOpen.value = false
 }
 
 async function useSuggestion(suggestion: string) {

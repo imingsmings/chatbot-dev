@@ -36,6 +36,13 @@ export type ConversationSummary = {
   messageCount: number
 }
 
+export type ConversationSearchMatchLocation = 'title' | 'message'
+
+export type ConversationSearchResult = ConversationSummary & {
+  matchedIn: ConversationSearchMatchLocation
+  snippet?: string
+}
+
 export type ConversationTitleUpdateResult =
   | {
       error: 'empty_title'
