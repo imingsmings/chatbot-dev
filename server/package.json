@@ -11,6 +11,7 @@
     "start": "node ./bin/www.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test:context": "node --test ../tests/server/contextService.test.ts",
+    "test:conversation-export": "node --test ../tests/server/conversationExport.test.ts ../tests/server/conversationExportSqlite.test.ts",
     "test:conversation-search": "node --test ../tests/server/conversationSearch.test.ts ../tests/server/conversationSearchSqlite.test.ts"
   },
   "dependencies": {

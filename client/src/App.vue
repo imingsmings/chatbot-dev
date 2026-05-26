@@ -10,6 +10,8 @@
       :theme-toggle-label="themeToggleLabel"
       @clear-conversation="handleClearCurrentConversation"
       @delete-conversation="handleDeleteConversation"
+      @export-all-conversations="handleExportAllConversations"
+      @export-conversation="handleExportConversation"
       @new-chat="startNewChat"
       @rename-conversation="handleRenameConversation"
       @select-conversation="selectConversation"
@@ -73,7 +75,12 @@
 
 <script lang="ts" setup>
 import { computed, nextTick, onMounted, ref } from 'vue'
-import { getConversationContextPreview, searchConversations } from '@/api/conversations'
+import {
+  downloadAllConversationsJson,
+  downloadConversationMarkdown,
+  getConversationContextPreview,
+  searchConversations,
+} from '@/api/conversations'
 import AppDialog from '@/components/AppDialog.vue'
 import ChatComposer from '@/components/ChatComposer.vue'
 import ContextDebugModal from '@/components/ContextDebugModal.vue'
@@ -89,6 +96,7 @@ import type {
   ConversationSearchResult,
   ConversationSummary,
 } from '@/types/chat'
+import type { DownloadedFile } from '@/api/conversations'
 
 type DialogMode = 'alert' | 'confirm' | 'prompt'
 
@@ -201,6 +209,17 @@ async function showError(message: string, title = '操作失败') {
     mode: 'alert',
     title,
   })
+}
+
+function saveDownloadedFile(file: DownloadedFile) {
+  const url = URL.createObjectURL(file.blob)
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = file.filename
+  document.body.appendChild(anchor)
+  anchor.click()
+  anchor.remove()
+  URL.revokeObjectURL(url)
 }
 
 async function confirmAction(options: {
@@ -447,6 +466,24 @@ async function handleClearCurrentConversation() {
   } catch (err) {
     console.error('Failed to clear conversation:', err)
     await showError('清空会话失败，请稍候再试')
+  }
+}
+
+async function handleExportConversation(conversation: ConversationSummary) {
+  try {
+    saveDownloadedFile(await downloadConversationMarkdown(conversation.id))
+  } catch (err) {
+    console.error('Failed to export conversation:', err)
+    await showError('导出会话失败，请稍候再试')
+  }
+}
+
+async function handleExportAllConversations() {
+  try {
+    saveDownloadedFile(await downloadAllConversationsJson())
+  } catch (err) {
+    console.error('Failed to export all conversations:', err)
+    await showError('导出全部会话失败，请稍候再试')
   }
 }
 

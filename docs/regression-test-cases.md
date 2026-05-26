@@ -124,6 +124,10 @@
 | P1-60 | 会话搜索无结果和失败恢复 | mock/CDP | 无命中显示“无匹配会话”；接口失败显示“搜索失败”并清空旧结果；清空关键词后状态恢复 |
 | P1-61 | 会话搜索竞态保护 | mock/CDP | 慢响应先发、快响应后发时，最终只展示最新关键词结果，旧响应不能覆盖当前 UI |
 | P1-62 | SQLite 会话搜索 | Node test + 临时 SQLite | `CONVERSATION_STORE=sqlite` 时标题和消息内容搜索语义与 file store 一致；特殊字符按普通文本匹配；搜索不修改消息或 updatedAt；数据库写入临时路径 |
+| P1-63 | 会话导出 service/API | Node test | 单会话 Markdown 可读且包含 reasoning；全量 JSON 备份保留 reasoningContent/reasoningDurationMs；导出不修改 messages 或 updatedAt |
+| P1-64 | SQLite 会话导出 | Node test + 临时 SQLite | `CONVERSATION_STORE=sqlite` 时 Markdown 和 JSON 导出读取临时 SQLite，保留 reasoning，且不修改会话数据 |
+| P1-65 | 会话导出 UI 下载 | mock/CDP | 点击单会话“导出”下载 Markdown；点击“导出全部 JSON”下载备份；文件名来自响应头；不触发 `/ask` |
+| P1-66 | 会话导出移动端布局 | mock/CDP | 390px 下导出按钮不产生页面级横向溢出 |
 
 ## UI 场景矩阵
 
@@ -200,6 +204,7 @@ P2 仅在明确要求“真实接口”时执行。
 | 上下文窗口、prompt 构造或 `chatService` 模型请求变更 | `pnpm run test:context` + `pnpm run check`；重点覆盖 P1-39 到 P1-49，涉及 tool prompt 时补 P0-14、P0-27、P0-39 |
 | 上下文调试面板或预览 UI 变更 | `pnpm run test:context` + `CDP_SCREENSHOTS=1 pnpm run test:cdp:context-debug` + `pnpm run check`；覆盖 P1-49 到 P1-52 |
 | 会话搜索 API、侧栏搜索或搜索结果跳转变更 | `pnpm run test:conversation-search` + `pnpm run test:cdp:conversation-search` + `pnpm run check`；覆盖 P1-53 到 P1-62 |
+| 会话导出 API、下载按钮或备份格式变更 | `pnpm run test:conversation-export` + `pnpm run test:cdp:conversation-export` + `pnpm run check`；覆盖 P1-63 到 P1-66 |
 | composer 草稿、会话切换/清空/删除变更 | P0-34 + P1-18 到 P1-25 |
 | Vite dev server 或 LAN 访问变更 | P1-37，并手动确认目标机器可访问前端入口 |
 | 真实模型链路验证 | P0 + P2 |
@@ -256,6 +261,9 @@ P2 仅在明确要求“真实接口”时执行。
 | 会话搜索 file store service、标题/消息命中、特殊字符、只读性、路由顺序 | `tests/server/conversationSearch.test.ts` |
 | 会话搜索 SQLite store、标题/消息命中、特殊字符、只读性、临时数据库隔离 | `tests/server/conversationSearchSqlite.test.ts` |
 | 侧栏搜索、搜索结果跳转、清空搜索、无结果、失败恢复、竞态保护、移动端布局 | `tests/cdp/conversation-search.mjs` |
+| 会话导出 file store、Markdown、JSON 备份、headers、路由顺序 | `tests/server/conversationExport.test.ts` |
+| 会话导出 SQLite store、reasoning 保留、临时数据库隔离 | `tests/server/conversationExportSqlite.test.ts` |
+| 会话导出下载交互、文件名、JSON 备份、移动端布局 | `tests/cdp/conversation-export.mjs` |
 | 基础 UI、复制、重试、滚动、新建/切换中断、输入框、主题、移动端、reasoning 面板、流式协议错误、草稿清理 | `tests/cdp/ui-scenarios.mjs` |
 | 真实接口基础 UI | `tests/cdp/real-scenarios.mjs` |
 | 会话上下文、重命名、清空、删除 | `tests/cdp/conversation-context-real.mjs` |
@@ -269,7 +277,9 @@ P2 仅在明确要求“真实接口”时执行。
 
 ```bash
 pnpm run test:context
+pnpm run test:conversation-export
 pnpm run test:conversation-search
+pnpm run test:cdp:conversation-export
 pnpm run test:cdp:context-debug
 pnpm run test:cdp:conversation-search
 node tests/cdp/run-cdp-regression.mjs p0

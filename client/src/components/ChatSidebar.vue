@@ -56,6 +56,14 @@
           <button
             class="conversation-action-btn"
             type="button"
+            title="导出 Markdown"
+            @click="$emit('exportConversation', conversation)"
+          >
+            导出
+          </button>
+          <button
+            class="conversation-action-btn"
+            type="button"
             title="重命名"
             @click="$emit('renameConversation', conversation)"
           >
@@ -74,6 +82,13 @@
     </nav>
 
     <div class="sidebar-footer">
+      <button
+        class="export-all-btn"
+        type="button"
+        @click="$emit('exportAllConversations')"
+      >
+        导出全部 JSON
+      </button>
       <button
         class="clear-history-btn"
         type="button"
@@ -108,6 +123,8 @@ defineProps<{
 defineEmits<{
   clearConversation: []
   deleteConversation: [id: string]
+  exportAllConversations: []
+  exportConversation: [conversation: ConversationSummary]
   newChat: []
   renameConversation: [conversation: ConversationSummary]
   selectConversation: [id: string]

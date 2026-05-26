@@ -135,6 +135,7 @@
 
 .new-chat-btn,
 .theme-toggle-btn,
+.export-all-btn,
 .clear-history-btn,
 .conversation-item,
 .conversation-action-btn,
@@ -353,20 +354,36 @@
 }
 
 .sidebar-footer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
   border-top: 1px solid var(--border);
   padding-top: 12px;
 }
 
+.export-all-btn,
 .clear-history-btn {
   width: 100%;
   border-radius: 8px;
-  background: transparent;
-  color: var(--danger);
   cursor: pointer;
   font-size: 14px;
   font-weight: 600;
   padding: 10px 12px;
   text-align: left;
+}
+
+.export-all-btn {
+  background: var(--surface);
+  color: var(--text-primary);
+}
+
+.export-all-btn:hover {
+  background: var(--surface-hover);
+}
+
+.clear-history-btn {
+  background: transparent;
+  color: var(--danger);
 }
 
 .clear-history-btn:hover {

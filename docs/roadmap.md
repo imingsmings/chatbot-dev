@@ -37,7 +37,7 @@
 
 ### R0.1 配置体验补齐
 
-状态：完成。
+状态：已完成。
 
 内容：
 
@@ -54,7 +54,7 @@
 
 ### R0.2 回归入口固定
 
-状态：完成。
+状态：已完成。
 
 内容：
 
@@ -215,7 +215,7 @@ pnpm run test:cdp:p0
 
 ### R3.2 会话导出
 
-状态：待做。
+状态：已完成。
 
 内容：
 
@@ -227,6 +227,13 @@ pnpm run test:cdp:p0
 
 - 导出的 Markdown 可读。
 - 导出的 JSON 可用于后续恢复。
+
+落地记录：
+
+- 已新增 `GET /conversations/:id/export.md`，单会话导出 Markdown，包含基础元数据、原始消息和 assistant reasoning。
+- 已新增 `GET /conversations/export.json`，全量导出 JSON 备份，保留 `reasoningContent` 和 `reasoningDurationMs`。
+- 已在侧栏增加单会话“导出”和“导出全部 JSON”入口。
+- 已新增 `pnpm run test:conversation-export` 与 `pnpm run test:cdp:conversation-export`，覆盖 file/SQLite store、headers、路由顺序、reasoning 保留、下载交互和移动端布局。
 
 ### R3.3 会话导入
 
@@ -403,13 +410,13 @@ pnpm run test:cdp:p0
 
 ## 建议执行顺序
 
-1. R0.1 配置体验补齐。
-2. R1.1 最近 N 轮上下文窗口。
-3. R1.3 调试当前模型上下文。
-4. R3.1 会话搜索。
-5. R3.2 会话导出。
-6. R4.1 Prompt 模板列表。
-7. R5.1 增加 1 到 2 个基础工具。
-8. R7.1 架构图和协议文档。
-9. R1.2 会话摘要。
-10. R2.2 本地参数切换。
+- [x] R0.1 配置体验补齐。
+- [x] R1.1 最近 N 轮上下文窗口。
+- [x] R1.3 调试当前模型上下文。
+- [x] R3.1 会话搜索。
+- [x] R3.2 会话导出。
+- [ ] R4.1 Prompt 模板列表。
+- [ ] R5.1 增加 1 到 2 个基础工具。
+- [ ] R7.1 架构图和协议文档。
+- [ ] R1.2 会话摘要。
+- [ ] R2.2 本地参数切换。

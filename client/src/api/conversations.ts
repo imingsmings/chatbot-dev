@@ -5,12 +5,51 @@ import type {
   ConversationSummary,
 } from '@/types/chat'
 
+export type DownloadedFile = {
+  blob: Blob
+  filename: string
+}
+
 async function readJson<T>(response: Response): Promise<T> {
   if (!response.ok) {
     throw new Error(`请求失败：${response.status}`)
   }
 
   return response.json() as Promise<T>
+}
+
+function parseContentDispositionFilename(value: string | null, fallback: string): string {
+  if (!value) {
+    return fallback
+  }
+
+  const encodedMatch = value.match(/filename\*=UTF-8''([^;]+)/i)
+  if (encodedMatch?.[1]) {
+    try {
+      return decodeURIComponent(encodedMatch[1])
+    } catch {
+      return fallback
+    }
+  }
+
+  const quotedMatch = value.match(/filename="([^"]+)"/i)
+  if (quotedMatch?.[1]) {
+    return quotedMatch[1]
+  }
+
+  const plainMatch = value.match(/filename=([^;]+)/i)
+  return plainMatch?.[1]?.trim() || fallback
+}
+
+async function readDownload(response: Response, fallbackFilename: string): Promise<DownloadedFile> {
+  if (!response.ok) {
+    throw new Error(`请求失败：${response.status}`)
+  }
+
+  return {
+    blob: await response.blob(),
+    filename: parseContentDispositionFilename(response.headers.get('Content-Disposition'), fallbackFilename),
+  }
 }
 
 export async function getConversations() {
@@ -26,6 +65,16 @@ export async function searchConversations(query: string) {
   const response = await fetch(`/api/conversations/search?${params.toString()}`)
   const data = await readJson<{ conversations: ConversationSearchResult[] }>(response)
   return data.conversations
+}
+
+export async function downloadAllConversationsJson() {
+  const response = await fetch('/api/conversations/export.json')
+  return readDownload(response, 'chatbot-conversations.json')
+}
+
+export async function downloadConversationMarkdown(id: string) {
+  const response = await fetch(`/api/conversations/${encodeURIComponent(id)}/export.md`)
+  return readDownload(response, `${id}.md`)
 }
 
 export async function createConversation() {

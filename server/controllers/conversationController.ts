@@ -8,6 +8,10 @@ import {
   updateConversationTitle
 } from '../services/conversationService.ts'
 import { buildContextPreview } from '../services/contextDebugService.ts'
+import {
+  exportAllConversationsAsJson,
+  exportConversationAsMarkdown
+} from '../services/conversationExportService.ts'
 import type { RequestHandler, Response } from 'express'
 
 type ConversationParams = {
@@ -34,6 +38,11 @@ function writeNotFound(res: Response): void {
   res.status(404).json({
     message: '会话不存在'
   })
+}
+
+function setAttachmentHeaders(res: Response, filename: string, contentType: string): void {
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`)
+  res.setHeader('Content-Type', contentType)
 }
 
 const listConversations: RequestHandler = async (req, res, next) => {
@@ -92,6 +101,32 @@ const searchConversations: RequestHandler<unknown, unknown, unknown, SearchConve
     res.json({
       conversations: await searchConversationSummaries(query)
     })
+  } catch (err) {
+    next(err)
+  }
+}
+
+const exportAllConversations: RequestHandler = async (req, res, next) => {
+  try {
+    const exported = await exportAllConversationsAsJson()
+    setAttachmentHeaders(res, exported.filename, 'application/json; charset=utf-8')
+    res.send(exported.content)
+  } catch (err) {
+    next(err)
+  }
+}
+
+const exportConversationMarkdown: RequestHandler<ConversationParams> = async (req, res, next) => {
+  try {
+    const exported = await exportConversationAsMarkdown(req.params.id)
+
+    if (!exported) {
+      writeNotFound(res)
+      return
+    }
+
+    setAttachmentHeaders(res, exported.filename, 'text/markdown; charset=utf-8')
+    res.send(exported.content)
   } catch (err) {
     next(err)
   }
@@ -185,6 +220,8 @@ export {
   clearConversation,
   createConversation,
   deleteConversation,
+  exportAllConversations,
+  exportConversationMarkdown,
   getConversation,
   listConversations,
   previewConversationContext,
