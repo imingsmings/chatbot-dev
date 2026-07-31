@@ -34,6 +34,21 @@ export type ToolResult = {
   result: string
 }
 
+export type ToolExecutionEvent =
+  | {
+      type: 'tool_start'
+      toolCallId?: string
+      name: string
+      args: unknown
+    }
+  | {
+      type: 'tool_result'
+      toolCallId?: string
+      name: string
+      summary: string
+      success: boolean
+    }
+
 export type ToolHandler<TArgs = unknown> = (
   args: TArgs,
   options?: ToolExecutionOptions
@@ -49,4 +64,12 @@ export type ToolRegistryItem<TArgs = unknown> = {
 export type WeatherToolArgs = {
   city: string
   date: string
+}
+
+export type CurrentTimeToolArgs = {
+  timeZone?: string
+}
+
+export type CalculatorToolArgs = {
+  expression: string
 }

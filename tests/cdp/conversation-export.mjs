@@ -121,6 +121,7 @@ const mockScript = `
 
     if (pathname === '/conversations/export.json' && method === 'GET') {
       exportRequests.push('all-json');
+      await new Promise((resolve) => setTimeout(resolve, 180));
       return json({
         schemaVersion: 1,
         source: 'chatbot-local',
@@ -135,6 +136,7 @@ const mockScript = `
     if (markdownMatch && method === 'GET') {
       const id = decodeURIComponent(markdownMatch[1]);
       exportRequests.push('markdown:' + id);
+      await new Promise((resolve) => setTimeout(resolve, 180));
       const conversation = conversations.get(id);
       if (!conversation) return json({ message: 'not found' }, 404);
       return text([
@@ -175,7 +177,7 @@ const mockScript = `
 })();
 `
 
-async function clickConversationExport(client, title) {
+async function clickConversationExport(client, title, clickCount = 1) {
   await evaluate(
     client,
     `(() => {
@@ -185,19 +187,19 @@ async function clickConversationExport(client, title) {
       const button = [...shell.querySelectorAll('button')]
         .find((item) => item.textContent.trim() === '导出');
       if (!button) throw new Error('export button not found: ${title}');
-      button.click();
+      for (let index = 0; index < ${clickCount}; index += 1) button.click();
     })()`
   )
 }
 
-async function clickButtonByText(client, text) {
+async function clickButtonByText(client, text, clickCount = 1) {
   await evaluate(
     client,
     `(() => {
       const button = [...document.querySelectorAll('button')]
         .find((item) => item.textContent.trim() === ${JSON.stringify(text)});
       if (!button) throw new Error('button not found: ${text}');
-      button.click();
+      for (let index = 0; index < ${clickCount}; index += 1) button.click();
     })()`
   )
 }
@@ -224,8 +226,26 @@ async function main() {
     await client.send('Page.navigate', { url: APP_URL })
     await waitForEval(client, `document.readyState === 'complete' && document.body.innerText.includes('Alpha Export')`)
 
-    await clickConversationExport(client, 'Alpha Export')
+    await clickConversationExport(client, 'Alpha Export', 3)
+    await waitForEval(
+      client,
+      `(() => {
+        const button = [...document.querySelectorAll('.conversation-action-btn')]
+          .find((item) => item.textContent.trim() === '导出中...');
+        return button?.disabled === true && button.getAttribute('aria-busy') === 'true';
+      })()`
+    )
+    const singleBusyState = await readExportState(client)
+    assert(
+      singleBusyState.exportRequests.filter((item) => item === 'markdown:export-cdp-1').length === 1,
+      'rapid single export clicks created duplicate requests'
+    )
     await waitForEval(client, `window.__conversationExportState().then((state) => state.downloads.length === 1)`)
+    await waitForEval(
+      client,
+      `[...document.querySelectorAll('.conversation-action-btn')]
+        .some((item) => item.textContent.trim() === '导出' && item.disabled === false)`
+    )
     let state = await readExportState(client)
     assert(state.exportRequests.includes('markdown:export-cdp-1'), 'single conversation export endpoint was not called')
     assert(state.downloads[0]?.download === 'alpha-export.md', 'single conversation export filename was not used')
@@ -233,8 +253,26 @@ async function main() {
     assert(state.downloads[0]?.text.includes('export markdown answer'), 'markdown export did not include answer text')
     assert(state.revokedUrls.includes(state.downloads[0].href), 'single conversation object URL was not revoked')
 
-    await clickButtonByText(client, '导出全部 JSON')
+    await clickButtonByText(client, '导出全部 JSON', 3)
+    await waitForEval(
+      client,
+      `(() => {
+        const button = [...document.querySelectorAll('button')]
+          .find((item) => item.textContent.trim() === '导出中...');
+        return button?.disabled === true && button.getAttribute('aria-busy') === 'true';
+      })()`
+    )
+    const allBusyState = await readExportState(client)
+    assert(
+      allBusyState.exportRequests.filter((item) => item === 'all-json').length === 1,
+      'rapid full export clicks created duplicate requests'
+    )
     await waitForEval(client, `window.__conversationExportState().then((state) => state.downloads.length === 2)`)
+    await waitForEval(
+      client,
+      `[...document.querySelectorAll('button')]
+        .some((item) => item.textContent.trim() === '导出全部 JSON' && item.disabled === false)`
+    )
     state = await readExportState(client)
     assert(state.exportRequests.includes('all-json'), 'all conversations export endpoint was not called')
     assert(state.downloads[1]?.download === 'chatbot-conversations-2026-05-26.json', 'json export filename was not used')
@@ -261,7 +299,13 @@ async function main() {
 
     console.log(JSON.stringify({
       allPassed: true,
-      assertions: state
+      assertions: {
+        ...state,
+        rapidSingleRequestCount: singleBusyState.exportRequests.length,
+        rapidAllRequestCount: allBusyState.exportRequests.filter((item) => item === 'all-json').length,
+        loadingStatesVisible: true,
+        controlsRecovered: true
+      }
     }, null, 2))
   } finally {
     client?.close()

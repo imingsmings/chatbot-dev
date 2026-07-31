@@ -1,7 +1,8 @@
 import { spawn } from 'node:child_process'
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { stopProcess } from './helpers/services.mjs'
 
 const APP_URL = process.env.APP_URL || 'http://localhost:5173/'
 const API_URL = new URL('/api', APP_URL).toString().replace(/\/$/, '')
@@ -617,7 +618,8 @@ async function main() {
     console.log(JSON.stringify(assertions, null, 2))
     client.close()
   } finally {
-    chrome.kill('SIGTERM')
+    await stopProcess(chrome)
+    await rm(profileDir, { recursive: true, force: true })
     await cleanupTestConversations()
   }
 }

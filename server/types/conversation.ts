@@ -11,6 +11,12 @@ export type StoredMessage = {
   reasoningDurationMs?: number
 }
 
+export type ConversationContextSummary = {
+  content: string
+  sourceMessageCount: number
+  updatedAt: string
+}
+
 export type PromptMessage = {
   role: PromptMessageRole
   content: string | null
@@ -26,6 +32,7 @@ export type Conversation = {
   updatedAt: string
   titleManuallyEdited: boolean
   messages: StoredMessage[]
+  summary?: ConversationContextSummary
 }
 
 export type ConversationSummary = {
@@ -52,3 +59,20 @@ export type ConversationTitleUpdateResult =
       conversation: Conversation | null
       error?: never
     }
+
+export type ConversationImportConflictStrategy = 'skip' | 'duplicate' | 'overwrite'
+
+export type ConversationImportItemResult = {
+  sourceId: string
+  conversationId: string | null
+  status: 'created' | 'duplicated' | 'overwritten' | 'skipped'
+}
+
+export type ConversationImportResult = {
+  total: number
+  created: number
+  duplicated: number
+  overwritten: number
+  skipped: number
+  items: ConversationImportItemResult[]
+}

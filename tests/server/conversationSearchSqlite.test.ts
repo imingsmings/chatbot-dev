@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, stat } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, stat } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -49,8 +49,9 @@ function restoreEnv(): void {
   }
 }
 
-after(() => {
+after(async () => {
   restoreEnv()
+  await rm(dataDir, { recursive: true, force: true })
 })
 
 test(

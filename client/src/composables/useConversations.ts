@@ -7,7 +7,12 @@ import {
   getConversations,
   updateConversationTitle,
 } from '@/api/conversations'
-import type { ChatMessage, ConversationDetail, ConversationSummary } from '@/types/chat'
+import type {
+  ChatMessage,
+  ConversationContextSummary,
+  ConversationDetail,
+  ConversationSummary,
+} from '@/types/chat'
 
 function conversationToSummary(conversation: ConversationDetail): ConversationSummary {
   return {
@@ -34,6 +39,7 @@ export function useConversations() {
   const conversations = ref<ConversationSummary[]>([])
   const currentConversationId = ref<string | null>(null)
   const messages = ref<ChatMessage[]>([])
+  const currentConversationSummary = ref<ConversationContextSummary | undefined>()
 
   const currentConversationTitle = computed(() => {
     return (
@@ -74,6 +80,7 @@ export function useConversations() {
     upsertConversation(conversation)
     currentConversationId.value = conversation.id
     messages.value = []
+    currentConversationSummary.value = undefined
     return conversation
   }
 
@@ -81,6 +88,7 @@ export function useConversations() {
     const conversation = await getConversation(id)
     currentConversationId.value = conversation.id
     messages.value = mapStoredMessages(conversation)
+    currentConversationSummary.value = conversation.summary
     upsertConversation(conversation)
     return conversation
   }
@@ -127,14 +135,24 @@ export function useConversations() {
 
     const conversation = await clearConversation(conversationId)
     messages.value = []
+    currentConversationSummary.value = undefined
     upsertConversation(conversation)
   }
 
+  function applyConversationDetail(conversation: ConversationDetail) {
+    upsertConversation(conversation)
+    if (conversation.id === currentConversationId.value) {
+      currentConversationSummary.value = conversation.summary
+    }
+  }
+
   return {
+    applyConversationDetail,
     clearCurrentConversation,
     conversations,
     createNewConversation,
     currentConversationId,
+    currentConversationSummary,
     currentConversationTitle,
     loadConversation,
     loadInitialState,

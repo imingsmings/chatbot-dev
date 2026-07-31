@@ -1,7 +1,7 @@
 import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { spawnProcess, waitForHttp } from './services.mjs'
+import { spawnProcess, stopProcess, waitForHttp } from './services.mjs'
 
 const DEFAULT_CHROME_PATH =
   process.env.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
@@ -26,9 +26,11 @@ async function launchChrome({
     ...extraArgs,
     url,
   ])
+  chrome.cleanupPaths = [profileDir]
 
   const ready = await waitForHttp(`http://127.0.0.1:${debugPort}/json/version`, 15000)
   if (!ready) {
+    await stopProcess(chrome)
     throw new Error(`Timed out waiting for Chrome CDP port ${debugPort}`)
   }
 

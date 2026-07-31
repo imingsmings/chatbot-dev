@@ -1,4 +1,10 @@
-import type { LlmAdapter, LlmStreamEvent, LlmToolChoice } from '../../../types/llm.ts'
+import { resolveModelOptions } from '../../modelOptions.ts'
+import type {
+  LlmAdapter,
+  LlmStreamEvent,
+  LlmToolChoice,
+  ModelRequestOptions
+} from '../../../types/llm.ts'
 import type { PromptMessage } from '../../../types/conversation.ts'
 import type { FunctionToolDefinition } from '../../../types/tools.ts'
 
@@ -22,43 +28,45 @@ function buildHeaders(): Record<string, string> {
   }
 }
 
-function isReasoningEnabled(): boolean {
-  const rawValue = process.env.LLM_REASONING_ENABLED
-  if (rawValue === undefined || rawValue.trim() === '') {
-    return true
-  }
-
-  return ['1', 'true', 'yes', 'on', 'enabled'].includes(rawValue.trim().toLowerCase())
-}
-
-function getReasoningEffort(): string {
-  return process.env.LLM_REASONING_EFFORT?.trim() || 'max'
-}
-
 function buildBody({
   model,
   prompt,
   stream,
   tools,
-  toolChoice
+  toolChoice,
+  options
 }: {
   model: string | undefined
   prompt: PromptMessage[]
   stream: boolean
   tools?: FunctionToolDefinition[]
   toolChoice?: LlmToolChoice
+  options?: ModelRequestOptions
 }): unknown {
+  const effectiveOptions = resolveModelOptions(options)
   const body: Record<string, unknown> = {
     model,
     messages: prompt,
     stream
   }
 
-  if (isReasoningEnabled()) {
+  if (effectiveOptions.temperature !== undefined) {
+    body.temperature = effectiveOptions.temperature
+  }
+
+  if (effectiveOptions.maxTokens !== undefined) {
+    body.max_tokens = effectiveOptions.maxTokens
+  }
+
+  if (effectiveOptions.reasoningEnabled) {
     body.thinking = {
       type: 'enabled'
     }
-    body.reasoning_effort = getReasoningEffort()
+    body.reasoning_effort = effectiveOptions.reasoningEffort
+  } else {
+    body.thinking = {
+      type: 'disabled'
+    }
   }
 
   if (tools?.length) {
@@ -83,9 +91,10 @@ function parseResponse(data: unknown): string {
 function parseStreamLine(line: string): LlmStreamEvent | null {
   const text = line.trim()
   if (!text) return null
-  if (!text.startsWith('data: ')) return null
+  if (!text.startsWith('data:')) return null
 
-  const jsonStr = text.slice(6)
+  const jsonStr = text.slice(5).trimStart()
+  if (!jsonStr) return null
   if (jsonStr === '[DONE]') {
     return { done: true }
   }

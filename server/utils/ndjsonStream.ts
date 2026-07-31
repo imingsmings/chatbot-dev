@@ -1,7 +1,7 @@
 import type { Response } from 'express'
 
 const CHAT_STREAM_PROTOCOL_HEADER = 'X-Chat-Stream-Protocol'
-const CHAT_STREAM_PROTOCOL_VERSION = '1'
+const CHAT_STREAM_PROTOCOL_VERSION = '2'
 
 type StreamEvent =
   | {
@@ -19,6 +19,18 @@ type StreamEvent =
   | {
       type: 'error'
       message: string
+    }
+  | {
+      type: 'tool_start'
+      toolCallId?: string
+      name: string
+    }
+  | {
+      type: 'tool_result'
+      toolCallId?: string
+      name: string
+      summary: string
+      success: boolean
     }
 
 function setNdjsonStreamHeaders(res: Response): void {

@@ -1,4 +1,4 @@
-import { mkdtemp } from 'node:fs/promises'
+import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import assert from 'node:assert/strict'
@@ -9,7 +9,8 @@ const originalEnv = {
   CONVERSATION_STORE: process.env.CONVERSATION_STORE
 }
 
-process.env.CONVERSATION_DATA_DIR = await mkdtemp(path.join(tmpdir(), 'chatbot-export-test-data-'))
+const dataDir = await mkdtemp(path.join(tmpdir(), 'chatbot-export-test-data-'))
+process.env.CONVERSATION_DATA_DIR = dataDir
 process.env.CONVERSATION_STORE = 'file'
 
 const { createNewConversation, findConversation } = await import('../../server/services/conversationService.ts')
@@ -35,8 +36,9 @@ function restoreEnv(): void {
   }
 }
 
-after(() => {
+after(async () => {
   restoreEnv()
+  await rm(dataDir, { recursive: true, force: true })
 })
 
 test('exportConversationAsMarkdown exports a readable conversation with reasoning details', async () => {

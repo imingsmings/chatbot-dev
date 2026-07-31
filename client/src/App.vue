@@ -5,6 +5,8 @@
       :current-conversation-id="currentConversationId"
       :is-searching="isConversationSearching"
       :is-responding="isResponding"
+      :is-stopping="isStopping"
+      :operation="sidebarOperation"
       :search-error="conversationSearchError"
       :search-query="conversationSearchQuery"
       :theme-toggle-label="themeToggleLabel"
@@ -12,6 +14,7 @@
       @delete-conversation="handleDeleteConversation"
       @export-all-conversations="handleExportAllConversations"
       @export-conversation="handleExportConversation"
+      @import-conversations="openImportPicker"
       @new-chat="startNewChat"
       @rename-conversation="handleRenameConversation"
       @select-conversation="selectConversation"
@@ -21,8 +24,17 @@
 
     <main class="chat-main">
       <div class="chat-scroll" ref="chatBox">
+        <div
+          v-if="sidebarOperation?.type === 'initialize'"
+          class="initial-loading-state"
+          role="status"
+        >
+          正在加载会话...
+        </div>
+
         <EmptyState
-          v-if="messages.length === 0"
+          v-else-if="messages.length === 0"
+          :disabled="isConversationTransitioning || isStopping"
           :suggestions="suggestions"
           :title="currentConversationTitle"
           @use-suggestion="useSuggestion"
@@ -31,7 +43,7 @@
         <MessageList
           v-else
           :copied-message-id="copiedMessageId"
-          :is-responding="isResponding"
+          :is-responding="isResponding || isStopping || isConversationTransitioning"
           :messages="messages"
           @copy-message="copyMessage"
           @retry-message="retryMessage"
@@ -43,10 +55,16 @@
         v-model="input"
         :can-submit="canSubmit"
         :can-preview-context="canPreviewContext"
-        :disabled="isResponding || !currentConversationId"
+        :disabled="
+          isResponding || isStopping || isConversationTransitioning || !currentConversationId
+        "
         :is-context-preview-loading="isContextPreviewLoading"
         :is-responding="isResponding"
+        :is-stopping="isStopping"
         @preview-context="openContextPreview"
+        @open-settings="isModelSettingsOpen = true"
+        @open-summary="isSummaryOpen = true"
+        @open-templates="isTemplateModalOpen = true"
         @stop="stopGenerating"
         @submit="handleSubmit"
       />
@@ -70,6 +88,37 @@
       :open="isContextPreviewOpen"
       @close="closeContextPreview"
     />
+
+    <PromptTemplateModal
+      :open="isTemplateModalOpen"
+      @apply="applyPromptTemplate"
+      @close="isTemplateModalOpen = false"
+    />
+
+    <ModelSettingsModal
+      :open="isModelSettingsOpen"
+      :options="modelOptions"
+      :runtime="runtimeInfo"
+      @close="isModelSettingsOpen = false"
+      @save="saveModelOptions"
+    />
+
+    <ConversationSummaryModal
+      :loading="isSummaryLoading"
+      :open="isSummaryOpen"
+      :summary="currentConversationSummary"
+      @close="isSummaryOpen = false"
+      @generate="handleGenerateSummary"
+    />
+
+    <input
+      ref="importInput"
+      class="visually-hidden"
+      type="file"
+      accept="application/json,.json"
+      :disabled="Boolean(sidebarOperation)"
+      @change="handleImportFile"
+    >
   </div>
 </template>
 
@@ -78,14 +127,20 @@ import { computed, nextTick, onMounted, ref } from 'vue'
 import {
   downloadAllConversationsJson,
   downloadConversationMarkdown,
+  generateConversationSummary,
   getConversationContextPreview,
+  getRuntimeConfiguration,
+  importConversationsBackup,
   searchConversations,
 } from '@/api/conversations'
 import AppDialog from '@/components/AppDialog.vue'
 import ChatComposer from '@/components/ChatComposer.vue'
+import ConversationSummaryModal from '@/components/ConversationSummaryModal.vue'
 import ContextDebugModal from '@/components/ContextDebugModal.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import MessageList from '@/components/MessageList.vue'
+import ModelSettingsModal from '@/components/ModelSettingsModal.vue'
+import PromptTemplateModal from '@/components/PromptTemplateModal.vue'
 import ChatSidebar from '@/components/ChatSidebar.vue'
 import { useAutoScroll } from '@/composables/useAutoScroll'
 import { useChatStream } from '@/composables/useChatStream'
@@ -93,6 +148,9 @@ import { useConversations } from '@/composables/useConversations'
 import { useTheme } from '@/composables/useTheme'
 import type {
   ContextPreview,
+  ModelRequestOptions,
+  RuntimeInfo,
+  SidebarOperation,
   ConversationSearchResult,
   ConversationSummary,
 } from '@/types/chat'
@@ -114,9 +172,17 @@ type DialogState = {
 const input = ref('')
 const chatBox = ref<HTMLElement | null>(null)
 const composer = ref<InstanceType<typeof ChatComposer> | null>(null)
+const importInput = ref<HTMLInputElement | null>(null)
 const contextPreview = ref<ContextPreview | null>(null)
 const isContextPreviewLoading = ref(false)
 const isContextPreviewOpen = ref(false)
+const isTemplateModalOpen = ref(false)
+const isModelSettingsOpen = ref(false)
+const isSummaryOpen = ref(false)
+const isSummaryLoading = ref(false)
+const sidebarOperation = ref<SidebarOperation | null>({ type: 'initialize' })
+const runtimeInfo = ref<RuntimeInfo | null>(null)
+const modelOptions = ref<ModelRequestOptions>({})
 const conversationSearchQuery = ref('')
 const conversationSearchResults = ref<ConversationSearchResult[]>([])
 const conversationSearchError = ref('')
@@ -144,9 +210,11 @@ const suggestions = [
 const { applyTheme, theme, themeToggleLabel, toggleTheme } = useTheme()
 const {
   clearCurrentConversation,
+  applyConversationDetail,
   conversations,
   createNewConversation,
   currentConversationId,
+  currentConversationSummary,
   currentConversationTitle,
   loadConversation,
   loadInitialState,
@@ -158,6 +226,11 @@ const {
 const { followNewContent, scrollChatToBottom, shouldFollowNewContent } = useAutoScroll(chatBox)
 const visibleConversations = computed(() =>
   conversationSearchQuery.value.trim() ? conversationSearchResults.value : conversations.value,
+)
+const isConversationTransitioning = computed(() =>
+  ['initialize', 'create', 'select', 'delete', 'clear'].includes(
+    sidebarOperation.value?.type || '',
+  ),
 )
 
 function resizeComposer() {
@@ -260,6 +333,7 @@ const {
   copiedMessageId,
   copyMessage,
   isResponding,
+  isStopping,
   retryMessage,
   stopGenerating,
   submitQuestion,
@@ -275,15 +349,40 @@ const {
   resizeComposer,
   shouldFollowNewContent,
   showError,
+  getModelOptions: () => ({ ...modelOptions.value }),
 })
 
 const canSubmit = computed(
   () =>
-    Boolean(currentConversationId.value) && input.value.trim().length > 0 && !isResponding.value,
+    Boolean(currentConversationId.value) &&
+    input.value.trim().length > 0 &&
+    !isResponding.value &&
+    !isStopping.value &&
+    !isConversationTransitioning.value,
 )
 const canPreviewContext = computed(
-  () => Boolean(currentConversationId.value) && !isResponding.value,
+  () =>
+    Boolean(currentConversationId.value) &&
+    !isResponding.value &&
+    !isStopping.value &&
+    !isConversationTransitioning.value,
 )
+
+function beginSidebarOperation(type: SidebarOperation['type'], conversationId?: string): boolean {
+  if (sidebarOperation.value) {
+    return false
+  }
+
+  sidebarOperation.value = {
+    type,
+    ...(conversationId ? { conversationId } : {}),
+  }
+  return true
+}
+
+function finishSidebarOperation() {
+  sidebarOperation.value = null
+}
 
 function clearConversationSearch() {
   conversationSearchQuery.value = ''
@@ -362,103 +461,141 @@ async function settleConversationView(options: { focus?: boolean; scroll?: boole
 }
 
 async function startNewChat() {
-  if (isResponding.value) {
-    await stopGenerating()
+  if (isStopping.value) {
+    return
+  }
+
+  if (!beginSidebarOperation('create')) {
+    return
   }
 
   try {
+    if (isResponding.value) {
+      await stopGenerating()
+    }
+
     await createNewConversation()
     clearConversationSearch()
     clearComposerDraft()
+    finishSidebarOperation()
     await settleConversationView({ focus: true })
   } catch (err) {
     console.error('Failed to create conversation:', err)
     await showError('新建会话失败')
+  } finally {
+    finishSidebarOperation()
   }
 }
 
 async function selectConversation(id: string) {
-  if (id === currentConversationId.value) {
+  if (id === currentConversationId.value || isStopping.value) {
     return
   }
 
-  if (isResponding.value) {
-    await stopGenerating()
+  if (!beginSidebarOperation('select', id)) {
+    return
   }
 
   try {
+    if (isResponding.value) {
+      await stopGenerating()
+    }
+
     await loadConversation(id)
     clearComposerDraft()
     await settleConversationView({ scroll: true })
   } catch (err) {
     console.error('Failed to select conversation:', err)
     await showError('切换会话失败')
+  } finally {
+    finishSidebarOperation()
   }
 }
 
 async function handleRenameConversation(conversation: ConversationSummary) {
-  const title = await promptText({
-    initialValue: conversation.title,
-    message: '请输入新的会话名称',
-    title: '重命名会话',
-  })
+  if (isStopping.value) {
+    return
+  }
 
-  if (!title || title === conversation.title) {
+  if (!beginSidebarOperation('rename', conversation.id)) {
     return
   }
 
   try {
+    const title = await promptText({
+      initialValue: conversation.title,
+      message: '请输入新的会话名称',
+      title: '重命名会话',
+    })
+
+    if (!title || title === conversation.title) {
+      return
+    }
+
     await renameConversation(conversation, title)
     await refreshActiveConversationSearch()
   } catch (err) {
     console.error('Failed to rename conversation:', err)
     await showError('重命名失败，请稍候再试')
+  } finally {
+    finishSidebarOperation()
   }
 }
 
 async function handleDeleteConversation(id: string) {
-  if (isResponding.value) {
+  if (isResponding.value || isStopping.value) {
+    return
+  }
+
+  if (!beginSidebarOperation('delete', id)) {
     return
   }
 
   const conversation = conversations.value.find((item) => item.id === id)
   const title = conversation?.title || '该会话'
 
-  if (!(await confirmAction({
-    confirmLabel: '删除',
-    danger: true,
-    message: `确定删除“${title}”吗？该操作不可逆`,
-    title: '删除会话',
-  }))) {
-    return
-  }
-
   try {
+    if (!(await confirmAction({
+      confirmLabel: '删除',
+      danger: true,
+      message: `确定删除“${title}”吗？该操作不可逆`,
+      title: '删除会话',
+    }))) {
+      return
+    }
+
     await removeConversation(id)
     await refreshActiveConversationSearch()
     clearComposerDraft()
+    finishSidebarOperation()
     await settleConversationView({ focus: true, scroll: true })
   } catch (err) {
     console.error('Failed to delete conversation:', err)
     await showError('删除会话失败，请稍候再试')
+  } finally {
+    finishSidebarOperation()
   }
 }
 
 async function handleClearCurrentConversation() {
-  if (!currentConversationId.value || isResponding.value) {
+  if (!currentConversationId.value || isResponding.value || isStopping.value) {
     return
   }
 
-  if (!(await confirmAction({
-    confirmLabel: '清空',
-    danger: true,
-    message: '确定清空当前会话消息吗？会话名称会保留',
-    title: '清空当前会话',
-  }))) {
+  if (!beginSidebarOperation('clear', currentConversationId.value)) {
     return
   }
 
   try {
+    if (!(await confirmAction({
+      confirmLabel: '清空',
+      danger: true,
+      message: '确定清空当前会话消息吗？会话名称会保留',
+      title: '清空当前会话',
+    }))) {
+      return
+    }
+
     await clearCurrentConversation()
     await refreshActiveConversationSearch()
     clearComposerDraft()
@@ -466,24 +603,46 @@ async function handleClearCurrentConversation() {
   } catch (err) {
     console.error('Failed to clear conversation:', err)
     await showError('清空会话失败，请稍候再试')
+  } finally {
+    finishSidebarOperation()
   }
 }
 
 async function handleExportConversation(conversation: ConversationSummary) {
+  if (isResponding.value || isStopping.value) {
+    return
+  }
+
+  if (!beginSidebarOperation('export-one', conversation.id)) {
+    return
+  }
+
   try {
     saveDownloadedFile(await downloadConversationMarkdown(conversation.id))
   } catch (err) {
     console.error('Failed to export conversation:', err)
     await showError('导出会话失败，请稍候再试')
+  } finally {
+    finishSidebarOperation()
   }
 }
 
 async function handleExportAllConversations() {
+  if (isResponding.value || isStopping.value) {
+    return
+  }
+
+  if (!beginSidebarOperation('export-all')) {
+    return
+  }
+
   try {
     saveDownloadedFile(await downloadAllConversationsJson())
   } catch (err) {
     console.error('Failed to export all conversations:', err)
     await showError('导出全部会话失败，请稍候再试')
+  } finally {
+    finishSidebarOperation()
   }
 }
 
@@ -497,13 +656,98 @@ async function openContextPreview() {
   isContextPreviewLoading.value = true
 
   try {
-    contextPreview.value = await getConversationContextPreview(conversationId, input.value.trim())
+    contextPreview.value = await getConversationContextPreview(
+      conversationId,
+      input.value.trim(),
+      modelOptions.value,
+    )
+
+    if (conversationId !== currentConversationId.value || isResponding.value) {
+      return
+    }
+
     isContextPreviewOpen.value = true
   } catch (err) {
     console.error('Failed to preview context:', err)
     await showError('上下文预览失败，请稍候再试')
   } finally {
     isContextPreviewLoading.value = false
+  }
+}
+
+function applyPromptTemplate(prompt: string) {
+  input.value = prompt
+  isTemplateModalOpen.value = false
+  void nextTick().then(() => {
+    resizeComposer()
+    focusComposer()
+  })
+}
+
+function saveModelOptions(options: ModelRequestOptions) {
+  modelOptions.value = { ...options }
+  isModelSettingsOpen.value = false
+}
+
+function openImportPicker() {
+  if (sidebarOperation.value || isResponding.value || isStopping.value) {
+    return
+  }
+
+  importInput.value?.click()
+}
+
+async function handleImportFile(event: Event) {
+  const element = event.target as HTMLInputElement
+  const file = element.files?.[0]
+  element.value = ''
+  if (!file) return
+
+  if (isResponding.value || isStopping.value) {
+    return
+  }
+
+  if (!beginSidebarOperation('import')) {
+    return
+  }
+
+  try {
+    const backup = JSON.parse(await file.text()) as unknown
+    const result = await importConversationsBackup(backup, 'skip')
+    await refreshConversationListAndSearch()
+    await openDialog({
+      message: [
+        `总计：${result.total}`,
+        `新增：${result.created}`,
+        `跳过：${result.skipped}`,
+        `复制：${result.duplicated}`,
+        `覆盖：${result.overwritten}`,
+      ].join('\n'),
+      mode: 'alert',
+      title: '导入完成',
+    })
+  } catch (err) {
+    console.error('Failed to import conversations:', err)
+    await showError(err instanceof Error ? err.message : '导入失败')
+  } finally {
+    finishSidebarOperation()
+  }
+}
+
+async function handleGenerateSummary() {
+  const conversationId = currentConversationId.value
+  if (!conversationId || isSummaryLoading.value) return
+
+  isSummaryLoading.value = true
+  try {
+    const conversation = await generateConversationSummary(conversationId, modelOptions.value)
+    applyConversationDetail(conversation)
+    await refreshConversationListAndSearch()
+  } catch (err) {
+    console.error('Failed to generate conversation summary:', err)
+    await showError(err instanceof Error ? err.message : '生成摘要失败')
+  } finally {
+    isSummaryLoading.value = false
   }
 }
 
@@ -519,6 +763,10 @@ async function useSuggestion(suggestion: string) {
 }
 
 async function handleSubmit() {
+  if (isStopping.value || isConversationTransitioning.value) {
+    return
+  }
+
   const question = input.value.trim()
 
   await submitQuestion(question, { appendUser: true, clearComposer: true })
@@ -528,11 +776,25 @@ onMounted(async () => {
   applyTheme(theme.value)
 
   try {
+    runtimeInfo.value = await getRuntimeConfiguration()
+    modelOptions.value = {
+      temperature: runtimeInfo.value.defaults.temperature ?? undefined,
+      maxTokens: runtimeInfo.value.defaults.maxTokens ?? undefined,
+      reasoningEnabled: runtimeInfo.value.defaults.reasoningEnabled,
+      reasoningEffort: runtimeInfo.value.defaults.reasoningEffort,
+    }
+  } catch (err) {
+    console.error('Failed to load runtime configuration:', err)
+  }
+
+  try {
     await loadInitialState()
     await settleConversationView({ scroll: true })
   } catch (err) {
     console.error('Failed to load conversations:', err)
     await showError('加载会话失败，请刷新后重试')
+  } finally {
+    finishSidebarOperation()
   }
 })
 </script>

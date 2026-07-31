@@ -1,4 +1,4 @@
-import { mkdtemp } from 'node:fs/promises'
+import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import assert from 'node:assert/strict'
@@ -317,7 +317,7 @@ test('buildContextPreview exposes managed context details without leaking secret
   assert.equal(preview.model.model, 'context-preview-model')
   assert.equal(preview.model.apiKeyConfigured, true)
   assert.equal(preview.model.reasoningEffort, 'medium')
-  assert.equal(preview.tools.count, 1)
+  assert.equal(preview.tools.count, 3)
   assert(!serializedPreview.includes('context-preview-secret'))
   assert(!content.includes('PREVIEW_OLD_SHOULD_DROP'))
   assert(content.includes('PREVIEW_KEEP_ASSISTANT'))
@@ -327,10 +327,11 @@ test('buildContextPreview exposes managed context details without leaking secret
 
 test('generateConversationAnswer sends managed context to the model instead of full history', async () => {
   const mock = createMockLlmFetch()
+  const dataDir = await mkdtemp(path.join(tmpdir(), 'chatbot-context-test-data-'))
 
   process.env.CONTEXT_MAX_HISTORY_MESSAGES = '2'
   process.env.CONTEXT_MAX_HISTORY_CHARS = '1000'
-  process.env.CONVERSATION_DATA_DIR = await mkdtemp(path.join(tmpdir(), 'chatbot-context-test-data-'))
+  process.env.CONVERSATION_DATA_DIR = dataDir
   process.env.LLM_PROVIDER = 'deepseek'
   process.env.LLM_ENDPOINT = 'http://mock.local/chat/completions'
   process.env.LLM_MODEL = 'context-test-model'
@@ -363,15 +364,17 @@ test('generateConversationAnswer sends managed context to the model instead of f
     assert(content.includes('CURRENT_REACHES_MODEL'))
   } finally {
     mock.restore()
+    await rm(dataDir, { recursive: true, force: true })
   }
 })
 
 test('generateConversationAnswer reuses managed context for the tool-result answer stage', async () => {
   const mock = createMockLlmFetch()
+  const dataDir = await mkdtemp(path.join(tmpdir(), 'chatbot-context-tool-test-data-'))
 
   process.env.CONTEXT_MAX_HISTORY_MESSAGES = '2'
   process.env.CONTEXT_MAX_HISTORY_CHARS = '1000'
-  process.env.CONVERSATION_DATA_DIR = await mkdtemp(path.join(tmpdir(), 'chatbot-context-tool-test-data-'))
+  process.env.CONVERSATION_DATA_DIR = dataDir
   process.env.LLM_PROVIDER = 'deepseek'
   process.env.LLM_ENDPOINT = 'http://mock.local/chat/completions'
   process.env.LLM_MODEL = 'context-test-model'
@@ -408,5 +411,6 @@ test('generateConversationAnswer reuses managed context for the tool-result answ
     assert(answerRequestBody.messages.some((message) => message.role === 'tool' && message.content === 'unknown tool'))
   } finally {
     mock.restore()
+    await rm(dataDir, { recursive: true, force: true })
   }
 })

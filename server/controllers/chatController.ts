@@ -7,7 +7,9 @@ import {
   parseRequestId,
   registerRequest
 } from '../utils/requestRegistry.ts'
+import { parseModelRequestOptions } from '../utils/modelOptions.ts'
 import type { LlmStreamChunkType } from '../types/llm.ts'
+import type { ToolExecutionEvent } from '../types/tools.ts'
 import type { RequestHandler, Response } from 'express'
 
 type AskConversationParams = {
@@ -17,6 +19,7 @@ type AskConversationParams = {
 type AskConversationBody = {
   question?: unknown
   requestId?: unknown
+  options?: unknown
 }
 
 function writeNotFound(res: Response): void {
@@ -32,6 +35,7 @@ const askConversation: RequestHandler<AskConversationParams, unknown, AskConvers
 ) => {
   const question = typeof req.body.question === 'string' ? req.body.question : ''
   const requestId = parseRequestId(req.body.requestId)
+  let modelOptions
   let conversation
   const requestController = new AbortController()
   let abortReason: string | null = null
@@ -39,6 +43,22 @@ const askConversation: RequestHandler<AskConversationParams, unknown, AskConvers
   if (!requestId) {
     res.status(400).json({
       message: 'requestId 不合法'
+    })
+    return
+  }
+
+  if (!question.trim()) {
+    res.status(400).json({
+      message: '问题不能为空'
+    })
+    return
+  }
+
+  try {
+    modelOptions = parseModelRequestOptions(req.body.options)
+  } catch (err) {
+    res.status(400).json({
+      message: err instanceof Error ? err.message : '模型参数不合法'
     })
     return
   }
@@ -100,13 +120,35 @@ const askConversation: RequestHandler<AskConversationParams, unknown, AskConvers
         throw createAbortError()
       }
     }
+    const writeToolEvent = (event: ToolExecutionEvent): void => {
+      const streamEvent = event.type === 'tool_start'
+        ? {
+            type: 'tool_start' as const,
+            toolCallId: event.toolCallId,
+            name: event.name
+          }
+        : {
+            type: 'tool_result' as const,
+            toolCallId: event.toolCallId,
+            name: event.name,
+            summary: event.summary,
+            success: event.success
+          }
+
+      if (!writeStreamEvent(res, streamEvent)) {
+        abortUpstream('write_closed')
+        throw createAbortError()
+      }
+    }
 
     const answer = await generateConversationAnswer({
       conversation,
       conversationId: req.params.id,
       question,
       signal: requestController.signal,
-      onDelta: writeDelta
+      onDelta: writeDelta,
+      onToolEvent: writeToolEvent,
+      modelOptions
     })
 
     writeStreamEvent(res, { type: 'done', reasoningDurationMs: answer.reasoningDurationMs })

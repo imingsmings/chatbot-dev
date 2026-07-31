@@ -31,29 +31,65 @@ hljs.registerLanguage('sql', sql)
 hljs.registerLanguage('typescript', typescript)
 hljs.registerLanguage('xml', xml)
 
-const markdown = new MarkdownIt({
-  breaks: true,
-  html: false,
-  highlight(code, language) {
-    const normalizedLanguage = language?.trim()
+function createMarkdownRenderer(highlightCode: boolean) {
+  const markdown = new MarkdownIt({
+    breaks: true,
+    html: false,
+    linkify: true,
+    typographer: true,
+  })
 
-    if (normalizedLanguage && hljs.getLanguage(normalizedLanguage)) {
-      return hljs.highlight(code, {
-        language: normalizedLanguage,
-        ignoreIllegals: true,
-      }).value
+  markdown.disable('image')
+
+  markdown.renderer.rules.fence = (tokens, index) => {
+    const token = tokens[index]
+    const language = token.info.trim().split(/\s+/)[0] || ''
+    const safeLanguage = /^[a-z0-9_-]+$/i.test(language) ? language : ''
+    const languageLabel = safeLanguage || 'text'
+    let code = markdown.utils.escapeHtml(token.content)
+
+    if (highlightCode) {
+      if (safeLanguage && hljs.getLanguage(safeLanguage)) {
+        code = hljs.highlight(token.content, {
+          language: safeLanguage,
+          ignoreIllegals: true,
+        }).value
+      } else {
+        code = hljs.highlightAuto(token.content).value
+      }
     }
 
-    return hljs.highlightAuto(code).value
-  },
-  linkify: true,
-  typographer: true,
-})
+    const className = safeLanguage ? ` class="language-${safeLanguage}"` : ''
+    return [
+      '<div class="code-block">',
+      '<div class="code-block-toolbar">',
+      `<span class="code-language">${markdown.utils.escapeHtml(languageLabel)}</span>`,
+      '<button class="code-copy-btn" type="button" data-code-copy>复制</button>',
+      '</div>',
+      `<pre><code${className}>${code}</code></pre>`,
+      '</div>',
+    ].join('')
+  }
 
-markdown.disable('image')
+  markdown.renderer.rules.link_open = (tokens, index, options, env, self) => {
+    const href = tokens[index].attrGet('href') || ''
+    if (/^https?:\/\//i.test(href)) {
+      tokens[index].attrSet('target', '_blank')
+      tokens[index].attrSet('rel', 'noopener noreferrer nofollow')
+    }
+    return self.renderToken(tokens, index, options)
+  }
 
-export function renderMarkdown(content: string) {
-  return DOMPurify.sanitize(markdown.render(content), {
+  return markdown
+}
+
+const completeMarkdown = createMarkdownRenderer(true)
+const streamingMarkdown = createMarkdownRenderer(false)
+
+export function renderMarkdown(content: string, options: { highlightCode?: boolean } = {}) {
+  const renderer = options.highlightCode === false ? streamingMarkdown : completeMarkdown
+  return DOMPurify.sanitize(renderer.render(content), {
+    ADD_ATTR: ['target', 'rel', 'data-code-copy'],
     FORBID_TAGS: ['img'],
   })
 }

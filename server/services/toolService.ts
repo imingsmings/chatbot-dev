@@ -1,63 +1,29 @@
-import { getWeather } from '../utils/weatherHandler.ts'
+import { calculatorTool } from '../tools/calculatorTool.ts'
+import { currentTimeTool } from '../tools/currentTimeTool.ts'
+import { weatherTool } from '../tools/weatherTool.ts'
 import type {
   FunctionToolDefinition,
   ToolCall,
-  ToolHandler,
+  ToolExecutionEvent,
+  ToolExecutionOptions,
   ToolRegistryItem,
-  ToolResult,
-  WeatherToolArgs
+  ToolResult
 } from '../types/tools.ts'
 
-const WEATHER_DATE_OPTIONS = ['今天', '明天', '后天'] as const
-
-function validateWeatherArgs(args: unknown): WeatherToolArgs {
-  const value = isRecord(args) ? args : {}
-  const city = typeof value.city === 'string' ? value.city.trim() : ''
-  const date = typeof value.date === 'string' ? value.date.trim() : ''
-
-  if (!city) {
-    throw new Error('city 必须是非空字符串')
-  }
-
-  if (!WEATHER_DATE_OPTIONS.includes(date as (typeof WEATHER_DATE_OPTIONS)[number])) {
-    throw new Error('date 只能是今天、明天或后天')
-  }
-
+function eraseToolArgs<TArgs>(tool: ToolRegistryItem<TArgs>): ToolRegistryItem {
   return {
-    city,
-    date
+    name: tool.name,
+    definition: tool.definition,
+    handler: (args: unknown, options?: ToolExecutionOptions) =>
+      tool.handler(args as TArgs, options),
+    validateArgs: tool.validateArgs
   }
 }
 
 const toolRegistry: ToolRegistryItem[] = [
-  {
-    name: 'getWeather',
-    definition: {
-      type: 'function',
-      function: {
-        name: 'getWeather',
-        description: '获取指定中文城市在今天、明天或后天的天气信息。',
-        parameters: {
-          type: 'object',
-          properties: {
-            city: {
-              type: 'string',
-              description: '中文城市名称，例如北京、上海、成都'
-            },
-            date: {
-              type: 'string',
-              enum: WEATHER_DATE_OPTIONS,
-              description: '查询日期，只能是今天、明天或后天'
-            }
-          },
-          required: ['city', 'date'],
-          additionalProperties: false
-        }
-      }
-    },
-    handler: getWeather as ToolHandler,
-    validateArgs: validateWeatherArgs
-  }
+  eraseToolArgs(weatherTool),
+  eraseToolArgs(currentTimeTool),
+  eraseToolArgs(calculatorTool)
 ]
 
 function validateToolRegistry(tools: ToolRegistryItem[]): void {
@@ -87,6 +53,7 @@ const toolsMap = new Map<string, ToolRegistryItem>(
 type ExecuteToolOptions = {
   signal?: AbortSignal
   throwIfAborted?: (signal?: AbortSignal) => void
+  onEvent?: (event: ToolExecutionEvent) => void
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -123,8 +90,13 @@ function getToolDefinitions(): FunctionToolDefinition[] {
   return toolRegistry.map((tool) => tool.definition)
 }
 
+function summarizeToolResult(result: string): string {
+  const normalized = result.replace(/\s+/g, ' ').trim()
+  return normalized.length > 240 ? `${normalized.slice(0, 237)}...` : normalized
+}
+
 async function executeToolCalls(toolCalls: unknown, options: ExecuteToolOptions = {}): Promise<ToolResult[]> {
-  const { signal, throwIfAborted } = options
+  const { signal, throwIfAborted, onEvent } = options
   const toolResults: ToolResult[] = []
 
   const normalizedToolCalls = parseToolCalls(toolCalls)
@@ -134,6 +106,12 @@ async function executeToolCalls(toolCalls: unknown, options: ExecuteToolOptions 
 
     const functionName = tool.function
     const args = tool.args
+    onEvent?.({
+      type: 'tool_start',
+      toolCallId: tool.id,
+      name: functionName,
+      args
+    })
 
     const toolDefinition = toolsMap.get(functionName)
 
@@ -150,6 +128,13 @@ async function executeToolCalls(toolCalls: unknown, options: ExecuteToolOptions 
           args: validatedArgs,
           result
         })
+        onEvent?.({
+          type: 'tool_result',
+          toolCallId: tool.id,
+          name: functionName,
+          summary: summarizeToolResult(result),
+          success: true
+        })
       } catch (err: unknown) {
         if (err instanceof Error && err.name === 'AbortError') {
           throw err
@@ -163,6 +148,13 @@ async function executeToolCalls(toolCalls: unknown, options: ExecuteToolOptions 
           args,
           result: `Failed to call tool ${message}`
         })
+        onEvent?.({
+          type: 'tool_result',
+          toolCallId: tool.id,
+          name: functionName,
+          summary: `执行失败：${message}`,
+          success: false
+        })
       }
     } else {
       console.error(`${functionName} tool do not exist`)
@@ -171,6 +163,13 @@ async function executeToolCalls(toolCalls: unknown, options: ExecuteToolOptions 
         function: functionName,
         args,
         result: 'unknown tool'
+      })
+      onEvent?.({
+        type: 'tool_result',
+        toolCallId: tool.id,
+        name: functionName,
+        summary: '未找到该工具',
+        success: false
       })
     }
   }

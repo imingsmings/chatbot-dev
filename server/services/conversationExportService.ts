@@ -81,6 +81,19 @@ function buildConversationMarkdown(conversation: Conversation): string {
     ''
   ]
 
+  if (conversation.summary) {
+    lines.push(
+      '## 会话摘要',
+      '',
+      conversation.summary.content,
+      '',
+      `> 摘要基于 ${conversation.summary.sourceMessageCount} 条消息，更新时间：${conversation.summary.updatedAt}`,
+      '',
+      '---',
+      ''
+    )
+  }
+
   conversation.messages.forEach((message, index) => {
     lines.push(formatMessageHeading(message, index), '')
     lines.push(...formatReasoning(message))

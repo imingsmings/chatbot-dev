@@ -1,6 +1,6 @@
 import http from 'node:http'
 import { spawn } from 'node:child_process'
-import { access, mkdir, mkdtemp, writeFile } from 'node:fs/promises'
+import { access, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { tmpdir } from 'node:os'
 import { DatabaseSync } from 'node:sqlite'
@@ -274,18 +274,18 @@ function createMockLlmServer() {
       } else if (content.includes('获取天气数据失败') || content.includes('Failed to call tool')) {
         answer = '天气服务暂时不可用，请稍后重试。'
       } else if (content.includes('天气：')) {
-        if (content.includes('P0_TOOL_REASONING')) {
+        if (latestUserContent.includes('P0_TOOL_REASONING')) {
           answer = assistantToolMessage?.content === '' &&
             assistantToolMessage?.reasoning_content === '需要先调用天气工具。'
             ? 'reasoning 已回传，北京明天天气：晴。'
             : 'reasoning 未回传。'
-        } else if (content.includes('P0_TOOL_CONTEXT_QUERY')) {
+        } else if (latestUserContent.includes('P0_TOOL_CONTEXT_QUERY')) {
           answer = '上下文城市工具调用成功，北京明天天气：晴。'
         } else {
           answer = '北京明天天气：晴，气温 18°C ~ 26°C。'
         }
       }
-      if (content.includes('P0_TOOL_ANSWER_STOP')) {
+      if (latestUserContent.includes('P0_TOOL_ANSWER_STOP')) {
         res.writeHead(200, { 'Content-Type': 'text/event-stream' })
         const chunks = ['answer-stage-1 ', 'answer-stage-2 ', 'answer-stage-3 ']
         for (const chunk of chunks) {
@@ -656,7 +656,7 @@ async function runSqliteStorageScenario() {
     })
     createdSqliteId = created.data.conversation.id
     const answer = await askDirect(sqliteUrl, createdSqliteId, 'P0_SQLITE_APPEND 请保存到 sqlite')
-    assert(answer.protocol === '1' && answer.text.includes('标准回答'), 'P0-37 sqlite ask flow failed')
+    assert(answer.protocol === '2' && answer.text.includes('标准回答'), 'P0-37 sqlite ask flow failed')
 
     const afterAsk = await fetchJson(`${sqliteUrl}/conversations/${createdSqliteId}`)
     assert(afterAsk.data.conversation.messages.length === 2, 'P0-37 sqlite ask messages were not persisted')
@@ -712,6 +712,7 @@ async function runSqliteStorageScenario() {
       await fetch(`${sqliteUrl}/conversations/${encodeURIComponent(createdSqliteId)}`, { method: 'DELETE' }).catch(() => {})
     }
     await stopProcess(sqliteServer)
+    await rm(sqliteDataDir, { recursive: true, force: true })
   }
 }
 
@@ -802,6 +803,9 @@ async function main() {
     const invalidAsk = await askWithRequestId(client, crudId, 'invalid request id', 'bad')
     assert(invalidAsk.status === 400 && invalidAsk.data.message, 'P0-18 invalid requestId JSON failed')
 
+    const blankAsk = await askWithRequestId(client, crudId, '   ', 'blank-question-request')
+    assert(blankAsk.status === 400 && blankAsk.data.message === '问题不能为空', 'P0-40 blank question validation failed')
+
     const duplicate = await duplicateRequest(client, crudId)
     assert(duplicate[1].status === 409 && duplicate[1].data.message, 'P0-19 duplicate requestId JSON failed')
 
@@ -853,7 +857,7 @@ async function main() {
     await ask(client, toolId, 'P0_TOOL_CONTEXT_MEMORY P0_TOOL_CONTEXT_CITY_BEIJING 请记住我的城市是北京')
     const toolContext = await ask(client, toolId, 'P0_TOOL_CONTEXT_QUERY 请按刚才记住的城市查询明天天气')
     assert(toolSuccess.text.includes('北京明天天气'), 'P0-14 tool success failed')
-    assert(toolSuccess.protocol === '1', 'P0-26 stream protocol header missing')
+    assert(toolSuccess.protocol === '2', 'P0-26 stream protocol header missing')
     assert(toolReasoning.text.includes('reasoning 已回传'), 'P0-14 tool reasoning_content was not passed back')
     assert(
       toolPreamble.text.includes('北京明天天气') && !toolPreamble.text.includes('我先看一下天气'),
@@ -866,7 +870,7 @@ async function main() {
     const toollessDeltaEvents = toollessStream.events.filter((event) => event.type === 'delta')
     const toollessReasoningEvents = toollessStream.events.filter((event) => event.type === 'reasoning_delta')
     const toollessDoneEvent = toollessStream.events.find((event) => event.type === 'done')
-    assert(toollessStream.protocol === '1', 'P0-39 stream protocol header missing')
+    assert(toollessStream.protocol === '2', 'P0-39 stream protocol header missing')
     assert(toollessReasoningEvents.length >= 1, 'P0-39 reasoning delta was not streamed')
     assert(toollessDeltaEvents.length >= 2, 'P0-39 ordinary answer was buffered instead of streamed')
     assert(toollessDoneEvent && toollessDeltaEvents[0].atMs < toollessDoneEvent.atMs, 'P0-39 first delta did not arrive before done')
@@ -988,6 +992,7 @@ async function main() {
       assert(legacyListAgain.conversations.filter((item) => item.id === 'conv_legacy_cdp').length === 1, 'P1-30 legacy migration was repeated')
     } finally {
       await stopProcess(legacyServer)
+      await rm(legacyDataDir, { recursive: true, force: true })
     }
 
     const corruptDataDir = await mkdtemp(path.join(tmpdir(), 'chatbot-corrupt-data-'))
@@ -1016,6 +1021,7 @@ async function main() {
       assert(healthAfterCorrupt.status === 404, 'P1-31 corrupt JSON server crashed after error')
     } finally {
       await stopProcess(corruptServer)
+      await rm(corruptDataDir, { recursive: true, force: true })
     }
 
     const sqliteStorage = await runSqliteStorageScenario()
@@ -1050,6 +1056,7 @@ async function main() {
         'P0-28': 'passed',
         'P0-35': 'passed',
         'P0-39': 'passed',
+        'P0-40': 'passed',
         'P0-36': 'passed',
         'P0-37': 'passed',
         'P0-38': 'passed',
@@ -1090,6 +1097,8 @@ async function main() {
     await stopProcess(chrome)
     await stopProcess(server)
     await mock.stop()
+    await rm(profileDir, { recursive: true, force: true })
+    await rm(dataDir, { recursive: true, force: true })
   }
 }
 

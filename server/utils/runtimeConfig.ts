@@ -1,3 +1,5 @@
+import { MAX_MODEL_TOKENS } from './modelOptions.ts'
+
 type ValidationIssue = {
   name: string
   reason: string
@@ -45,17 +47,43 @@ function validateBooleanEnv(name: string, issues: ValidationIssue[]): void {
   }
 }
 
-function validatePositiveIntegerEnv(name: string, issues: ValidationIssue[]): void {
+function validatePositiveIntegerEnv(
+  name: string,
+  issues: ValidationIssue[],
+  maximum = Number.MAX_SAFE_INTEGER
+): void {
   const value = process.env[name]
   if (value === undefined || value.trim() === '') {
     return
   }
 
   const numberValue = Number(value)
-  if (!Number.isInteger(numberValue) || numberValue <= 0) {
+  if (!Number.isInteger(numberValue) || numberValue <= 0 || numberValue > maximum) {
     issues.push({
       name,
-      reason: '必须是正整数'
+      reason: maximum === Number.MAX_SAFE_INTEGER
+        ? '必须是正整数'
+        : `必须是 1 到 ${maximum} 之间的整数`
+    })
+  }
+}
+
+function validateNumberRangeEnv(
+  name: string,
+  minimum: number,
+  maximum: number,
+  issues: ValidationIssue[]
+): void {
+  const value = process.env[name]
+  if (value === undefined || value.trim() === '') {
+    return
+  }
+
+  const numberValue = Number(value)
+  if (!Number.isFinite(numberValue) || numberValue < minimum || numberValue > maximum) {
+    issues.push({
+      name,
+      reason: `必须是 ${minimum} 到 ${maximum} 之间的数字`
     })
   }
 }
@@ -91,6 +119,8 @@ function validateStartupConfig(): void {
   }
 
   validatePositiveIntegerEnv('LLM_TIMEOUT_MS', issues)
+  validatePositiveIntegerEnv('LLM_MAX_TOKENS', issues, MAX_MODEL_TOKENS)
+  validateNumberRangeEnv('LLM_TEMPERATURE', 0, 2, issues)
   validateBooleanEnv('LLM_REASONING_ENABLED', issues)
 
   if (issues.length > 0) {

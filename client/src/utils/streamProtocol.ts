@@ -1,5 +1,5 @@
 export const CHAT_STREAM_PROTOCOL_HEADER = 'X-Chat-Stream-Protocol'
-export const CHAT_STREAM_PROTOCOL_VERSION = '1'
+export const CHAT_STREAM_PROTOCOL_VERSION = '2'
 
 export type ChatStreamEvent =
   | {
@@ -17,6 +17,18 @@ export type ChatStreamEvent =
   | {
       type: 'error'
       message: string
+    }
+  | {
+      type: 'tool_start'
+      toolCallId?: string
+      name: string
+    }
+  | {
+      type: 'tool_result'
+      toolCallId?: string
+      name: string
+      summary: string
+      success: boolean
     }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -65,6 +77,34 @@ export function parseChatStreamEvent(line: string): ChatStreamEvent {
       return {
         type: 'error',
         message: value.message,
+      }
+    case 'tool_start':
+      if (
+        typeof value.name !== 'string' ||
+        (value.toolCallId !== undefined && typeof value.toolCallId !== 'string')
+      ) {
+        throw new Error('服务端返回了无效的工具开始事件')
+      }
+      return {
+        type: 'tool_start',
+        toolCallId: value.toolCallId,
+        name: value.name,
+      }
+    case 'tool_result':
+      if (
+        typeof value.name !== 'string' ||
+        typeof value.summary !== 'string' ||
+        typeof value.success !== 'boolean' ||
+        (value.toolCallId !== undefined && typeof value.toolCallId !== 'string')
+      ) {
+        throw new Error('服务端返回了无效的工具结果事件')
+      }
+      return {
+        type: 'tool_result',
+        toolCallId: value.toolCallId,
+        name: value.name,
+        summary: value.summary,
+        success: value.success,
       }
     default:
       throw new Error(`不支持的流式事件类型：${value.type}`)

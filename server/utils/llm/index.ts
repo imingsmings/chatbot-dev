@@ -102,6 +102,7 @@ type CallLLMInput = {
   signal?: AbortSignal
   tools?: LlmCallOptions['tools']
   toolChoice?: LlmCallOptions['toolChoice']
+  modelOptions?: LlmCallOptions['modelOptions']
 }
 
 function applyToolCallDeltas(
@@ -142,7 +143,7 @@ function normalizeCollectedToolCalls(toolCalls: Map<number, ChatCompletionToolCa
 
 async function requestModel(
   adapter: LlmAdapter,
-  { prompt, stream = false, signal, tools, toolChoice }: CallLLMInput
+  { prompt, stream = false, signal, tools, toolChoice, modelOptions }: CallLLMInput
 ) {
   if (!LLM_ENDPOINT) {
     throw new Error('LLM_ENDPOINT 未配置')
@@ -158,7 +159,8 @@ async function requestModel(
         prompt,
         stream,
         tools,
-        toolChoice
+        toolChoice,
+        options: modelOptions
       }))
     },
     DEFAULT_TIMEOUT_MS,
@@ -172,7 +174,8 @@ async function callLLM({
   callback,
   signal,
   tools,
-  toolChoice
+  toolChoice,
+  modelOptions
 }: CallLLMInput): Promise<string | LlmStreamResult> {
   const adapter = getAdapter()
   const upstream = await requestModel(adapter, {
@@ -180,7 +183,8 @@ async function callLLM({
     stream,
     signal,
     tools,
-    toolChoice
+    toolChoice,
+    modelOptions
   })
   const { response } = upstream
 
@@ -250,7 +254,8 @@ async function callLLMStreamWithTools(
     stream: true,
     signal: options.signal,
     tools: options.tools,
-    toolChoice: options.toolChoice
+    toolChoice: options.toolChoice,
+    modelOptions: options.modelOptions
   })
   const { response } = upstream
 
@@ -347,7 +352,8 @@ async function callLLMStreamWithTools(
 function callLLMOnce(prompt: PromptMessage[], options: LlmCallOptions = {}): Promise<string> {
   return callLLM({
     prompt,
-    signal: options.signal
+    signal: options.signal,
+    modelOptions: options.modelOptions
   }) as Promise<string>
 }
 
@@ -360,7 +366,8 @@ function callLLMStream(
     prompt,
     stream: true,
     callback,
-    signal: options.signal
+    signal: options.signal,
+    modelOptions: options.modelOptions
   }) as Promise<LlmStreamResult>
 }
 

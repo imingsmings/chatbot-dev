@@ -67,7 +67,8 @@ const mockScript = `
         droppedHistoryMessages: conversation.messages.length - selectedHistory.length,
         selectedHistoryChars: selectedHistory.reduce((total, message) => total + message.content.length, 0),
         maxHistoryMessages: 2,
-        maxHistoryChars: 1000
+        maxHistoryChars: 1000,
+        summaryIncluded: false
       },
       model: {
         provider: 'deepseek',
@@ -77,10 +78,13 @@ const mockScript = `
         reasoningEnabled: true,
         reasoningEffort: 'max',
         stream: true,
-        toolChoice: 'auto'
+        toolChoice: 'auto',
+        storageBackend: 'file',
+        temperature: null,
+        maxTokens: null
       },
       tools: {
-        count: 1,
+        count: 3,
         definitions: [
           {
             type: 'function',

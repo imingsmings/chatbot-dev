@@ -5,7 +5,14 @@ import { createRequire } from 'node:module'
 import path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import { fileURLToPath } from 'node:url'
-import type { Conversation, ConversationSummary, StoredMessage } from '../types/conversation.ts'
+import type {
+  Conversation,
+  ConversationContextSummary,
+  ConversationImportConflictStrategy,
+  ConversationImportItemResult,
+  ConversationSummary,
+  StoredMessage
+} from '../types/conversation.ts'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -28,6 +35,11 @@ type ConversationStore = {
   createConversation: (title?: unknown) => Promise<Conversation>
   renameConversation: (id: string, title: unknown) => Promise<Conversation | null>
   appendMessages: (id: string, messages: StoredMessage[]) => Promise<Conversation | null>
+  updateSummary: (id: string, summary: ConversationContextSummary | null) => Promise<Conversation | null>
+  importConversation: (
+    conversation: Conversation,
+    strategy: ConversationImportConflictStrategy
+  ) => Promise<ConversationImportItemResult>
   clearConversation: (id: string) => Promise<Conversation | null>
   deleteConversation: (id: string) => Promise<boolean>
 }
@@ -39,6 +51,7 @@ type SqliteConversationRow = {
   updated_at: string
   title_manually_edited: number
   messages: string
+  summary: string | null
 }
 
 let fileMigrationPromise: Promise<void> | null = null
@@ -113,6 +126,25 @@ function normalizeMessage(message: unknown): StoredMessage {
   return normalizedMessage
 }
 
+function normalizeConversationSummary(value: unknown): ConversationContextSummary | undefined {
+  if (!isRecord(value) || typeof value.content !== 'string' || !value.content.trim()) {
+    return undefined
+  }
+
+  const sourceMessageCount =
+    typeof value.sourceMessageCount === 'number' &&
+    Number.isInteger(value.sourceMessageCount) &&
+    value.sourceMessageCount >= 0
+      ? value.sourceMessageCount
+      : 0
+
+  return {
+    content: value.content.trim(),
+    sourceMessageCount,
+    updatedAt: typeof value.updatedAt === 'string' ? value.updatedAt : now()
+  }
+}
+
 function normalizeConversation(conversation: unknown): Conversation {
   const rawConversation = isRecord(conversation) ? conversation : {}
   const createdAt = typeof rawConversation.createdAt === 'string' ? rawConversation.createdAt : now()
@@ -122,7 +154,7 @@ function normalizeConversation(conversation: unknown): Conversation {
       ? rawConversation.title.trim()
       : DEFAULT_TITLE
 
-  return {
+  const normalized: Conversation = {
     id: typeof rawConversation.id === 'string' ? rawConversation.id : createId(),
     title,
     createdAt,
@@ -130,12 +162,20 @@ function normalizeConversation(conversation: unknown): Conversation {
     titleManuallyEdited: Boolean(rawConversation.titleManuallyEdited),
     messages: Array.isArray(rawConversation.messages) ? rawConversation.messages.map(normalizeMessage) : []
   }
+
+  const summary = normalizeConversationSummary(rawConversation.summary)
+  if (summary) {
+    normalized.summary = summary
+  }
+
+  return normalized
 }
 
 function cloneConversation(conversation: Conversation): Conversation {
   return {
     ...conversation,
-    messages: conversation.messages.map((message) => ({ ...message }))
+    messages: conversation.messages.map((message) => ({ ...message })),
+    summary: conversation.summary ? { ...conversation.summary } : undefined
   }
 }
 
@@ -172,6 +212,17 @@ function applyAppendedMessages(conversation: Conversation, messages: StoredMessa
 
   conversation.updatedAt = now()
   return conversation
+}
+
+function createImportedDuplicate(conversation: Conversation): Conversation {
+  const timestamp = now()
+  return {
+    ...cloneConversation(conversation),
+    id: createId(),
+    title: `${conversation.title} (导入)`,
+    createdAt: timestamp,
+    updatedAt: timestamp
+  }
 }
 
 function isSamePath(firstPath: string, secondPath: string): boolean {
@@ -367,6 +418,62 @@ async function appendFileMessages(id: string, messages: StoredMessage[]): Promis
   return cloneConversation(conversation)
 }
 
+async function updateFileSummary(
+  id: string,
+  summary: ConversationContextSummary | null
+): Promise<Conversation | null> {
+  const conversation = await readConversationFile(id)
+
+  if (!conversation) {
+    return null
+  }
+
+  if (summary) {
+    conversation.summary = { ...summary }
+  } else {
+    delete conversation.summary
+  }
+  conversation.updatedAt = now()
+  await writeConversationFile(conversation)
+
+  return cloneConversation(conversation)
+}
+
+async function importFileConversation(
+  sourceConversation: Conversation,
+  strategy: ConversationImportConflictStrategy
+): Promise<ConversationImportItemResult> {
+  await migrateLegacyFileStore()
+
+  const conversation = normalizeConversation(sourceConversation)
+  const existing = await readConversationFile(conversation.id)
+
+  if (existing && strategy === 'skip') {
+    return {
+      sourceId: sourceConversation.id,
+      conversationId: null,
+      status: 'skipped'
+    }
+  }
+
+  if (existing && strategy === 'duplicate') {
+    const duplicate = createImportedDuplicate(conversation)
+    await writeConversationFile(duplicate)
+    return {
+      sourceId: sourceConversation.id,
+      conversationId: duplicate.id,
+      status: 'duplicated'
+    }
+  }
+
+  await writeConversationFile(conversation)
+  return {
+    sourceId: sourceConversation.id,
+    conversationId: conversation.id,
+    status: existing ? 'overwritten' : 'created'
+  }
+}
+
 async function clearFileConversation(id: string): Promise<Conversation | null> {
   const conversation = await readConversationFile(id)
 
@@ -375,6 +482,7 @@ async function clearFileConversation(id: string): Promise<Conversation | null> {
   }
 
   conversation.messages = []
+  delete conversation.summary
   conversation.updatedAt = now()
   await writeConversationFile(conversation)
 
@@ -414,7 +522,8 @@ function getSqliteDb(): DatabaseSync {
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       title_manually_edited INTEGER NOT NULL,
-      messages TEXT NOT NULL
+      messages TEXT NOT NULL,
+      summary TEXT
     );
     CREATE TABLE IF NOT EXISTS storage_meta (
       key TEXT PRIMARY KEY,
@@ -422,6 +531,10 @@ function getSqliteDb(): DatabaseSync {
       updated_at TEXT NOT NULL
     );
   `)
+  const columns = db.prepare('PRAGMA table_info(conversations)').all() as Array<{ name: string }>
+  if (!columns.some((column) => column.name === 'summary')) {
+    db.exec('ALTER TABLE conversations ADD COLUMN summary TEXT')
+  }
   sqliteDb = db
   return sqliteDb
 }
@@ -482,21 +595,23 @@ function conversationFromSqliteRow(row: SqliteConversationRow): Conversation {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     titleManuallyEdited: Boolean(row.title_manually_edited),
-    messages: JSON.parse(row.messages) as unknown
+    messages: JSON.parse(row.messages) as unknown,
+    summary: row.summary ? JSON.parse(row.summary) as unknown : undefined
   })
 }
 
 function upsertSqliteConversation(conversation: Conversation): void {
   getSqliteDb()
     .prepare(`
-      INSERT INTO conversations (id, title, created_at, updated_at, title_manually_edited, messages)
-      VALUES (?, ?, ?, ?, ?, ?)
+      INSERT INTO conversations (id, title, created_at, updated_at, title_manually_edited, messages, summary)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         title = excluded.title,
         created_at = excluded.created_at,
         updated_at = excluded.updated_at,
         title_manually_edited = excluded.title_manually_edited,
-        messages = excluded.messages
+        messages = excluded.messages,
+        summary = excluded.summary
     `)
     .run(
       conversation.id,
@@ -504,15 +619,16 @@ function upsertSqliteConversation(conversation: Conversation): void {
       conversation.createdAt,
       conversation.updatedAt,
       conversation.titleManuallyEdited ? 1 : 0,
-      JSON.stringify(conversation.messages)
+      JSON.stringify(conversation.messages),
+      conversation.summary ? JSON.stringify(conversation.summary) : null
     )
 }
 
 function insertSqliteConversationIfAbsent(conversation: Conversation): void {
   getSqliteDb()
     .prepare(`
-      INSERT OR IGNORE INTO conversations (id, title, created_at, updated_at, title_manually_edited, messages)
-      VALUES (?, ?, ?, ?, ?, ?)
+      INSERT OR IGNORE INTO conversations (id, title, created_at, updated_at, title_manually_edited, messages, summary)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
     `)
     .run(
       conversation.id,
@@ -520,7 +636,8 @@ function insertSqliteConversationIfAbsent(conversation: Conversation): void {
       conversation.createdAt,
       conversation.updatedAt,
       conversation.titleManuallyEdited ? 1 : 0,
-      JSON.stringify(conversation.messages)
+      JSON.stringify(conversation.messages),
+      conversation.summary ? JSON.stringify(conversation.summary) : null
     )
 }
 
@@ -674,6 +791,63 @@ async function appendSqliteMessages(id: string, messages: StoredMessage[]): Prom
   return cloneConversation(conversation)
 }
 
+async function updateSqliteSummary(
+  id: string,
+  summary: ConversationContextSummary | null
+): Promise<Conversation | null> {
+  await migrateJsonToSqliteStore()
+
+  const conversation = getSqliteConversationSync(id)
+  if (!conversation) {
+    return null
+  }
+
+  if (summary) {
+    conversation.summary = { ...summary }
+  } else {
+    delete conversation.summary
+  }
+  conversation.updatedAt = now()
+  upsertSqliteConversation(conversation)
+
+  return cloneConversation(conversation)
+}
+
+async function importSqliteConversation(
+  sourceConversation: Conversation,
+  strategy: ConversationImportConflictStrategy
+): Promise<ConversationImportItemResult> {
+  await migrateJsonToSqliteStore()
+
+  const conversation = normalizeConversation(sourceConversation)
+  const existing = getSqliteConversationSync(conversation.id)
+
+  if (existing && strategy === 'skip') {
+    return {
+      sourceId: sourceConversation.id,
+      conversationId: null,
+      status: 'skipped'
+    }
+  }
+
+  if (existing && strategy === 'duplicate') {
+    const duplicate = createImportedDuplicate(conversation)
+    upsertSqliteConversation(duplicate)
+    return {
+      sourceId: sourceConversation.id,
+      conversationId: duplicate.id,
+      status: 'duplicated'
+    }
+  }
+
+  upsertSqliteConversation(conversation)
+  return {
+    sourceId: sourceConversation.id,
+    conversationId: conversation.id,
+    status: existing ? 'overwritten' : 'created'
+  }
+}
+
 async function clearSqliteConversation(id: string): Promise<Conversation | null> {
   await migrateJsonToSqliteStore()
 
@@ -684,6 +858,7 @@ async function clearSqliteConversation(id: string): Promise<Conversation | null>
   }
 
   conversation.messages = []
+  delete conversation.summary
   conversation.updatedAt = now()
   upsertSqliteConversation(conversation)
 
@@ -708,6 +883,8 @@ function getStore(): ConversationStore {
       createConversation: createSqliteConversation,
       renameConversation: renameSqliteConversation,
       appendMessages: appendSqliteMessages,
+      updateSummary: updateSqliteSummary,
+      importConversation: importSqliteConversation,
       clearConversation: clearSqliteConversation,
       deleteConversation: deleteSqliteConversation
     }
@@ -719,6 +896,8 @@ function getStore(): ConversationStore {
     createConversation: createFileConversation,
     renameConversation: renameFileConversation,
     appendMessages: appendFileMessages,
+    updateSummary: updateFileSummary,
+    importConversation: importFileConversation,
     clearConversation: clearFileConversation,
     deleteConversation: deleteFileConversation
   }
@@ -744,6 +923,24 @@ async function appendMessages(id: string, messages: StoredMessage[]): Promise<Co
   return getStore().appendMessages(id, messages)
 }
 
+async function updateConversationSummary(
+  id: string,
+  summary: ConversationContextSummary | null
+): Promise<Conversation | null> {
+  return getStore().updateSummary(id, summary)
+}
+
+async function importConversation(
+  conversation: Conversation,
+  strategy: ConversationImportConflictStrategy
+): Promise<ConversationImportItemResult> {
+  return getStore().importConversation(conversation, strategy)
+}
+
+function getConversationStoreKind(): StoreKind {
+  return getStoreKind()
+}
+
 async function clearConversation(id: string): Promise<Conversation | null> {
   return getStore().clearConversation(id)
 }
@@ -758,7 +955,10 @@ export {
   clearConversation,
   createConversation,
   deleteConversation,
+  getConversationStoreKind,
   getConversation,
+  importConversation,
   listConversations,
-  renameConversation
+  renameConversation,
+  updateConversationSummary
 }

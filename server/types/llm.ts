@@ -1,6 +1,13 @@
 import type { PromptMessage } from './conversation.ts'
 import type { ChatCompletionToolCall, FunctionToolDefinition } from './tools.ts'
 
+export type ModelRequestOptions = {
+  temperature?: number
+  maxTokens?: number
+  reasoningEnabled?: boolean
+  reasoningEffort?: string
+}
+
 export type LlmToolChoice =
   | 'none'
   | 'auto'
@@ -51,6 +58,7 @@ export type LlmAdapter = {
     stream: boolean
     tools?: FunctionToolDefinition[]
     toolChoice?: LlmToolChoice
+    options?: ModelRequestOptions
   }) => unknown
   parseResponse: (data: unknown) => string
   parseStreamLine: (line: string) => LlmStreamEvent | null
@@ -60,6 +68,7 @@ export type LlmCallOptions = {
   signal?: AbortSignal
   tools?: FunctionToolDefinition[]
   toolChoice?: LlmToolChoice
+  modelOptions?: ModelRequestOptions
 }
 
 export type LlmStreamChunkType = 'content' | 'reasoning'

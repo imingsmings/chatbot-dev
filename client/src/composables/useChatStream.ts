@@ -1,7 +1,13 @@
 import { computed, nextTick, reactive, ref, type Ref } from 'vue'
 import { cancelRequest, requestConversationAnswer } from '@/api/conversations'
-import type { ChatMessage, ConversationDetail } from '@/types/chat'
+import type {
+  ChatMessage,
+  ConversationDetail,
+  ModelRequestOptions,
+  ToolActivity,
+} from '@/types/chat'
 import { assertChatStreamProtocol, parseChatStreamEvent } from '@/utils/streamProtocol'
+import { settleRunningToolActivities } from '@/utils/toolActivities'
 
 const STREAM_IDLE_TIMEOUT_MS = 15000
 
@@ -27,11 +33,13 @@ export function useChatStream(options: {
   shouldFollowNewContent: () => boolean
   showError: (message: string, title?: string) => Promise<void> | void
   clearComposer: () => void
+  getModelOptions: () => ModelRequestOptions
 }) {
   const currentAbortController = ref<AbortController | null>(null)
   const currentRequestId = ref<string | null>(null)
   const abortReason = ref<'manual' | 'timeout' | null>(null)
   const copiedMessageId = ref<string | null>(null)
+  const isStopping = ref(false)
 
   const isResponding = computed(() =>
     options.messages.value.some(
@@ -56,7 +64,7 @@ export function useChatStream(options: {
       assistantInsertIndex?: number
     },
   ) {
-    if (!question || isResponding.value) return
+    if (!question || isResponding.value || isStopping.value) return
 
     let conversationId = options.currentConversationId.value
     if (!conversationId) {
@@ -79,6 +87,7 @@ export function useChatStream(options: {
       text: '',
       reasoningText: '',
       status: 'pending',
+      toolActivities: [],
     })
 
     if (typeof submitOptions.assistantInsertIndex === 'number') {
@@ -125,6 +134,7 @@ export function useChatStream(options: {
         question,
         requestId,
         signal: controller.signal,
+        options: options.getModelOptions(),
       })
 
       if (!res.ok) {
@@ -167,6 +177,53 @@ export function useChatStream(options: {
             assistantMessage.reasoningText = `${assistantMessage.reasoningText ?? ''}${event.content}`
             void options.followNewContent(shouldFollow)
             return
+          case 'tool_start': {
+            const shouldFollow = options.shouldFollowNewContent()
+            const id = event.toolCallId || `${event.name}-${assistantMessage.toolActivities?.length ?? 0}`
+            const activity: ToolActivity = {
+              id,
+              name: event.name,
+              status: 'running',
+            }
+            assistantMessage.status = 'streaming'
+            assistantMessage.toolActivities = [...(assistantMessage.toolActivities ?? []), activity]
+            void options.followNewContent(shouldFollow)
+            return
+          }
+          case 'tool_result': {
+            const shouldFollow = options.shouldFollowNewContent()
+            const activities = assistantMessage.toolActivities ?? []
+            let index = event.toolCallId
+              ? activities.findIndex((item) => item.id === event.toolCallId)
+              : -1
+
+            if (!event.toolCallId) {
+              for (let activityIndex = activities.length - 1; activityIndex >= 0; activityIndex -= 1) {
+                const candidate = activities[activityIndex]
+                if (candidate.name === event.name && candidate.status === 'running') {
+                  index = activityIndex
+                  break
+                }
+              }
+            }
+            const activity: ToolActivity = {
+              id: event.toolCallId || (index >= 0 ? activities[index].id : `${event.name}-${activities.length}`),
+              name: event.name,
+              status: event.success ? 'success' : 'error',
+              summary: event.summary,
+            }
+
+            if (index >= 0) {
+              assistantMessage.toolActivities = activities.map((item, itemIndex) =>
+                itemIndex === index ? activity : item,
+              )
+            } else {
+              assistantMessage.toolActivities = [...activities, activity]
+            }
+            assistantMessage.status = 'streaming'
+            void options.followNewContent(shouldFollow)
+            return
+          }
           case 'delta': {
             if (!event.content) return
             const shouldFollow = options.shouldFollowNewContent()
@@ -218,6 +275,11 @@ export function useChatStream(options: {
         assistantMessage.reasoningDurationMs = Date.now() - reasoningStartedAt
       }
 
+      assistantMessage.toolActivities = settleRunningToolActivities(
+        assistantMessage.toolActivities,
+        'error',
+        '未收到工具结果',
+      )
       assistantMessage.status = 'done'
       await options.refreshConversationList()
     } catch (err) {
@@ -232,6 +294,12 @@ export function useChatStream(options: {
 
       const isManualAbort =
         err instanceof DOMException && err.name === 'AbortError' && abortReason.value === 'manual'
+
+      assistantMessage.toolActivities = settleRunningToolActivities(
+        assistantMessage.toolActivities,
+        isManualAbort ? 'stopped' : 'error',
+        isManualAbort ? '已停止' : '执行中断',
+      )
 
       if (isManualAbort) {
         assistantMessage.status = 'stopped'
@@ -259,6 +327,10 @@ export function useChatStream(options: {
   }
 
   async function stopGenerating() {
+    if (isStopping.value) {
+      return
+    }
+
     const controller = currentAbortController.value
     const requestId = currentRequestId.value
 
@@ -266,11 +338,17 @@ export function useChatStream(options: {
       return
     }
 
-    abortReason.value = 'manual'
-    controller?.abort()
+    isStopping.value = true
 
-    if (requestId) {
-      await cancelActiveRequest(requestId)
+    try {
+      abortReason.value = 'manual'
+      controller?.abort()
+
+      if (requestId) {
+        await cancelActiveRequest(requestId)
+      }
+    } finally {
+      isStopping.value = false
     }
   }
 
@@ -293,6 +371,10 @@ export function useChatStream(options: {
   }
 
   async function retryMessage(index: number) {
+    if (isResponding.value || isStopping.value) {
+      return
+    }
+
     const failedMessage = options.messages.value[index]
 
     if (!failedMessage || failedMessage.role !== 'assistant' || failedMessage.status !== 'error') {
@@ -320,6 +402,7 @@ export function useChatStream(options: {
     copiedMessageId,
     copyMessage,
     isResponding,
+    isStopping,
     retryMessage,
     stopGenerating,
     submitQuestion,

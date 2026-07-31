@@ -6,7 +6,8 @@ import { buildContextMessages } from './contextService.ts'
 import { executeToolCalls, getToolDefinitions } from './toolService.ts'
 import type { Conversation, StoredMessage } from '../types/conversation.ts'
 import type { LlmStreamChunkType } from '../types/llm.ts'
-import type { ChatCompletionToolCall, ToolCall } from '../types/tools.ts'
+import type { ModelRequestOptions } from '../types/llm.ts'
+import type { ChatCompletionToolCall, ToolCall, ToolExecutionEvent } from '../types/tools.ts'
 
 type GenerateConversationAnswerOptions = {
   conversation: Conversation
@@ -14,6 +15,8 @@ type GenerateConversationAnswerOptions = {
   question: string
   signal: AbortSignal
   onDelta: (chunk: string, type: LlmStreamChunkType) => void
+  onToolEvent?: (event: ToolExecutionEvent) => void
+  modelOptions?: ModelRequestOptions
 }
 
 type GenerateConversationAnswerResult = {
@@ -34,7 +37,9 @@ async function generateConversationAnswer({
   conversationId,
   question,
   signal,
-  onDelta
+  onDelta,
+  onToolEvent,
+  modelOptions
 }: GenerateConversationAnswerOptions): Promise<GenerateConversationAnswerResult> {
   let finalResponse = ''
   let finalReasoningContent = ''
@@ -56,7 +61,8 @@ async function generateConversationAnswer({
   const firstResponse = await callLLMStreamWithTools(prompt, forwardStreamChunk, {
     tools: getToolDefinitions(),
     toolChoice: 'auto',
-    signal
+    signal,
+    modelOptions
   })
   throwIfAborted(signal)
 
@@ -70,7 +76,8 @@ async function generateConversationAnswer({
     } catch (err) {
       console.warn('Failed to parse function call arguments, falling back to standard answer:', err)
       const fallbackResponse = await callLLMStream(prompt, forwardStreamChunk, {
-        signal
+        signal,
+        modelOptions
       })
       finalResponse = fallbackResponse.content
       toolCalls = []
@@ -81,7 +88,8 @@ async function generateConversationAnswer({
     } else {
       const toolResults = await executeToolCalls(toolCalls, {
         signal,
-        throwIfAborted
+        throwIfAborted,
+        onEvent: onToolEvent
       })
 
       throwIfAborted(signal)
@@ -92,7 +100,8 @@ async function generateConversationAnswer({
         firstResponse.reasoningContent
       )
       const answerResponse = await callLLMStream(answerPrompt, forwardStreamChunk, {
-        signal
+        signal,
+        modelOptions
       })
       finalResponse = answerResponse.content
     }

@@ -1,7 +1,8 @@
 import { spawn } from 'node:child_process'
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { stopProcess } from './helpers/services.mjs'
 
 const APP_URL = process.env.APP_URL || 'http://localhost:5173/'
 const API_URL = new URL('/api', APP_URL).toString().replace(/\/$/, '')
@@ -94,15 +95,22 @@ async function waitForHttp(url, timeoutMs = 15000) {
   throw new Error(`Timed out waiting for ${url}`)
 }
 
-async function cleanupTestConversations() {
+async function listConversationSummaries() {
   const response = await fetch(`${API_URL}/conversations`).catch(() => null)
-  if (!response?.ok) return
+  if (!response?.ok) return []
 
   const data = await response.json()
-  const conversations = Array.isArray(data.conversations) ? data.conversations : []
+  return Array.isArray(data.conversations) ? data.conversations : []
+}
+
+async function cleanupTestConversations(preservedIds = null) {
+  const conversations = await listConversationSummaries()
   await Promise.all(
     conversations
-      .filter((conversation) => String(conversation.title || '').startsWith('真实接口测试'))
+      .filter((conversation) =>
+        (preservedIds !== null && !preservedIds.has(conversation.id)) ||
+        String(conversation.title || '').startsWith('真实接口测试')
+      )
       .map((conversation) =>
         fetch(`${API_URL}/conversations/${encodeURIComponent(conversation.id)}`, {
           method: 'DELETE',
@@ -219,6 +227,9 @@ const observeScript = `
 async function main() {
   await mkdir(OUT_DIR, { recursive: true })
   await cleanupTestConversations()
+  const preservedConversationIds = new Set(
+    (await listConversationSummaries()).map((conversation) => conversation.id)
+  )
 
   const profileDir = await mkdtemp(path.join(tmpdir(), 'chatbot-real-cdp-'))
   const chrome = spawn(CHROME_PATH, [
@@ -265,6 +276,7 @@ async function main() {
     await client.send('Page.navigate', { url: APP_URL })
     await waitFor(client, `document.querySelector('textarea')`)
 
+    await newChat(client)
     await ask(client, '真实接口测试一：请用中文写一段较长说明，分多句输出，方便测试停止生成按钮。')
     await waitStop(client)
     await screenshot(client, '01-real-generating-stop-button')
@@ -386,8 +398,9 @@ async function main() {
 
     client.close()
   } finally {
-    chrome.kill('SIGTERM')
-    await cleanupTestConversations()
+    await stopProcess(chrome)
+    await rm(profileDir, { recursive: true, force: true })
+    await cleanupTestConversations(preservedConversationIds)
   }
 }
 

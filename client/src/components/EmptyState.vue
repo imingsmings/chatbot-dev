@@ -8,6 +8,7 @@
         :key="suggestion"
         class="suggestion-card"
         type="button"
+        :disabled="disabled"
         @click="$emit('useSuggestion', suggestion)"
       >
         {{ suggestion }}
@@ -18,6 +19,7 @@
 
 <script setup lang="ts">
 defineProps<{
+  disabled: boolean
   suggestions: string[]
   title: string
 }>()

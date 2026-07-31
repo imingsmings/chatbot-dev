@@ -49,6 +49,16 @@ const SUITES = {
   'conversation-export': [
     { name: 'Conversation export scenarios', script: 'tests/cdp/conversation-export.mjs', needsVite: true },
   ],
+  roadmap: [
+    { name: 'Roadmap feature scenarios', script: 'tests/cdp/roadmap-features.mjs', needsVite: true },
+  ],
+  'sidebar-state': [
+    {
+      name: 'Sidebar operation state scenarios',
+      script: 'tests/cdp/sidebar-operation-state.mjs',
+      needsVite: true,
+    },
+  ],
   real: [
     { name: 'Real UI scenarios', script: 'tests/cdp/real-scenarios.mjs', needsVite: true, needsBackend: true },
     { name: 'Real conversation context scenarios', script: 'tests/cdp/conversation-context-real.mjs', needsVite: true, needsBackend: true },
@@ -59,6 +69,11 @@ const SUITES = {
 SUITES['all-mock'] = [
   ...SUITES.p0,
   ...SUITES.p1.filter((item) => item.script !== 'tests/cdp/ui-scenarios.mjs' && item.script !== 'tests/cdp/p0-api-tool.mjs'),
+  ...SUITES['context-debug'],
+  ...SUITES['conversation-search'],
+  ...SUITES['conversation-export'],
+  ...SUITES.roadmap,
+  ...SUITES['sidebar-state'],
 ]
 
 async function ensureVite() {

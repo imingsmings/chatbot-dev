@@ -12,6 +12,9 @@ import {
   exportAllConversationsAsJson,
   exportConversationAsMarkdown
 } from '../services/conversationExportService.ts'
+import { importConversationBackup } from '../services/conversationImportService.ts'
+import { generateConversationSummary } from '../services/conversationSummaryService.ts'
+import { parseModelRequestOptions } from '../utils/modelOptions.ts'
 import type { RequestHandler, Response } from 'express'
 
 type ConversationParams = {
@@ -28,6 +31,16 @@ type RenameConversationBody = {
 
 type ContextPreviewBody = {
   question?: unknown
+  options?: unknown
+}
+
+type ImportConversationBody = {
+  backup?: unknown
+  conflictStrategy?: unknown
+}
+
+type GenerateSummaryBody = {
+  options?: unknown
 }
 
 type SearchConversationQuery = {
@@ -116,6 +129,23 @@ const exportAllConversations: RequestHandler = async (req, res, next) => {
   }
 }
 
+const importConversations: RequestHandler<unknown, unknown, ImportConversationBody> = async (
+  req,
+  res,
+  next
+) => {
+  try {
+    const result = await importConversationBackup(req.body.backup, req.body.conflictStrategy)
+    res.status(201).json({ result })
+  } catch (err) {
+    if (err instanceof Error) {
+      res.status(400).json({ message: err.message })
+      return
+    }
+    next(err)
+  }
+}
+
 const exportConversationMarkdown: RequestHandler<ConversationParams> = async (req, res, next) => {
   try {
     const exported = await exportConversationAsMarkdown(req.params.id)
@@ -145,11 +175,60 @@ const previewConversationContext: RequestHandler<ConversationParams, unknown, Co
       return
     }
 
+    let options
+    try {
+      options = parseModelRequestOptions(req.body.options)
+    } catch (err) {
+      res.status(400).json({
+        message: err instanceof Error ? err.message : '模型参数不合法'
+      })
+      return
+    }
+
     res.json({
       context: buildContextPreview(
         conversation,
-        typeof req.body.question === 'string' ? req.body.question : ''
+        typeof req.body.question === 'string' ? req.body.question : '',
+        options
       )
+    })
+  } catch (err) {
+    next(err)
+  }
+}
+
+const summarizeConversation: RequestHandler<ConversationParams, unknown, GenerateSummaryBody> = async (
+  req,
+  res,
+  next
+) => {
+  let options
+  try {
+    options = parseModelRequestOptions(req.body.options)
+  } catch (err) {
+    res.status(400).json({
+      message: err instanceof Error ? err.message : '模型参数不合法'
+    })
+    return
+  }
+
+  try {
+    const result = await generateConversationSummary(req.params.id, options)
+
+    if (result.error === 'not_found') {
+      writeNotFound(res)
+      return
+    }
+
+    if (result.error === 'empty') {
+      res.status(400).json({
+        message: '当前会话没有可摘要的消息'
+      })
+      return
+    }
+
+    res.json({
+      conversation: result.conversation
     })
   } catch (err) {
     next(err)
@@ -223,8 +302,10 @@ export {
   exportAllConversations,
   exportConversationMarkdown,
   getConversation,
+  importConversations,
   listConversations,
   previewConversationContext,
   renameConversation,
-  searchConversations
+  searchConversations,
+  summarizeConversation
 }

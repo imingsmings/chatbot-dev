@@ -32,6 +32,10 @@
                 <span>工具</span>
                 <strong>{{ context.tools.count }}</strong>
               </div>
+              <div class="context-debug-stat">
+                <span>摘要</span>
+                <strong>{{ context.stats.summaryIncluded ? '已加入' : '无' }}</strong>
+              </div>
             </div>
           </section>
 
@@ -61,6 +65,18 @@
               <div>
                 <dt>api key</dt>
                 <dd>{{ context.model.apiKeyConfigured ? '已配置' : '未配置' }}</dd>
+              </div>
+              <div>
+                <dt>storage</dt>
+                <dd>{{ context.model.storageBackend }}</dd>
+              </div>
+              <div>
+                <dt>temperature</dt>
+                <dd>{{ context.model.temperature ?? 'provider default' }}</dd>
+              </div>
+              <div>
+                <dt>max tokens</dt>
+                <dd>{{ context.model.maxTokens ?? 'provider default' }}</dd>
               </div>
             </dl>
           </section>

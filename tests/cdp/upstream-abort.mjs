@@ -1,6 +1,6 @@
 import http from 'node:http'
 import { spawn } from 'node:child_process'
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -687,10 +687,12 @@ export default defineConfig({
     console.log(JSON.stringify(summary, null, 2))
   } finally {
     client?.close()
-    chrome.kill('SIGTERM')
+    await stopProcess(chrome)
     await stopProcess(vite)
     await stopProcess(server)
     await mock.stop()
+    await rm(profileDir, { recursive: true, force: true })
+    await rm(VITE_TEST_CONFIG, { force: true })
   }
 }
 

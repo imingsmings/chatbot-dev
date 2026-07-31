@@ -19,6 +19,21 @@
             <div class="reasoning-content-body">{{ msg.reasoningText.trim() }}</div>
           </div>
         </details>
+        <div
+          v-if="msg.role === 'assistant' && msg.toolActivities?.length"
+          class="tool-activity-list"
+          aria-label="工具执行状态"
+        >
+          <div
+            v-for="activity in msg.toolActivities"
+            :key="activity.id"
+            :class="['tool-activity', activity.status]"
+          >
+            <span class="tool-activity-indicator" aria-hidden="true"></span>
+            <strong>{{ activity.name }}</strong>
+            <span>{{ getToolActivityLabel(activity) }}</span>
+          </div>
+        </div>
         <div v-if="msg.status === 'pending'" class="message-text thinking-text">Thinking...</div>
         <div v-else-if="msg.status === 'error' && !msg.text" class="message-text error-text">
           {{ msg.error || '响应失败，请重试' }}
@@ -60,7 +75,7 @@
 
 <script setup lang="ts">
 import MarkdownMessage from './MarkdownMessage.vue'
-import type { ChatMessage } from '@/types/chat'
+import type { ChatMessage, ToolActivity } from '@/types/chat'
 
 defineProps<{
   copiedMessageId: string | null
@@ -79,5 +94,11 @@ function getReasoningLabel(message: ChatMessage) {
   }
 
   return 'Thoughts'
+}
+
+function getToolActivityLabel(activity: ToolActivity) {
+  if (activity.status === 'running') return '执行中'
+  if (activity.status === 'stopped') return activity.summary || '已停止'
+  return activity.summary || (activity.status === 'success' ? '执行完成' : '执行失败')
 }
 </script>

@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process'
+import { rm } from 'node:fs/promises'
 
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -46,13 +47,23 @@ function spawnProcess(command, args, options = {}) {
 
 async function stopProcess(processHandle) {
   const child = processHandle?.child || processHandle
-  if (!child || child.exitCode !== null) return
+  const cleanupPaths = Array.isArray(processHandle?.cleanupPaths)
+    ? processHandle.cleanupPaths
+    : []
 
-  child.kill('SIGTERM')
-  await Promise.race([
-    new Promise((resolve) => child.once('exit', resolve)),
-    delay(3000).then(() => child.kill('SIGKILL')),
-  ])
+  try {
+    if (child && child.exitCode === null) {
+      child.kill('SIGTERM')
+      await Promise.race([
+        new Promise((resolve) => child.once('exit', resolve)),
+        delay(3000).then(() => child.kill('SIGKILL')),
+      ])
+    }
+  } finally {
+    await Promise.all(
+      cleanupPaths.map((cleanupPath) => rm(cleanupPath, { recursive: true, force: true }))
+    )
+  }
 }
 
 export {

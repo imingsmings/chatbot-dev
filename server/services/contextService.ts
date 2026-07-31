@@ -15,6 +15,7 @@ type ContextBuildResult = {
   selectedHistoryMessages: number
   droppedHistoryMessages: number
   selectedHistoryChars: number
+  summaryIncluded: boolean
 }
 
 function readPositiveInteger(value: string | undefined, fallback: number): number {
@@ -69,11 +70,12 @@ function buildContextMessages(conversation: Conversation, question: string): Con
   const selectedHistoryChars = recentHistory.reduce((total, message) => total + getMessageCharLength(message), 0)
 
   return {
-    messages: buildStandardPrompt(question, recentHistory),
+    messages: buildStandardPrompt(question, recentHistory, conversation.summary),
     config,
     selectedHistoryMessages: recentHistory.length,
     droppedHistoryMessages: Math.max(0, conversation.messages.length - recentHistory.length),
-    selectedHistoryChars
+    selectedHistoryChars,
+    summaryIncluded: Boolean(conversation.summary)
   }
 }
 

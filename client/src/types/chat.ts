@@ -2,6 +2,20 @@ export type MessageStatus = 'pending' | 'streaming' | 'done' | 'stopped' | 'erro
 
 export type ThemeMode = 'light' | 'dark'
 
+export type ModelRequestOptions = {
+  temperature?: number
+  maxTokens?: number
+  reasoningEnabled?: boolean
+  reasoningEffort?: string
+}
+
+export type ToolActivity = {
+  id: string
+  name: string
+  status: 'running' | 'success' | 'error' | 'stopped'
+  summary?: string
+}
+
 export type ChatMessage = {
   id: string
   role: 'user' | 'assistant'
@@ -10,6 +24,7 @@ export type ChatMessage = {
   reasoningDurationMs?: number
   status: MessageStatus
   error?: string
+  toolActivities?: ToolActivity[]
 }
 
 export type StoredMessage = {
@@ -27,6 +42,12 @@ export type ConversationSummary = {
   messageCount: number
 }
 
+export type ConversationContextSummary = {
+  content: string
+  sourceMessageCount: number
+  updatedAt: string
+}
+
 export type ConversationSearchMatchLocation = 'title' | 'message'
 
 export type ConversationSearchResult = ConversationSummary & {
@@ -37,6 +58,7 @@ export type ConversationSearchResult = ConversationSummary & {
 export type ConversationDetail = ConversationSummary & {
   titleManuallyEdited?: boolean
   messages: StoredMessage[]
+  summary?: ConversationContextSummary
 }
 
 export type PromptMessageRole = StoredMessage['role'] | 'system' | 'tool'
@@ -60,6 +82,7 @@ export type ContextPreview = {
     selectedHistoryChars: number
     maxHistoryMessages: number
     maxHistoryChars: number
+    summaryIncluded: boolean
   }
   model: {
     provider: string
@@ -70,9 +93,53 @@ export type ContextPreview = {
     reasoningEffort: string
     stream: true
     toolChoice: 'auto'
+    storageBackend: 'file' | 'sqlite'
+    temperature: number | null
+    maxTokens: number | null
   }
   tools: {
     count: number
     definitions: unknown[]
   }
+}
+
+export type RuntimeInfo = {
+  provider: string
+  model: string | null
+  storageBackend: 'file' | 'sqlite'
+  endpointConfigured: boolean
+  apiKeyConfigured: boolean
+  defaults: {
+    temperature: number | null
+    maxTokens: number | null
+    reasoningEnabled: boolean
+    reasoningEffort: string
+  }
+}
+
+export type ConversationImportResult = {
+  total: number
+  created: number
+  duplicated: number
+  overwritten: number
+  skipped: number
+  items: Array<{
+    sourceId: string
+    conversationId: string | null
+    status: 'created' | 'duplicated' | 'overwritten' | 'skipped'
+  }>
+}
+
+export type SidebarOperation = {
+  type:
+    | 'initialize'
+    | 'create'
+    | 'select'
+    | 'rename'
+    | 'delete'
+    | 'clear'
+    | 'export-one'
+    | 'export-all'
+    | 'import'
+  conversationId?: string
 }

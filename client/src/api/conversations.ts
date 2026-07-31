@@ -3,6 +3,9 @@ import type {
   ConversationDetail,
   ConversationSearchResult,
   ConversationSummary,
+  ConversationImportResult,
+  ModelRequestOptions,
+  RuntimeInfo,
 } from '@/types/chat'
 
 export type DownloadedFile = {
@@ -11,11 +14,17 @@ export type DownloadedFile = {
 }
 
 async function readJson<T>(response: Response): Promise<T> {
+  const data = (await response.json().catch(() => null)) as (T & { message?: string }) | null
+
   if (!response.ok) {
-    throw new Error(`请求失败：${response.status}`)
+    throw new Error(data?.message || `请求失败：${response.status}`)
   }
 
-  return response.json() as Promise<T>
+  if (data === null) {
+    throw new Error('服务端返回了无效 JSON')
+  }
+
+  return data
 }
 
 function parseContentDispositionFilename(value: string | null, fallback: string): string {
@@ -77,6 +86,25 @@ export async function downloadConversationMarkdown(id: string) {
   return readDownload(response, `${id}.md`)
 }
 
+export async function importConversationsBackup(
+  backup: unknown,
+  conflictStrategy: 'skip' | 'duplicate' | 'overwrite' = 'skip',
+) {
+  const response = await fetch('/api/conversations/import', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ backup, conflictStrategy }),
+  })
+  const data = await readJson<{ result: ConversationImportResult }>(response)
+  return data.result
+}
+
+export async function getRuntimeConfiguration() {
+  const response = await fetch('/api/runtime-config')
+  const data = await readJson<{ runtime: RuntimeInfo }>(response)
+  return data.runtime
+}
+
 export async function createConversation() {
   const response = await fetch('/api/conversations', {
     method: 'POST',
@@ -121,14 +149,28 @@ export async function clearConversation(id: string) {
   return data.conversation
 }
 
-export async function getConversationContextPreview(id: string, question: string) {
+export async function getConversationContextPreview(
+  id: string,
+  question: string,
+  options: ModelRequestOptions,
+) {
   const response = await fetch(`/api/conversations/${encodeURIComponent(id)}/context-preview`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ question }),
+    body: JSON.stringify({ question, options }),
   })
   const data = await readJson<{ context: ContextPreview }>(response)
   return data.context
+}
+
+export async function generateConversationSummary(id: string, options: ModelRequestOptions) {
+  const response = await fetch(`/api/conversations/${encodeURIComponent(id)}/summary`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ options }),
+  })
+  const data = await readJson<{ conversation: ConversationDetail }>(response)
+  return data.conversation
 }
 
 export async function requestConversationAnswer(params: {
@@ -136,6 +178,7 @@ export async function requestConversationAnswer(params: {
   question: string
   requestId: string
   signal: AbortSignal
+  options: ModelRequestOptions
 }) {
   return fetch(`/api/conversations/${encodeURIComponent(params.conversationId)}/ask`, {
     method: 'POST',
@@ -143,6 +186,7 @@ export async function requestConversationAnswer(params: {
     body: JSON.stringify({
       question: params.question,
       requestId: params.requestId,
+      options: params.options,
     }),
     signal: params.signal,
   })

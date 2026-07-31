@@ -1,6 +1,9 @@
 import { buildContextMessages } from './contextService.ts'
 import { getToolDefinitions } from './toolService.ts'
+import { getConversationStoreKind } from '../utils/conversationStore.ts'
+import { resolveModelOptions } from '../utils/modelOptions.ts'
 import type { Conversation, PromptMessage } from '../types/conversation.ts'
+import type { ModelRequestOptions } from '../types/llm.ts'
 import type { FunctionToolDefinition } from '../types/tools.ts'
 
 type ContextPreviewModel = {
@@ -12,6 +15,9 @@ type ContextPreviewModel = {
   reasoningEffort: string
   stream: true
   toolChoice: 'auto'
+  storageBackend: 'file' | 'sqlite'
+  temperature: number | null
+  maxTokens: number | null
 }
 
 type ContextPreviewStats = {
@@ -21,6 +27,7 @@ type ContextPreviewStats = {
   selectedHistoryChars: number
   maxHistoryMessages: number
   maxHistoryChars: number
+  summaryIncluded: boolean
 }
 
 type ContextPreview = {
@@ -35,48 +42,34 @@ type ContextPreview = {
   }
 }
 
-const TRUE_VALUES = new Set(['1', 'true', 'yes', 'on', 'enabled'])
-const FALSE_VALUES = new Set(['0', 'false', 'no', 'off', 'disabled'])
-
 function hasConfiguredValue(value: string | undefined): boolean {
   const trimmed = value?.trim() ?? ''
   return Boolean(trimmed) && !trimmed.startsWith('replace_with_')
 }
 
-function readReasoningEnabled(): boolean {
-  const rawValue = process.env.LLM_REASONING_ENABLED
+function readContextPreviewModel(options: ModelRequestOptions = {}): ContextPreviewModel {
+  const effectiveOptions = resolveModelOptions(options)
 
-  if (rawValue === undefined || rawValue.trim() === '') {
-    return true
-  }
-
-  const normalized = rawValue.trim().toLowerCase()
-
-  if (TRUE_VALUES.has(normalized)) {
-    return true
-  }
-
-  if (FALSE_VALUES.has(normalized)) {
-    return false
-  }
-
-  return true
-}
-
-function readContextPreviewModel(): ContextPreviewModel {
   return {
     provider: process.env.LLM_PROVIDER?.trim() || 'deepseek',
     model: process.env.LLM_MODEL?.trim() || null,
     endpointConfigured: hasConfiguredValue(process.env.LLM_ENDPOINT),
     apiKeyConfigured: hasConfiguredValue(process.env.DEEPSEEK_API_KEY),
-    reasoningEnabled: readReasoningEnabled(),
-    reasoningEffort: process.env.LLM_REASONING_EFFORT?.trim() || 'max',
+    reasoningEnabled: effectiveOptions.reasoningEnabled,
+    reasoningEffort: effectiveOptions.reasoningEffort,
     stream: true,
-    toolChoice: 'auto'
+    toolChoice: 'auto',
+    storageBackend: getConversationStoreKind(),
+    temperature: effectiveOptions.temperature ?? null,
+    maxTokens: effectiveOptions.maxTokens ?? null
   }
 }
 
-function buildContextPreview(conversation: Conversation, question: string): ContextPreview {
+function buildContextPreview(
+  conversation: Conversation,
+  question: string,
+  options: ModelRequestOptions = {}
+): ContextPreview {
   const context = buildContextMessages(conversation, question)
   const tools = getToolDefinitions()
 
@@ -90,9 +83,10 @@ function buildContextPreview(conversation: Conversation, question: string): Cont
       droppedHistoryMessages: context.droppedHistoryMessages,
       selectedHistoryChars: context.selectedHistoryChars,
       maxHistoryMessages: context.config.maxHistoryMessages,
-      maxHistoryChars: context.config.maxHistoryChars
+      maxHistoryChars: context.config.maxHistoryChars,
+      summaryIncluded: context.summaryIncluded
     },
-    model: readContextPreviewModel(),
+    model: readContextPreviewModel(options),
     tools: {
       count: tools.length,
       definitions: tools

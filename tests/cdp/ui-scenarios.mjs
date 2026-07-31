@@ -1,7 +1,8 @@
 import { spawn } from 'node:child_process'
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { stopProcess } from './helpers/services.mjs'
 
 const APP_URL = process.env.APP_URL || 'http://localhost:5173/'
 const APP_ORIGIN = new URL(APP_URL).origin
@@ -400,6 +401,7 @@ const mockScript = `
     failNextRename: false,
     failNextDelete: false,
     failNextClear: false,
+    cancelDelayMs: 0,
   };
   window.__abortCount = 0;
   window.__askCount = 0;
@@ -498,7 +500,7 @@ const mockScript = `
     const headers = { 'Content-Type': 'application/x-ndjson; charset=utf-8' };
 
     if (!plan.omitProtocolHeader) {
-      headers['X-Chat-Stream-Protocol'] = plan.protocolVersion || '1';
+      headers['X-Chat-Stream-Protocol'] = plan.protocolVersion || '2';
     }
 
     return headers;
@@ -525,6 +527,24 @@ const mockScript = `
     const pathname = parsed.pathname.replace(/^\\/api/, '');
     const method = (init.method || 'GET').toUpperCase();
     requests.push({ method, pathname });
+
+    if (pathname === '/runtime-config' && method === 'GET') {
+      return json({
+        runtime: {
+          provider: 'deepseek',
+          model: 'mock-chat-model',
+          storageBackend: 'file',
+          endpointConfigured: true,
+          apiKeyConfigured: true,
+          defaults: {
+            temperature: 0.7,
+            maxTokens: 4096,
+            reasoningEnabled: true,
+            reasoningEffort: 'medium',
+          },
+        },
+      });
+    }
 
     if (pathname === '/conversations' && method === 'GET') {
       return json({
@@ -592,6 +612,9 @@ const mockScript = `
     const askMatch = pathname.match(/^\\/conversations\\/([^/]+)\\/ask$/);
 
     if (pathname.startsWith('/requests/') && pathname.endsWith('/cancel') && method === 'POST') {
+      if (flags.cancelDelayMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, flags.cancelDelayMs));
+      }
       return json({ cancelled: true });
     }
 
@@ -874,12 +897,15 @@ async function main() {
         const activeShell = document.querySelector('.conversation-item-shell.active');
         const actionRects = [...activeShell.querySelectorAll('.conversation-action-btn')]
           .map((button) => button.getBoundingClientRect());
+        const actionLabels = [...activeShell.querySelectorAll('.conversation-action-btn')]
+          .map((button) => button.textContent.trim());
         return {
           count: document.querySelectorAll('.conversation-item-shell').length,
           panelScrollable: panel.scrollHeight > panel.clientHeight,
           activeCount: document.querySelectorAll('.conversation-item-shell.active').length,
           longTitleConstrained: title.scrollWidth >= title.clientWidth,
-          actionsVisible: actionRects.length === 2 && actionRects.every((rect) => rect.width > 0 && rect.height > 0),
+          actionLabels,
+          actionsVisible: actionRects.length === 3 && actionRects.every((rect) => rect.width > 0 && rect.height > 0),
           hasReasoningPanelForOldData: Boolean(document.querySelector('.reasoning-panel')),
           pageOverflowX: document.documentElement.scrollWidth > window.innerWidth,
         };
@@ -890,6 +916,7 @@ async function main() {
       !sidebarState.panelScrollable ||
       sidebarState.activeCount !== 1 ||
       !sidebarState.longTitleConstrained ||
+      JSON.stringify(sidebarState.actionLabels) !== JSON.stringify(['导出', '重命名', '删除']) ||
       !sidebarState.actionsVisible ||
       sidebarState.hasReasoningPanelForOldData ||
       sidebarState.pageOverflowX
@@ -1272,6 +1299,11 @@ async function main() {
     }])
     await ask(client, '测试重复停止')
     await waitFor(client, `[...document.querySelectorAll('button')].some((button) => button.textContent.trim() === '停止')`)
+    await setMockFlags(client, { cancelDelayMs: 180 })
+    const cancelCountBefore = await evaluate(
+      client,
+      `window.__mockSnapshot().requests.filter((request) => request.pathname.endsWith('/cancel')).length`,
+    )
     await evaluate(
       client,
       `(() => {
@@ -1279,9 +1311,28 @@ async function main() {
           .find((node) => node.textContent.trim() === '停止');
         button?.click();
         button?.click();
+        button?.click();
       })()`,
     )
+    await waitFor(
+      client,
+      `[...document.querySelectorAll('button')]
+        .some((button) =>
+          button.textContent.trim() === '停止中...' &&
+          button.disabled &&
+          button.classList.contains('stopping') &&
+          button.getAttribute('aria-busy') === 'true'
+        )`,
+    )
+    const cancelCountDuring = await evaluate(
+      client,
+      `window.__mockSnapshot().requests.filter((request) => request.pathname.endsWith('/cancel')).length`,
+    )
+    if (cancelCountDuring - cancelCountBefore !== 1) {
+      throw new Error(`Repeated stop caused duplicate cancel requests: ${cancelCountDuring - cancelCountBefore}`)
+    }
     await waitFor(client, `document.body.innerText.includes('已停止生成') && [...document.querySelectorAll('button')].some((button) => button.textContent.trim() === '发送')`)
+    await setMockFlags(client, { cancelDelayMs: 0 })
     await screenshot(client, '01-repeat-stop')
 
     await resetPage(client)
@@ -1525,11 +1576,21 @@ async function main() {
       `(() => {
         const beforeTitles = [...document.querySelectorAll('.conversation-title')].map((node) => node.textContent.trim());
         const clearDisabled = document.querySelector('.clear-history-btn')?.disabled === true;
+        const importDisabled = [...document.querySelectorAll('button')]
+          .find((button) => button.textContent.trim() === '导入 JSON')?.disabled === true;
+        const exportAllDisabled = [...document.querySelectorAll('button')]
+          .find((button) => button.textContent.trim() === '导出全部 JSON')?.disabled === true;
+        const singleExportDisabled = [...document.querySelectorAll('.conversation-action-btn')]
+          .filter((button) => button.getAttribute('title') === '导出 Markdown')
+          .every((button) => button.disabled === true);
         document.querySelector('.conversation-action-btn.danger')?.click();
         const afterDeleteTitles = [...document.querySelectorAll('.conversation-title')].map((node) => node.textContent.trim());
         document.querySelector('.conversation-action-btn[title="重命名"]')?.click();
         return {
           clearDisabled,
+          importDisabled,
+          exportAllDisabled,
+          singleExportDisabled,
           beforeCount: beforeTitles.length,
           afterDeleteCount: afterDeleteTitles.length,
         };
@@ -1538,7 +1599,13 @@ async function main() {
     await waitForDialog(client, '重命名会话')
     await submitPromptDialog(client, '生成中重命名成功')
     await waitFor(client, `document.body.innerText.includes('生成中重命名成功')`)
-    if (!operationState.clearDisabled || operationState.beforeCount !== operationState.afterDeleteCount) {
+    if (
+      !operationState.clearDisabled ||
+      !operationState.importDisabled ||
+      !operationState.exportAllDisabled ||
+      !operationState.singleExportDisabled ||
+      operationState.beforeCount !== operationState.afterDeleteCount
+    ) {
       throw new Error('Generating conversation operation state failed')
     }
     await clickText(client, 'button', '停止')
@@ -1928,7 +1995,8 @@ async function main() {
 
     client.close()
   } finally {
-    chrome.kill('SIGTERM')
+    await stopProcess(chrome)
+    await rm(profileDir, { recursive: true, force: true })
   }
 }
 

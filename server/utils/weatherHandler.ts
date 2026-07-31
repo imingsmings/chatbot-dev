@@ -79,13 +79,13 @@ async function getWeather(args: unknown, options: ToolExecutionOptions = {}): Pr
 
   if (!formattedDate) {
     console.error('无法识别日期格式:', date)
-    return `无法识别日期格式："${date}"，请使用"今天"、"明天"或"后天"`
+    throw new Error(`无法识别日期格式："${date}"，请使用"今天"、"明天"或"后天"`)
   }
 
   const locationId = await getCityLocation(city, { signal })
   if (!locationId) {
     console.error('无法识别城市:', city)
-    return `无法识别城市："${city}"`
+    throw new Error(`无法识别城市："${city}"`)
   }
 
   try {
@@ -100,7 +100,7 @@ async function getWeather(args: unknown, options: ToolExecutionOptions = {}): Pr
 
     if (data.code !== '200') {
       console.error('天气API返回错误:', data.code)
-      return '获取天气数据失败'
+      throw new Error('获取天气数据失败')
     }
 
     const match = data.daily?.find((d) => d.fxDate === formattedDate) // 过滤出需要的那一天的天气数据
@@ -117,8 +117,12 @@ async function getWeather(args: unknown, options: ToolExecutionOptions = {}): Pr
       throw error
     }
 
+    if (error instanceof Error && error.message === '获取天气数据失败') {
+      throw error
+    }
+
     console.error('天气查询异常:', error)
-    return '天气查询服务暂时不可用'
+    throw new Error('天气查询服务暂时不可用')
   }
 }
 
