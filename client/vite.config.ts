@@ -1,25 +1,42 @@
-import { fileURLToPath, URL } from 'node:url'
-
+import tailwindcss from '@tailwindcss/vite'
+import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
-import vue from '@vitejs/plugin-vue'
 
 export default defineConfig({
-  plugins: [
-    vue(),
-    // vueDevTools()
-  ],
-  resolve: {
-    alias: {
-      '@': fileURLToPath(new URL('./src', import.meta.url)),
+  plugins: [react(), tailwindcss()],
+  build: {
+    rolldownOptions: {
+      output: {
+        codeSplitting: {
+          groups: [
+            {
+              name: 'markdown',
+              priority: 3,
+              test: /node_modules[\\/](dompurify|highlight\.js|markdown-it)[\\/]/,
+            },
+            {
+              name: 'ui',
+              priority: 2,
+              test: /node_modules[\\/](@base-ui|lucide-react)[\\/]/,
+            },
+            {
+              name: 'react',
+              priority: 1,
+              test: /node_modules[\\/](react|react-dom|scheduler)[\\/]/,
+            },
+          ],
+        },
+      },
     },
   },
   server: {
     host: '0.0.0.0',
+    port: 5173,
+    strictPort: true,
     proxy: {
       '/api': {
-        target: 'http://127.0.0.1:7001',
+        target: process.env.VITE_API_TARGET || 'http://127.0.0.1:7001',
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api/, ''), // 去掉 /api 前缀
       },
     },
   },

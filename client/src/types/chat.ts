@@ -2,7 +2,40 @@ export type MessageStatus = 'pending' | 'streaming' | 'done' | 'stopped' | 'erro
 
 export type ThemeMode = 'light' | 'dark'
 
+export type DeepSeekModelId = 'deepseek-v4-flash' | 'deepseek-v4-pro'
+
+export type LlmProviderId = 'deepseek' | 'openai'
+
+export type ModelCapabilities = {
+  tools: boolean
+  reasoning: boolean
+  reasoningSummary: boolean
+  reasoningEfforts: string[]
+  temperature: boolean
+  maxOutputTokens: number
+}
+
+export type ModelDescriptor = {
+  provider: LlmProviderId
+  id: string
+  label: string
+  disabled?: boolean
+  capabilities: ModelCapabilities
+}
+
+export type RuntimeProvider = {
+  id: LlmProviderId
+  label: string
+  models: ModelDescriptor[]
+  configured: boolean
+  endpointConfigured: boolean
+  apiKeyConfigured: boolean
+  defaultModel: string
+}
+
 export type ModelRequestOptions = {
+  provider?: LlmProviderId
+  model?: string
   temperature?: number
   maxTokens?: number
   reasoningEnabled?: boolean
@@ -104,11 +137,16 @@ export type ContextPreview = {
 }
 
 export type RuntimeInfo = {
-  provider: string
+  profile?: {
+    name: string
+    avatarUrl: string
+  }
+  provider: LlmProviderId
   model: string | null
   storageBackend: 'file' | 'sqlite'
   endpointConfigured: boolean
   apiKeyConfigured: boolean
+  providers?: RuntimeProvider[]
   defaults: {
     temperature: number | null
     maxTokens: number | null

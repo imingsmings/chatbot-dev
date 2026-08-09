@@ -10,35 +10,30 @@
     "dev": "node --watch ./bin/www.ts",
     "start": "node ./bin/www.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "node --test ../tests/server/*.test.ts",
     "test:context": "node --test ../tests/server/contextService.test.ts",
     "test:conversation-export": "node --test ../tests/server/conversationExport.test.ts ../tests/server/conversationExportSqlite.test.ts",
     "test:conversation-search": "node --test ../tests/server/conversationSearch.test.ts ../tests/server/conversationSearchSqlite.test.ts",
     "test:conversation-summary": "node --test ../tests/server/conversationSummary.test.ts ../tests/server/conversationSummarySqlite.test.ts",
     "test:conversation-import": "node --test ../tests/server/conversationImport.test.ts ../tests/server/conversationImportSqlite.test.ts",
-    "test:model-options": "node --test ../tests/server/modelOptions.test.ts",
+    "test:model-options": "node --test ../tests/server/modelOptions.test.ts ../tests/server/providerConfig.test.ts",
     "test:tools": "node --test ../tests/server/toolService.test.ts"
   },
   "dependencies": {
-    "cookie-parser": "~1.4.4",
-    "debug": "~2.6.9",
-    "dotenv": "^17.4.2",
-    "express": "~4.16.1",
-    "http-errors": "~1.6.3",
-    "jade": "~1.11.0",
-    "morgan": "~1.9.1"
+    "cookie-parser": "1.4.7",
+    "debug": "4.4.3",
+    "dotenv": "17.4.2",
+    "express": "5.2.1",
+    "http-errors": "2.0.1",
+    "morgan": "1.11.0"
   },
   "devDependencies": {
-    "@types/cookie-parser": "^1.4.10",
-    "@types/debug": "^4.1.13",
-    "@types/express": "^4.17.25",
-    "@types/http-errors": "^2.0.5",
-    "@types/morgan": "^1.9.10",
-    "@types/node": "^22.19.19",
-    "typescript": "^6.0.3"
-  },
-  "pnpm": {
-    "overrides": {
-      "@types/node@*": "22.19.19"
-    }
+    "@types/cookie-parser": "1.4.10",
+    "@types/debug": "4.1.13",
+    "@types/express": "5.0.6",
+    "@types/http-errors": "2.0.5",
+    "@types/morgan": "1.9.10",
+    "@types/node": "catalog:",
+    "typescript": "catalog:"
   }
 }

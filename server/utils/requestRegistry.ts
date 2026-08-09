@@ -29,7 +29,10 @@ function registerRequest({
   controller: AbortController
   cancel: (reason?: string) => void
 }): boolean {
-  if (activeRequests.has(requestId)) {
+  if (
+    activeRequests.has(requestId) ||
+    [...activeRequests.values()].some((request) => request.conversationId === conversationId)
+  ) {
     return false
   }
 

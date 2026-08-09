@@ -7,6 +7,7 @@ import { pathToFileURL } from 'node:url'
 
 const APP_URL = process.env.APP_URL || 'http://localhost:5173/'
 const VITE_PORT = process.env.VITE_PORT || new URL(APP_URL).port || '5173'
+const CLIENT_DIR = process.env.CDP_CLIENT_DIR || 'client'
 const SERVER_PORT = process.env.SERVER_PORT || '7701'
 const SERVER_URL = process.env.SERVER_URL || `http://127.0.0.1:${SERVER_PORT}`
 const MOCK_PORT = Number(process.env.MOCK_PORT || 7011)
@@ -145,7 +146,8 @@ async function ask(client, question) {
     client,
     `(() => {
       const input = document.querySelector('textarea');
-      input.value = ${JSON.stringify(question)};
+      const valueSetter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set;
+      valueSetter.call(input, ${JSON.stringify(question)});
       input.dispatchEvent(new Event('input', { bubbles: true }));
       document.querySelector('form').dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
     })()`,
@@ -188,11 +190,15 @@ async function waitAssistantStreamingText(client) {
 
 async function newChat(client) {
   const previousCount = await evaluate(client, `window.__abortTest.createdIds.length`)
+  const previousId = await evaluate(client, `window.__abortTest.createdIds.at(-1) ?? null`)
   await clickText(client, 'button', '新建')
-  await waitFor(client, `window.__abortTest.createdIds.length > ${previousCount}`)
-  const id = await evaluate(client, `window.__abortTest.createdIds.at(-1)`)
   await waitFor(client, `document.querySelector('.conversation-item-shell.active')?.textContent.includes('0 条消息')`)
-  await waitFor(client, `document.querySelector('.empty-state') && document.querySelector('textarea')`)
+  await waitFor(client, `Boolean(document.querySelector('.empty-state') && document.querySelector('textarea'))`)
+  const createdIds = await evaluate(client, `window.__abortTest.createdIds`)
+  const id = createdIds.length > previousCount ? createdIds.at(-1) : previousId
+  if (!id) {
+    throw new Error('New-chat action did not create or reuse an empty conversation')
+  }
   return id
 }
 
@@ -377,28 +383,24 @@ async function stopProcess(child) {
 
 async function main() {
   await mkdir(OUT_DIR, { recursive: true })
-  const clientRoot = path.resolve(process.cwd(), 'client')
+  const dataDir = await mkdtemp(path.join(tmpdir(), 'chatbot-abort-data-'))
+  const clientRoot = path.resolve(process.cwd(), CLIENT_DIR)
   const viteImport = pathToFileURL(path.resolve(clientRoot, 'node_modules/vite/dist/node/index.js')).href
-  const vueImport = pathToFileURL(path.resolve(clientRoot, 'node_modules/@vitejs/plugin-vue/dist/index.mjs')).href
+  const clientConfigImport = pathToFileURL(path.resolve(clientRoot, 'vite.config.ts')).href
   await writeFile(
     VITE_TEST_CONFIG,
     `import { defineConfig } from ${JSON.stringify(viteImport)}
-import vue from ${JSON.stringify(vueImport)}
+import clientConfig from ${JSON.stringify(clientConfigImport)}
 
 export default defineConfig({
+  ...clientConfig,
   root: ${JSON.stringify(clientRoot)},
-  plugins: [vue()],
-  resolve: {
-    alias: {
-      '@': ${JSON.stringify(path.resolve(clientRoot, 'src'))},
-    },
-  },
   server: {
+    ...clientConfig.server,
     proxy: {
       '/api': {
         target: ${JSON.stringify(SERVER_URL)},
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\\/api/, ''),
       },
     },
   },
@@ -420,11 +422,12 @@ export default defineConfig({
       LLM_MODEL: 'cdp-abort-test',
       LLM_TIMEOUT_MS: '20000',
       DEEPSEEK_API_KEY: 'cdp-test-key',
+      CONVERSATION_DATA_DIR: dataDir,
     },
   })
 
-  const vite = spawnProcess('pnpm', ['exec', 'vite', '--config', VITE_TEST_CONFIG, '--host', '127.0.0.1', '--port', VITE_PORT, '--strictPort'], {
-    cwd: path.resolve(process.cwd(), 'client'),
+  const vite = spawnProcess('pnpm', ['exec', 'vite', '--config', VITE_TEST_CONFIG, '--configLoader', 'native', '--host', '127.0.0.1', '--port', VITE_PORT, '--strictPort'], {
+    cwd: clientRoot,
     env: process.env,
   })
 
@@ -525,7 +528,7 @@ export default defineConfig({
     })
 
     await client.send('Page.navigate', { url: APP_URL })
-    await waitFor(client, `document.querySelector('textarea')`)
+    await waitFor(client, `Boolean(document.querySelector('textarea'))`)
 
     const tc01Id = await newChat(client)
     await ask(client, '[TC01] 请持续输出很多短句，用于测试流式过程中点击停止是否会中断上游请求。')
@@ -601,7 +604,7 @@ export default defineConfig({
     )
     screenshots.push(await screenshot(client, '05-tc04-generating-before-new-chat'))
     await clickText(client, 'button', '新建')
-    await waitFor(client, `document.querySelector('.empty-state') && document.querySelector('textarea')`)
+    await waitFor(client, `Boolean(document.querySelector('.empty-state') && document.querySelector('textarea'))`)
     await delay(700)
     const tc04Records = mock.records.filter((item) => item.marker === '[TC04]')
     const tc04ClosedRecord = tc04Records.find((item) => item.stage === 'answer' && item.closeBeforeEnd)
@@ -692,6 +695,7 @@ export default defineConfig({
     await stopProcess(server)
     await mock.stop()
     await rm(profileDir, { recursive: true, force: true })
+    await rm(dataDir, { recursive: true, force: true })
     await rm(VITE_TEST_CONFIG, { force: true })
   }
 }

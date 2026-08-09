@@ -4,8 +4,11 @@ import { spawnProcess, stopProcess, waitForHttp } from './helpers/services.mjs'
 
 const REPO_ROOT = process.cwd()
 const APP_URL = process.env.APP_URL || 'http://127.0.0.1:5173/'
+const CLIENT_DIR = process.env.CDP_CLIENT_DIR || 'client'
+const VITE_PORT = process.env.VITE_PORT || new URL(APP_URL).port || '5173'
 const BACKEND_URL = process.env.BACKEND_URL || 'http://127.0.0.1:7001/'
 const CAPTURE_SCREENSHOTS = process.env.CDP_SCREENSHOTS === '1' ? '1' : '0'
+const ABORT_APP_URL = process.env.CDP_ABORT_APP_URL || 'http://localhost:5184/'
 
 function readNonNegativeInteger(name, fallback) {
   const value = Number(process.env[name])
@@ -18,8 +21,8 @@ const SUITES = {
       name: 'upstream abort',
       script: 'tests/cdp/upstream-abort.mjs',
       env: {
-        APP_URL: 'http://localhost:5174/',
-        VITE_PORT: '5174',
+        APP_URL: ABORT_APP_URL,
+        VITE_PORT: new URL(ABORT_APP_URL).port,
       },
     },
     { name: 'P0 API and tool scenarios', script: 'tests/cdp/p0-api-tool.mjs' },
@@ -64,6 +67,21 @@ const SUITES = {
     { name: 'Real conversation context scenarios', script: 'tests/cdp/conversation-context-real.mjs', needsVite: true, needsBackend: true },
     { name: 'Real Markdown scenarios', script: 'tests/cdp/markdown-real.mjs', needsVite: true, needsBackend: true },
   ],
+  'real-ui': [
+    { name: 'Real UI scenarios', script: 'tests/cdp/real-scenarios.mjs', needsVite: true, needsBackend: true },
+  ],
+  'real-context': [
+    { name: 'Real conversation context scenarios', script: 'tests/cdp/conversation-context-real.mjs', needsVite: true, needsBackend: true },
+  ],
+  'real-markdown': [
+    { name: 'Real Markdown scenarios', script: 'tests/cdp/markdown-real.mjs', needsVite: true, needsBackend: true },
+  ],
+  'real-model-options': [
+    { name: 'Real model and reasoning options', script: 'tests/cdp/model-options-real.mjs', needsVite: true, needsBackend: true },
+  ],
+  'real-openai': [
+    { name: 'Real OpenAI Responses scenarios', script: 'tests/cdp/openai-responses-real.mjs', needsVite: true, needsBackend: true },
+  ],
 }
 
 SUITES['all-mock'] = [
@@ -84,9 +102,9 @@ async function ensureVite() {
 
   const vite = spawnProcess(
     'pnpm',
-    ['exec', 'vite', '--host', '127.0.0.1', '--port', '5173', '--strictPort'],
+    ['exec', 'vite', '--host', '127.0.0.1', '--port', VITE_PORT, '--strictPort'],
     {
-      cwd: path.join(REPO_ROOT, 'client'),
+      cwd: path.join(REPO_ROOT, CLIENT_DIR),
       env: process.env,
     },
   )

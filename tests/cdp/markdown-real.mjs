@@ -187,7 +187,12 @@ async function ask(client, question) {
     client,
     `(() => {
       const input = document.querySelector('textarea');
-      input.value = ${JSON.stringify(question)};
+      if (document.querySelector('.model-menu-trigger')) {
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')
+          .set.call(input, ${JSON.stringify(question)});
+      } else {
+        input.value = ${JSON.stringify(question)};
+      }
       input.dispatchEvent(new Event('input', { bubbles: true }));
       document.querySelector('form').dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
     })()`,

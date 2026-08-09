@@ -166,7 +166,12 @@ async function ask(client, question) {
     client,
     `(() => {
       const input = document.querySelector('textarea');
-      input.value = ${JSON.stringify(question)};
+      if (document.querySelector('.model-menu-trigger')) {
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')
+          .set.call(input, ${JSON.stringify(question)});
+      } else {
+        input.value = ${JSON.stringify(question)};
+      }
       input.dispatchEvent(new Event('input', { bubbles: true }));
       document.querySelector('form').dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
     })()`,
@@ -202,7 +207,7 @@ async function waitIdle(client) {
 
 async function newChat(client) {
   await clickText(client, 'button', '新建')
-  await waitFor(client, `document.querySelector('.empty-state') && document.querySelector('textarea')`)
+  await waitFor(client, `Boolean(document.querySelector('.empty-state') && document.querySelector('textarea'))`)
 }
 
 const observeScript = `
@@ -274,7 +279,7 @@ async function main() {
     })
     await client.send('Page.addScriptToEvaluateOnNewDocument', { source: observeScript })
     await client.send('Page.navigate', { url: APP_URL })
-    await waitFor(client, `document.querySelector('textarea')`)
+    await waitFor(client, `Boolean(document.querySelector('textarea'))`)
 
     await newChat(client)
     await ask(client, '真实接口测试一：请用中文写一段较长说明，分多句输出，方便测试停止生成按钮。')
@@ -382,7 +387,7 @@ async function main() {
     await ask(client, '真实接口测试五：请写一段至少 800 字内容，我会在生成中点击新建聊天。')
     await waitStop(client)
     await clickText(client, 'button', '新建')
-    await waitFor(client, `document.querySelector('.empty-state') && document.querySelector('textarea')`)
+    await waitFor(client, `Boolean(document.querySelector('.empty-state') && document.querySelector('textarea'))`)
     const newChatAbortCount = await waitFor(client, `window.__realAbortCount > 0 && window.__realAbortCount`)
     await screenshot(client, '05-real-new-chat-aborts-generation')
 

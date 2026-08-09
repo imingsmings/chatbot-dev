@@ -1,12 +1,13 @@
-import { MAX_MODEL_TOKENS } from './modelOptions.ts'
+import { MAX_MODEL_TOKENS, resolveModelOptions } from './modelOptions.ts'
+import { findModelDescriptor, readDisabledModelIds } from './llm/modelCatalog.ts'
+import { getProviderConfig, readDefaultProvider } from './llm/providerConfig.ts'
+import { readConversationStoreKind } from '../config/conversationStoreConfig.ts'
 
 type ValidationIssue = {
   name: string
   reason: string
 }
 
-const SUPPORTED_LLM_PROVIDERS = new Set(['deepseek'])
-const SUPPORTED_CONVERSATION_STORES = new Set(['file', 'json', 'fs', 'sqlite', 'sqlite3'])
 const TRUE_VALUES = new Set(['1', 'true', 'yes', 'on', 'enabled'])
 const FALSE_VALUES = new Set(['0', 'false', 'no', 'off', 'disabled'])
 
@@ -22,14 +23,6 @@ function requireConfigValue(name: string, issues: ValidationIssue[]): void {
       reason: '未配置或仍是示例占位值'
     })
   }
-}
-
-function readProvider(): string {
-  return (process.env.LLM_PROVIDER || 'deepseek').trim().toLowerCase()
-}
-
-function readStoreKind(): string {
-  return (process.env.CONVERSATION_STORE || 'file').trim().toLowerCase()
 }
 
 function validateBooleanEnv(name: string, issues: ValidationIssue[]): void {
@@ -94,27 +87,50 @@ function formatConfigError(title: string, issues: ValidationIssue[]): Error {
 
 function validateStartupConfig(): void {
   const issues: ValidationIssue[] = []
-  const provider = readProvider()
-  const storeKind = readStoreKind()
+  let providerConfig
+  let providerId
 
-  if (!SUPPORTED_LLM_PROVIDERS.has(provider)) {
+  try {
+    providerId = readDefaultProvider()
+  } catch (error) {
     issues.push({
       name: 'LLM_PROVIDER',
-      reason: `不支持 "${process.env.LLM_PROVIDER}"，当前支持：${[...SUPPORTED_LLM_PROVIDERS].join(', ')}`
+      reason: error instanceof Error ? error.message : '配置不合法'
     })
   }
 
-  requireConfigValue('LLM_ENDPOINT', issues)
-  requireConfigValue('LLM_MODEL', issues)
-
-  if (provider === 'deepseek') {
-    requireConfigValue('DEEPSEEK_API_KEY', issues)
+  if (providerId) {
+    try {
+      providerConfig = getProviderConfig(providerId)
+    } catch (error) {
+      issues.push({
+        name: providerId === 'openai' ? 'OPENAI_ENDPOINT' : 'LLM_ENDPOINT/DEEPSEEK_ENDPOINT',
+        reason: error instanceof Error ? error.message : '配置不合法'
+      })
+    }
   }
 
-  if (!SUPPORTED_CONVERSATION_STORES.has(storeKind)) {
+  if (providerConfig) {
+    if (!providerConfig.endpoint) {
+      issues.push({
+        name: providerConfig.id === 'openai' ? 'OPENAI_ENDPOINT' : 'LLM_ENDPOINT/DEEPSEEK_ENDPOINT',
+        reason: '未配置或仍是示例占位值'
+      })
+    }
+    if (!providerConfig.apiKey) {
+      issues.push({
+        name: providerConfig.id === 'openai' ? 'OPENAI_API_KEY' : 'DEEPSEEK_API_KEY',
+        reason: '未配置或仍是示例占位值'
+      })
+    }
+  }
+
+  try {
+    readConversationStoreKind()
+  } catch (error) {
     issues.push({
       name: 'CONVERSATION_STORE',
-      reason: `不支持 "${process.env.CONVERSATION_STORE}"，当前支持：file、json、fs、sqlite、sqlite3`
+      reason: error instanceof Error ? error.message : '配置不合法'
     })
   }
 
@@ -122,6 +138,24 @@ function validateStartupConfig(): void {
   validatePositiveIntegerEnv('LLM_MAX_TOKENS', issues, MAX_MODEL_TOKENS)
   validateNumberRangeEnv('LLM_TEMPERATURE', 0, 2, issues)
   validateBooleanEnv('LLM_REASONING_ENABLED', issues)
+
+  const unknownDisabledModels = [...readDisabledModelIds()]
+    .filter((modelId) => !findModelDescriptor(modelId))
+  if (unknownDisabledModels.length > 0) {
+    issues.push({
+      name: 'LLM_DISABLED_MODELS',
+      reason: `包含未知模型：${unknownDisabledModels.join('、')}`
+    })
+  }
+
+  try {
+    resolveModelOptions()
+  } catch (error) {
+    issues.push({
+      name: 'LLM_MODEL_OPTIONS',
+      reason: error instanceof Error ? error.message : '配置不合法'
+    })
+  }
 
   if (issues.length > 0) {
     throw formatConfigError('后端启动配置错误', issues)
@@ -133,6 +167,21 @@ function validateWeatherConfig(): void {
 
   requireConfigValue('HEFENG_API_HOST', issues)
   requireConfigValue('HEFENG_API_KEY', issues)
+
+  const host = process.env.HEFENG_API_HOST?.trim()
+  if (host && !host.startsWith('replace_with_')) {
+    try {
+      const url = new URL(`https://${host}`)
+      if (url.hostname !== host || url.pathname !== '/' || url.search || url.hash) {
+        throw new Error()
+      }
+    } catch {
+      issues.push({
+        name: 'HEFENG_API_HOST',
+        reason: '必须是纯主机名，不包含协议、路径、查询或片段'
+      })
+    }
+  }
 
   if (issues.length > 0) {
     throw formatConfigError('天气工具配置错误', issues)

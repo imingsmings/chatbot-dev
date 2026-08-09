@@ -33,6 +33,7 @@ const weatherTool: ToolRegistryItem<WeatherToolArgs> = {
     function: {
       name: 'getWeather',
       description: '获取指定中文城市在今天、明天或后天的天气信息。',
+      strict: true,
       parameters: {
         type: 'object',
         properties: {

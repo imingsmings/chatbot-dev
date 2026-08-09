@@ -996,8 +996,20 @@ async function main() {
     }
 
     const corruptDataDir = await mkdtemp(path.join(tmpdir(), 'chatbot-corrupt-data-'))
-    await mkdir(path.join(corruptDataDir, 'file', 'conversations'), { recursive: true })
-    await writeFile(path.join(corruptDataDir, 'file', 'conversations', 'conv_corrupt_cdp.json'), '{broken json', 'utf8')
+    const corruptConversationsDir = path.join(corruptDataDir, 'file', 'conversations')
+    const corruptFilePath = path.join(corruptConversationsDir, 'conv_corrupt_cdp.json')
+    const validFilePath = path.join(corruptConversationsDir, 'conv_valid_cdp.json')
+    const corruptTimestamp = new Date().toISOString()
+    await mkdir(corruptConversationsDir, { recursive: true })
+    await writeFile(corruptFilePath, '{broken json', 'utf8')
+    await writeFile(validFilePath, JSON.stringify({
+      id: 'conv_valid_cdp',
+      title: 'Valid beside corrupt file',
+      createdAt: corruptTimestamp,
+      updatedAt: corruptTimestamp,
+      titleManuallyEdited: true,
+      messages: [],
+    }), 'utf8')
     const corruptServer = spawnProcess('node', ['./bin/www.ts'], {
       cwd: path.resolve(process.cwd(), 'server'),
       env: {
@@ -1013,12 +1025,17 @@ async function main() {
     try {
       await waitForHttp('http://127.0.0.1:7704/__ready')
       const corruptResponse = await fetch('http://127.0.0.1:7704/conversations')
-      const corruptText = await corruptResponse.text()
-      let corruptJson = null
-      try { corruptJson = JSON.parse(corruptText) } catch {}
-      assert(corruptResponse.status >= 500 && corruptJson?.message, 'P1-31 corrupt JSON did not return JSON error')
-      const healthAfterCorrupt = await fetch('http://127.0.0.1:7704/__ready')
-      assert(healthAfterCorrupt.status === 404, 'P1-31 corrupt JSON server crashed after error')
+      const corruptJson = await corruptResponse.json()
+      assert(corruptResponse.status === 200, 'P1-31 corrupt JSON made the list unavailable')
+      assert(
+        corruptJson.conversations.some((item) => item.id === 'conv_valid_cdp'),
+        'P1-31 valid conversation beside corrupt JSON was not returned'
+      )
+      assert(
+        !corruptJson.conversations.some((item) => item.id === 'conv_corrupt_cdp'),
+        'P1-31 corrupt conversation unexpectedly entered the list'
+      )
+      assert(await fileExists(corruptFilePath), 'P1-31 corrupt source file was destructively removed')
     } finally {
       await stopProcess(corruptServer)
       await rm(corruptDataDir, { recursive: true, force: true })

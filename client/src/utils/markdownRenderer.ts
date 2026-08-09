@@ -71,7 +71,7 @@ function createMarkdownRenderer(highlightCode: boolean) {
     ].join('')
   }
 
-  markdown.renderer.rules.link_open = (tokens, index, options, env, self) => {
+  markdown.renderer.rules.link_open = (tokens, index, options, _env, self) => {
     const href = tokens[index].attrGet('href') || ''
     if (/^https?:\/\//i.test(href)) {
       tokens[index].attrSet('target', '_blank')

@@ -15,6 +15,11 @@ import {
 import { importConversationBackup } from '../services/conversationImportService.ts'
 import { generateConversationSummary } from '../services/conversationSummaryService.ts'
 import { parseModelRequestOptions } from '../utils/modelOptions.ts'
+import {
+  MAX_CONVERSATION_TITLE_LENGTH,
+  MAX_QUESTION_LENGTH,
+  MAX_SEARCH_QUERY_LENGTH,
+} from '../config/productLimits.ts'
 import type { RequestHandler, Response } from 'express'
 
 type ConversationParams = {
@@ -70,6 +75,21 @@ const listConversations: RequestHandler = async (req, res, next) => {
 
 const createConversation: RequestHandler<unknown, unknown, CreateConversationBody> = async (req, res, next) => {
   try {
+    if (req.body.title !== undefined && typeof req.body.title !== 'string') {
+      res.status(400).json({
+        message: '会话名称必须是字符串'
+      })
+      return
+    }
+    if (
+      typeof req.body.title === 'string' &&
+      req.body.title.trim().length > MAX_CONVERSATION_TITLE_LENGTH
+    ) {
+      res.status(400).json({
+        message: `会话名称不能超过 ${MAX_CONVERSATION_TITLE_LENGTH} 个字符`
+      })
+      return
+    }
     const conversation = await createNewConversation(req.body.title)
     res.status(201).json({
       conversation
@@ -107,6 +127,13 @@ const searchConversations: RequestHandler<unknown, unknown, unknown, SearchConve
     if (!query) {
       res.status(400).json({
         message: '搜索关键词不能为空'
+      })
+      return
+    }
+
+    if (query.length > MAX_SEARCH_QUERY_LENGTH) {
+      res.status(400).json({
+        message: `搜索关键词不能超过 ${MAX_SEARCH_QUERY_LENGTH} 个字符`
       })
       return
     }
@@ -175,6 +202,14 @@ const previewConversationContext: RequestHandler<ConversationParams, unknown, Co
       return
     }
 
+
+    if (typeof req.body.question === 'string' && req.body.question.length > MAX_QUESTION_LENGTH) {
+      res.status(400).json({
+        message: `问题不能超过 ${MAX_QUESTION_LENGTH} 个字符`
+      })
+      return
+    }
+
     let options
     try {
       options = parseModelRequestOptions(req.body.options)
@@ -202,6 +237,13 @@ const summarizeConversation: RequestHandler<ConversationParams, unknown, Generat
   res,
   next
 ) => {
+  const controller = new AbortController()
+  const abortOnClientClose = (): void => {
+    if (!res.writableEnded && !controller.signal.aborted) {
+      controller.abort()
+    }
+  }
+
   let options
   try {
     options = parseModelRequestOptions(req.body.options)
@@ -212,8 +254,11 @@ const summarizeConversation: RequestHandler<ConversationParams, unknown, Generat
     return
   }
 
+  req.on('aborted', abortOnClientClose)
+  res.on('close', abortOnClientClose)
+
   try {
-    const result = await generateConversationSummary(req.params.id, options)
+    const result = await generateConversationSummary(req.params.id, options, controller.signal)
 
     if (result.error === 'not_found') {
       writeNotFound(res)
@@ -227,11 +272,24 @@ const summarizeConversation: RequestHandler<ConversationParams, unknown, Generat
       return
     }
 
+    if (result.error === 'conversation_changed') {
+      res.status(409).json({
+        message: '会话内容已更新，请重新生成摘要'
+      })
+      return
+    }
+
     res.json({
       conversation: result.conversation
     })
   } catch (err) {
+    if (controller.signal.aborted) {
+      return
+    }
     next(err)
+  } finally {
+    req.off('aborted', abortOnClientClose)
+    res.off('close', abortOnClientClose)
   }
 }
 
@@ -246,6 +304,13 @@ const renameConversation: RequestHandler<ConversationParams, unknown, RenameConv
     if (result.error === 'empty_title') {
       res.status(400).json({
         message: '会话名称不能为空'
+      })
+      return
+    }
+
+    if (result.error === 'title_too_long') {
+      res.status(400).json({
+        message: `会话名称不能超过 ${MAX_CONVERSATION_TITLE_LENGTH} 个字符`
       })
       return
     }

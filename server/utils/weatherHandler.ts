@@ -18,23 +18,32 @@ type QWeatherDailyResponse = {
   }>
 }
 
-function formatDate(text: string): string | null {
-  const today = new Date()
+const DAY_MS = 86_400_000
 
-  if (text.includes('今天')) return today.toISOString().split('T')[0]
+function formatLocalDate(date: Date): string {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+function formatDate(text: string, currentDate = new Date()): string | null {
+  const today = new Date(currentDate)
+
+  if (text.includes('今天')) return formatLocalDate(today)
   if (text.includes('明天')) {
-    const tomorrow = new Date(today.getTime() + 86400000)
-    return tomorrow.toISOString().split('T')[0]
+    const tomorrow = new Date(today.getTime() + DAY_MS)
+    return formatLocalDate(tomorrow)
   }
   if (text.includes('后天')) {
-    const dayAfter = new Date(today.getTime() + 2 * 86400000)
-    return dayAfter.toISOString().split('T')[0]
+    const dayAfter = new Date(today.getTime() + 2 * DAY_MS)
+    return formatLocalDate(dayAfter)
   }
 
-  if (text.toLowerCase().includes('today')) return today.toISOString().split('T')[0]
+  if (text.toLowerCase().includes('today')) return formatLocalDate(today)
   if (text.toLowerCase().includes('tomorrow')) {
-    const tomorrow = new Date(today.getTime() + 86400000)
-    return tomorrow.toISOString().split('T')[0]
+    const tomorrow = new Date(today.getTime() + DAY_MS)
+    return formatLocalDate(tomorrow)
   }
 
   if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text
@@ -52,6 +61,10 @@ async function getCityLocation(city: string, options: ToolExecutionOptions = {})
     signal,
     headers
   })
+
+  if (!res.ok) {
+    throw new Error(`城市查询请求失败：${res.status}`)
+  }
 
   const data = (await res.json()) as QWeatherCityLookupResponse
   const [location] = data.location ?? []
@@ -77,18 +90,20 @@ async function getWeather(args: unknown, options: ToolExecutionOptions = {}): Pr
   const { signal } = options
   const formattedDate = formatDate(date)
 
+  if (!city.trim()) {
+    throw new Error('城市不能为空')
+  }
+
   if (!formattedDate) {
-    console.error('无法识别日期格式:', date)
     throw new Error(`无法识别日期格式："${date}"，请使用"今天"、"明天"或"后天"`)
   }
 
-  const locationId = await getCityLocation(city, { signal })
-  if (!locationId) {
-    console.error('无法识别城市:', city)
-    throw new Error(`无法识别城市："${city}"`)
-  }
-
   try {
+    const locationId = await getCityLocation(city, { signal })
+    if (!locationId) {
+      throw new Error(`无法识别城市："${city}"`)
+    }
+
     const { host, headers } = getWeatherConfig()
     const url = `https://${host}/v7/weather/7d?location=${locationId}`
     const res = await fetch(url, {
@@ -96,37 +111,40 @@ async function getWeather(args: unknown, options: ToolExecutionOptions = {}): Pr
       signal,
       headers
     })
+    if (!res.ok) {
+      throw new Error(`天气请求失败：${res.status}`)
+    }
     const data = (await res.json()) as QWeatherDailyResponse // 拿到的是一周的天气
 
     if (data.code !== '200') {
-      console.error('天气API返回错误:', data.code)
       throw new Error('获取天气数据失败')
     }
 
     const match = data.daily?.find((d) => d.fxDate === formattedDate) // 过滤出需要的那一天的天气数据
     if (!match) {
-      console.error('没有找到对应日期的天气数据:', formattedDate)
       return `暂无 ${formattedDate} 的天气数据`
     }
 
     const result = `📍 ${city}（${formattedDate}）天气：${match.textDay}，气温 ${match.tempMin}°C ~ ${match.tempMax}°C`
-    console.log('天气查询成功:', result)
     return result
   } catch (error: unknown) {
     if (error instanceof Error && error.name === 'AbortError') {
       throw error
     }
 
-    if (error instanceof Error && error.message === '获取天气数据失败') {
+    if (
+      error instanceof Error &&
+      (error.message === '获取天气数据失败' || error.message.startsWith('无法识别城市'))
+    ) {
       throw error
     }
 
-    console.error('天气查询异常:', error)
     throw new Error('天气查询服务暂时不可用')
   }
 }
 
 export {
+  formatDate,
   getWeather
 }
 

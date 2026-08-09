@@ -1,20 +1,33 @@
-import { getConversationStoreKind } from '../utils/conversationStore.ts'
+import { readConversationStoreKind } from '../config/conversationStoreConfig.ts'
 import { readDefaultModelOptions } from '../utils/modelOptions.ts'
-
-function hasConfiguredValue(value: string | undefined): boolean {
-  const trimmed = value?.trim() ?? ''
-  return Boolean(trimmed) && !trimmed.startsWith('replace_with_')
-}
+import { getPublicModelCatalog } from '../utils/llm/modelCatalog.ts'
+import { getProviderConfig } from '../utils/llm/providerConfig.ts'
 
 function getRuntimeInfo() {
   const modelOptions = readDefaultModelOptions()
+  const selectedConfig = getProviderConfig(modelOptions.provider)
+  const providers = getPublicModelCatalog().map((provider) => {
+    const config = getProviderConfig(provider.id)
+    return {
+      ...provider,
+      configured: Boolean(config.endpoint && config.apiKey),
+      endpointConfigured: Boolean(config.endpoint),
+      apiKeyConfigured: Boolean(config.apiKey),
+      defaultModel: config.defaultModel
+    }
+  })
 
   return {
-    provider: process.env.LLM_PROVIDER?.trim() || 'deepseek',
-    model: process.env.LLM_MODEL?.trim() || null,
-    storageBackend: getConversationStoreKind(),
-    endpointConfigured: hasConfiguredValue(process.env.LLM_ENDPOINT),
-    apiKeyConfigured: hasConfiguredValue(process.env.DEEPSEEK_API_KEY),
+    profile: {
+      name: process.env.APP_PROFILE_NAME?.trim() || 'User',
+      avatarUrl: process.env.APP_PROFILE_AVATAR_URL?.trim() || ''
+    },
+    provider: modelOptions.provider,
+    model: modelOptions.model ?? null,
+    storageBackend: readConversationStoreKind(),
+    endpointConfigured: Boolean(selectedConfig.endpoint),
+    apiKeyConfigured: Boolean(selectedConfig.apiKey),
+    providers,
     defaults: {
       temperature: modelOptions.temperature ?? null,
       maxTokens: modelOptions.maxTokens ?? null,

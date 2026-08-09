@@ -8,6 +8,7 @@ import {
   registerRequest
 } from '../utils/requestRegistry.ts'
 import { parseModelRequestOptions } from '../utils/modelOptions.ts'
+import { MAX_QUESTION_LENGTH } from '../config/productLimits.ts'
 import type { LlmStreamChunkType } from '../types/llm.ts'
 import type { ToolExecutionEvent } from '../types/tools.ts'
 import type { RequestHandler, Response } from 'express'
@@ -33,7 +34,7 @@ const askConversation: RequestHandler<AskConversationParams, unknown, AskConvers
   res,
   next
 ) => {
-  const question = typeof req.body.question === 'string' ? req.body.question : ''
+  const question = typeof req.body.question === 'string' ? req.body.question.trim() : ''
   const requestId = parseRequestId(req.body.requestId)
   let modelOptions
   let conversation
@@ -47,9 +48,16 @@ const askConversation: RequestHandler<AskConversationParams, unknown, AskConvers
     return
   }
 
-  if (!question.trim()) {
+  if (!question) {
     res.status(400).json({
       message: '问题不能为空'
+    })
+    return
+  }
+
+  if (question.length > MAX_QUESTION_LENGTH) {
+    res.status(400).json({
+      message: `问题不能超过 ${MAX_QUESTION_LENGTH} 个字符`
     })
     return
   }
@@ -101,7 +109,7 @@ const askConversation: RequestHandler<AskConversationParams, unknown, AskConvers
 
   if (!registered) {
     res.status(409).json({
-      message: 'requestId 正在处理中'
+      message: 'requestId 或会话正在处理中'
     })
     return
   }

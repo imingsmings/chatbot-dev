@@ -178,11 +178,28 @@ async function setRouteDelay(client, route, delayMs) {
 }
 
 async function clickButtonRepeated(client, text, clickCount = 3) {
+  if (text === '清空当前会话') {
+    const usesUserMenu = await evaluate(
+      client,
+      `(() => {
+        const trigger = document.querySelector('.user-menu-trigger');
+        if (!trigger) return false;
+        trigger.click();
+        return true;
+      })()`,
+    )
+    if (usesUserMenu) {
+      await waitForEval(client, `Boolean(document.querySelector('.sidebar-user-menu'))`)
+    }
+  }
   await evaluate(
     client,
     `(() => {
       const button = [...document.querySelectorAll('button')]
-        .find((item) => item.textContent.trim() === ${JSON.stringify(text)});
+        .find((item) =>
+          item.textContent.trim() === ${JSON.stringify(text)} ||
+          item.getAttribute('aria-label') === ${JSON.stringify(text)}
+        );
       if (!button) throw new Error('button not found: ${text}');
       for (let index = 0; index < ${clickCount}; index += 1) button.click();
     })()`,
@@ -203,13 +220,33 @@ async function clickConversationRepeated(client, title, clickCount = 3) {
 }
 
 async function clickConversationActionRepeated(client, title, action, clickCount = 3) {
+  const usesPopup = await evaluate(
+    client,
+    `(() => {
+      const shell = [...document.querySelectorAll('.conversation-item-shell')]
+        .find((item) => item.innerText.includes(${JSON.stringify(title)}));
+      const trigger = shell?.querySelector('.conversation-menu-trigger');
+      if (trigger) {
+        trigger.click();
+        return true;
+      }
+      return false;
+    })()`,
+  )
+  if (usesPopup) {
+    await waitForEval(client, `Boolean(document.querySelector('.conversation-actions-menu'))`)
+  }
   await evaluate(
     client,
     `(() => {
       const shell = [...document.querySelectorAll('.conversation-item-shell')]
         .find((item) => item.innerText.includes(${JSON.stringify(title)}));
-      const button = [...(shell?.querySelectorAll('.conversation-action-btn') || [])]
-        .find((item) => item.getAttribute('title') === ${JSON.stringify(action)});
+      const root = document.querySelector('.conversation-actions-menu') || shell;
+      const button = [...root.querySelectorAll('.conversation-action-btn')]
+        .find((item) =>
+          item.getAttribute('aria-label') === ${JSON.stringify(action)} ||
+          item.textContent.trim() === ${JSON.stringify(action)}
+        );
       if (!button) throw new Error('conversation action not found: ${title} / ${action}');
       for (let index = 0; index < ${clickCount}; index += 1) button.click();
     })()`,
@@ -224,7 +261,8 @@ async function confirmDialogRepeated(client, label, promptValue) {
       if (!dialog) throw new Error('dialog not found');
       const input = dialog.querySelector('input');
       if (input && ${promptValue !== undefined}) {
-        input.value = ${JSON.stringify(promptValue ?? '')};
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')
+          .set.call(input, ${JSON.stringify(promptValue ?? '')});
         input.dispatchEvent(new Event('input', { bubbles: true }));
       }
       const button = [...dialog.querySelectorAll('button')]
@@ -273,9 +311,28 @@ async function main() {
       client,
       `document.querySelector('.new-chat-btn')?.textContent.trim() === '新建' &&
         document.querySelector('.new-chat-btn')?.disabled === false &&
-        document.querySelector('.empty-state')`,
+        Boolean(document.querySelector('.empty-state'))`,
     )
     assertions.create = { requestCount: createDuring - createBefore, recovered: true }
+
+    await setRouteDelay(client, 'POST /conversations', 0)
+    const emptyConversationCreateBefore = await routeRequestCount(client, 'POST /conversations')
+    await clickButtonRepeated(client, '新建')
+    await waitForEval(
+      client,
+      `document.querySelector('.new-chat-btn')?.disabled === false &&
+        Boolean(document.querySelector('.empty-state'))`,
+    )
+    const emptyConversationCreateAfter = await routeRequestCount(client, 'POST /conversations')
+    assert(
+      emptyConversationCreateAfter - emptyConversationCreateBefore === 0,
+      'repeated new-chat clicks created another empty conversation',
+    )
+    assertions.emptyConversationReuse = {
+      requestCount: emptyConversationCreateAfter - emptyConversationCreateBefore,
+      expectedRequestCount: 0,
+      recovered: true,
+    }
 
     await setRouteDelay(client, 'GET /conversations/op-2', 220)
     const selectBefore = await routeRequestCount(client, 'GET /conversations/op-2')
@@ -306,8 +363,13 @@ async function main() {
     await confirmDialogRepeated(client, '保存', 'Beta Renamed')
     await waitForEval(
       client,
-      `[...document.querySelectorAll('.conversation-action-btn')]
-        .some((item) => item.textContent.trim() === '保存中...' && item.disabled)`,
+      `(() => {
+        const shell = [...document.querySelectorAll('.conversation-item-shell')]
+          .find((item) => item.innerText.includes('Beta Operation'));
+        return shell?.querySelector('.conversation-menu-trigger')?.getAttribute('aria-busy') === 'true' ||
+          [...(shell?.querySelectorAll('.conversation-action-btn') || [])]
+            .some((item) => item.textContent.trim() === '保存中...' && item.disabled);
+      })()`,
     )
     const renameDuring = await routeRequestCount(client, 'PATCH /conversations/op-2')
     assert(renameDuring - renameBefore === 1, 'rapid rename clicks created duplicate requests')
@@ -325,9 +387,14 @@ async function main() {
     await confirmDialogRepeated(client, '清空')
     await waitForEval(
       client,
-      `document.querySelector('.clear-history-btn')?.textContent.trim() === '清空中...' &&
-        document.querySelector('.clear-history-btn')?.disabled === true &&
-        document.querySelector('.composer textarea')?.disabled === true`,
+      `(() => {
+        const userTriggerBusy = document.querySelector('.user-menu-trigger')?.getAttribute('aria-label') === '清空中...' &&
+          document.querySelector('.user-menu-trigger')?.getAttribute('aria-busy') === 'true';
+        const clearButtonBusy = document.querySelector('.clear-history-btn')?.textContent.trim() === '清空中...' &&
+          document.querySelector('.clear-history-btn')?.disabled === true;
+        return (userTriggerBusy || clearButtonBusy) &&
+          document.querySelector('.composer textarea')?.disabled === true;
+      })()`,
     )
     const clearDuring = await routeRequestCount(client, 'POST /conversations/op-2/clear')
     assert(clearDuring - clearBefore === 1, 'rapid clear clicks created duplicate requests')
@@ -335,7 +402,8 @@ async function main() {
       client,
       `document.querySelector('.conversation-item-shell.active .conversation-meta')
         ?.textContent.includes('0 条消息') &&
-        document.querySelector('.clear-history-btn')?.textContent.trim() === '清空当前会话'`,
+        (document.querySelector('.user-menu-trigger')?.getAttribute('aria-label') === '用户设置' ||
+          document.querySelector('.clear-history-btn')?.textContent.trim() === '清空当前会话')`,
     )
     assertions.clear = { requestCount: clearDuring - clearBefore, recovered: true }
 
@@ -346,8 +414,13 @@ async function main() {
     await confirmDialogRepeated(client, '删除')
     await waitForEval(
       client,
-      `[...document.querySelectorAll('.conversation-action-btn')]
-        .some((item) => item.textContent.trim() === '删除中...' && item.disabled)`,
+      `(() => {
+        const shell = [...document.querySelectorAll('.conversation-item-shell')]
+          .find((item) => item.innerText.includes('Alpha Operation'));
+        return shell?.querySelector('.conversation-menu-trigger')?.getAttribute('aria-busy') === 'true' ||
+          [...(shell?.querySelectorAll('.conversation-action-btn') || [])]
+            .some((item) => item.textContent.trim() === '删除中...' && item.disabled);
+      })()`,
     )
     const deleteDuring = await routeRequestCount(client, 'DELETE /conversations/op-1')
     assert(deleteDuring - deleteBefore === 1, 'rapid delete clicks created duplicate requests')
@@ -377,7 +450,8 @@ async function main() {
 
     assert(
       Object.values(assertions).every(
-        (item) => item.requestCount === 1 && item.recovered === true,
+        (item) =>
+          item.requestCount === (item.expectedRequestCount ?? 1) && item.recovered === true,
       ),
       'one or more sidebar operation assertions failed',
     )

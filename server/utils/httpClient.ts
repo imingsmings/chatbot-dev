@@ -9,6 +9,7 @@ type FetchWithTimeoutResult = {
   signal: AbortSignal
   abortUpstream: () => void
   cleanup: () => void
+  isTimedOut: () => boolean
 }
 
 async function fetchWithTimeout(
@@ -60,14 +61,12 @@ async function fetchWithTimeout(
       signal: controller.signal
     })
 
-    clearTimeout(timeoutId)
-    timeoutId = undefined
-
     return {
       response,
       signal: controller.signal,
       abortUpstream,
-      cleanup
+      cleanup,
+      isTimedOut: () => timeoutTriggered
     }
   } catch (err: unknown) {
     cleanup()

@@ -90,3 +90,27 @@ test('empty and missing conversations return explicit summary errors', async () 
   assert.deepEqual(await generateConversationSummary(empty.id), { error: 'empty' })
   assert.deepEqual(await generateConversationSummary('conv_missing_summary'), { error: 'not_found' })
 })
+
+test('summary generation does not overwrite a conversation changed during the model request', async () => {
+  const conversation = await createConversation('Summary race')
+  await appendMessages(conversation.id, [{ role: 'user', content: 'first version' }])
+  const currentFetch = globalThis.fetch
+  globalThis.fetch = async () => {
+    await appendMessages(conversation.id, [{ role: 'user', content: 'changed meanwhile' }])
+    return Response.json({
+      choices: [{ message: { content: 'stale summary' } }]
+    })
+  }
+
+  try {
+    assert.deepEqual(
+      await generateConversationSummary(conversation.id),
+      { error: 'conversation_changed' }
+    )
+    const stored = await getConversation(conversation.id)
+    assert.equal(stored?.summary, undefined)
+    assert.equal(stored?.messages.length, 2)
+  } finally {
+    globalThis.fetch = currentFetch
+  }
+})

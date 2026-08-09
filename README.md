@@ -1,221 +1,163 @@
 # chatbot-dev
 
-面向个人学习和内部使用的 local-first AI 聊天项目。前端使用 Vue 3 + Vite，后端使用 Express + TypeScript，重点覆盖流式协议、模型适配、Function Calling、reasoning、上下文管理和本地持久化。
+面向个人学习和内部使用的 local-first AI 聊天项目。前端为 React 19 + TypeScript 7 + Vite 8，后端为 Express 5 + TypeScript 7；重点覆盖可靠流式输出、模型适配、Function Calling、上下文管理和本地持久化。
+
+Vue 客户端已在 2026-08-09 完成下线，`client/` 现在是唯一的 React 客户端。迁移记录见 [React 迁移收口文档](docs/react-migration-plan.md)。
+
+## 技术栈
+
+| 层 | 技术 |
+| --- | --- |
+| 前端 | React 19、TypeScript 7、Vite 8 |
+| UI | Tailwind CSS 4、shadcn/ui Base UI、Lucide React |
+| 前端质量 | Oxlint/tsgolint、Vitest、Testing Library、jsdom |
+| 后端 | Express 5.2、TypeScript 7、Node.js `>=22.18` |
+| 工具链 | 根 pnpm workspace/catalog、共享 `tsconfig.base.json` |
+| 存储 | 单会话 JSON 文件或 SQLite |
+| 模型 | DeepSeek Chat Completions、OpenAI Responses adapter |
+| 回归 | Node test、Vitest、CDP 浏览器自动化 |
 
 ## 当前能力
 
-- 多会话：创建、切换、重命名、清空、删除、标题自动生成。
-- 会话管理：标题/消息搜索、单会话 Markdown 导出、全量 JSON 导入导出。
-- 本地存储：默认单会话 JSON 文件；可选 SQLite；支持 JSON 到 SQLite 幂等迁移。
-- 模型接入：DeepSeek-compatible adapter，支持 temperature、max tokens、thinking 和 reasoning effort。
-- 流式链路：provider SSE 转应用 NDJSON v2，事件包含正文、reasoning、工具状态、完成和错误。
-- Thinking：流式展示、耗时记录、持久化和历史恢复。
-- 上下文：最近消息数/字符窗口、手动会话摘要、模型 request preview。
-- Function Calling：天气、当前时间和安全表达式计算器。
-- Prompt 模板：代码解释、Bug 分析、方案评审、翻译润色、周报和学习计划，支持变量表单。
-- Markdown：净化、流式轻量渲染、完成态代码高亮、语言标签、代码复制、安全外链和表格。
-- 停止生成：前端 abort、cancel API、后端 request registry 和 provider/tool upstream abort。
-- 异步 UI 状态：初始化、会话操作、导入导出和停止过程均有等待态、按钮互斥与重复点击保护。
-- 回归：Node 单元测试与基于 CDP 的 mock 浏览器回归。
+- 多会话创建、切换、重命名、清空、删除和自动标题。
+- 标题/消息搜索，单会话 Markdown 导出，全量 JSON 备份与导入。
+- file/SQLite 本地存储及旧 JSON 到 SQLite 幂等迁移。
+- DeepSeek / OpenAI provider、模型和推理强度的请求级切换。
+- provider SSE 到应用 NDJSON v2 的稳定流式协议。
+- reasoning 展示、耗时、持久化和历史恢复。
+- 天气、当前时间和安全表达式计算器 Function Calling。
+- 最近消息/字符上下文窗口、手动摘要和实际上下文预览。
+- Prompt 模板、Markdown 净化、代码高亮/复制和安全外链。
+- 前端 fetch abort、cancel API、后端 registry 与上游 AbortSignal 全链路停止。
+- 明暗主题、响应式布局、滚动跟随及流式代码块自动滚动。
 
-## 架构
+完整功能与边界见 [功能清单](docs/features.md)。
 
-```text
-Vue components
-  -> composables
-  -> HTTP API / NDJSON parser
-  -> Express routes
-  -> controllers
-  -> chat/context/import/export/summary services
-  -> LLM adapter | tool registry | conversation store
-  -> provider SSE | external tool | JSON/SQLite
-```
+## 快速开始
 
-开发环境中，浏览器请求 `/api/*`，Vite 将其代理到 `http://127.0.0.1:7001` 并去掉 `/api` 前缀。
-
-流式响应链路：
-
-```text
-DeepSeek-compatible SSE
-  -> server adapter parses data lines
-  -> server emits app-level NDJSON v2
-  -> client fetch + ReadableStream parser
-  -> reasoning, tool state and assistant Markdown
-```
-
-详细设计：
-
-- [架构与扩展边界](docs/architecture.md)
-- [流式协议 v2](docs/streaming-protocol.md)
-- [实验记录](docs/experiments.md)
-- [当前 roadmap](docs/roadmap.md)
-
-## 运行要求
-
-- Node.js `>=22.18.0`
-- pnpm
-
-安装前后端依赖：
+要求：Node.js `>=22.18.0`、pnpm。
 
 ```bash
-pnpm --dir server install
-pnpm --dir client install
-```
-
-## 环境配置
-
-```bash
+pnpm install --frozen-lockfile
 cp server/.env.example server/.env
 ```
 
-然后在 `server/.env` 填写本地配置。不要提交该文件。
+在 `server/.env` 填写本地配置，不要提交该文件。分别启动：
+
+```bash
+pnpm run dev:server
+pnpm run dev:client
+```
+
+- 前端：`http://127.0.0.1:5173`
+- 后端：`http://127.0.0.1:7001`
+- Vite 将 `/api/*` 原样代理到后端；开发与生产使用同一 API 路径。
+
+## 环境配置
 
 | 变量 | 用途 |
 | --- | --- |
 | `PORT` | 后端端口，默认 `7001` |
-| `LLM_PROVIDER` | provider adapter，当前支持 `deepseek` |
-| `LLM_ENDPOINT` | Chat Completions endpoint，启动必填 |
-| `LLM_MODEL` | provider model name，启动必填 |
-| `LLM_TIMEOUT_MS` | 上游超时毫秒数 |
+| `HOST` | 监听地址，默认 `0.0.0.0` |
+| `SERVE_CLIENT_BUILD` / `CLIENT_DIST_DIR` | 是否托管 React 构建及可选构建目录 |
+| `HTTPS_ENABLED` | 是否由 Node HTTPS 直接提供服务 |
+| `HTTPS_CERT_PATH` / `HTTPS_KEY_PATH` | TLS 证书和私钥；支持 `~/` 路径 |
+| `HTTPS_CA_PATH` | 可选 CA chain 路径 |
+| `LLM_PROVIDER` | 默认 provider：`deepseek` 或 `openai` |
+| `LLM_ENDPOINT` / `LLM_MODEL` | 默认 provider 的兼容配置 |
+| `DEEPSEEK_ENDPOINT` / `DEEPSEEK_MODEL` / `DEEPSEEK_API_KEY` | DeepSeek 专用配置 |
+| `OPENAI_ENDPOINT` / `OPENAI_MODEL` / `OPENAI_API_KEY` | OpenAI Responses 专用配置 |
+| `LLM_TIMEOUT_MS` | 上游请求超时 |
 | `LLM_TEMPERATURE` | 默认 temperature，范围 `0..2` |
 | `LLM_MAX_TOKENS` | 默认最大输出 token 数 |
-| `LLM_REASONING_ENABLED` | 默认是否开启 thinking/reasoning |
-| `LLM_REASONING_EFFORT` | 默认 reasoning effort |
-| `DEEPSEEK_API_KEY` | DeepSeek adapter 凭据 |
-| `HEFENG_API_HOST` | 天气 API host，仅调用天气工具时校验 |
-| `HEFENG_API_KEY` | 天气 API key，仅调用天气工具时校验 |
-| `CONTEXT_MAX_HISTORY_MESSAGES` | 发给模型的最大历史消息数，默认 `20` |
-| `CONTEXT_MAX_HISTORY_CHARS` | 历史消息字符预算，默认 `12000` |
+| `LLM_REASONING_ENABLED` / `LLM_REASONING_EFFORT` | 默认 reasoning 配置 |
+| `LLM_DISABLED_MODELS` | 逗号分隔的禁用模型 ID |
+| `HEFENG_API_HOST` / `HEFENG_API_KEY` | 天气工具配置，仅调用时需要 |
+| `CONTEXT_MAX_HISTORY_MESSAGES` | 历史消息上限，默认 `20` |
+| `CONTEXT_MAX_HISTORY_CHARS` | 历史字符预算，默认 `12000` |
 | `CONVERSATION_STORE` | `file`/`json`/`fs` 或 `sqlite`/`sqlite3` |
-| `CONVERSATION_DATA_DIR` | 可选数据根目录，测试时使用临时目录 |
-| `CONVERSATION_FILE_DATA_DIR` | 可选 file store 目录覆盖 |
-| `CONVERSATION_DB_PATH` | 可选 SQLite 路径覆盖 |
+| `CONVERSATION_DATA_DIR` | 数据根目录覆盖 |
+| `CONVERSATION_FILE_DATA_DIR` | file store 目录覆盖 |
+| `CONVERSATION_DB_PATH` | SQLite 文件覆盖 |
+| `APP_PROFILE_NAME` / `APP_PROFILE_AVATAR_URL` | 侧栏用户资料；头像为 Vite public URL |
 
-启动时会校验核心 LLM、参数和存储配置。`GET /runtime-config` 只返回 provider、model、存储类型、默认参数和凭据是否配置，不返回 key 原值。
+Provider endpoint 只接受 HTTP/HTTPS。`GET /api/runtime-config` 只返回非敏感能力、默认值和“是否已配置”，不会返回 key 原值。
 
-## 本地开发
+## 生产构建与 HTTPS
 
-终端 1：
-
-```bash
-pnpm run dev:server
-```
-
-终端 2：
+生产模式由 Express 同源托管 `client/dist`，API 固定使用 `/api/*`，未知 HTML GET 路径回退到 React `index.html`。缺少构建、证书无效/过期或私钥不匹配时启动会失败，而不是静默降级为不安全 HTTP。
 
 ```bash
-pnpm run dev:client
+pnpm run build
+pnpm run start:production
 ```
 
-本机打开：
+本机默认读取 `~/devhttps/dev-cert.pem` 和 `~/devhttps/dev-key.pem`。完整配置、证书适用范围、上线检查和回滚见 [生产部署说明](docs/production-deployment.md)。
+
+## 目录
 
 ```text
-http://localhost:5173
+client/                         React 业务客户端
+  src/app/                      页面组合
+  src/components/               展示与 shadcn UI 组件
+  src/hooks/                    会话、流式、搜索、主题、滚动生命周期
+  src/reducers/                 conversation/stream 纯状态转换
+  src/api/                      HTTP 与 NDJSON reader
+  src/utils/                    Markdown、协议、模型目录、模板
+server/
+  config/                       产品限制、构建托管和部署/TLS 配置
+  routes/                       路由注册
+  controllers/                  HTTP 校验和状态码
+  services/                     聊天、上下文、摘要、导入导出、工具编排
+  tools/                        工具 schema、参数校验和 handler
+  utils/llm/                    provider 配置、目录、adapter 和 SSE 解析
+  utils/conversationStore.ts    file/SQLite 统一存储
+tests/client/                   React unit/component/hook 测试及 setup
+tests/server/                   后端单元、存储和异常测试
+tests/cdp/                      浏览器/API 回归
+docs/                           架构、协议、功能、路线图和测试文档
+pnpm-workspace.yaml             client/server workspace 与公共版本 catalog
+tsconfig.base.json             前后端共用 TypeScript 严格规则
 ```
-
-局域网其他机器打开：
-
-```text
-http://<开发机局域网IP>:5173
-```
-
-Vite 监听 `0.0.0.0`，API proxy 仍连接开发机本地 `127.0.0.1:7001`。系统防火墙也必须允许 Node/Vite 接收入站连接。
 
 ## API 摘要
 
 | Method | Path | 说明 |
 | --- | --- | --- |
-| `GET/POST` | `/conversations` | 列表、新建 |
-| `GET/PATCH/DELETE` | `/conversations/:id` | 详情、重命名、删除 |
-| `POST` | `/conversations/:id/clear` | 清空消息和摘要 |
-| `POST` | `/conversations/:id/ask` | NDJSON 流式问答 |
-| `POST` | `/conversations/:id/context-preview` | 查看实际模型上下文和参数 |
-| `POST` | `/conversations/:id/summary` | 生成或重新生成摘要 |
-| `GET` | `/conversations/search?q=` | 搜索标题和消息 |
-| `GET` | `/conversations/:id/export.md` | 导出单会话 Markdown |
-| `GET` | `/conversations/export.json` | 导出 schema v1 全量备份 |
-| `POST` | `/conversations/import` | 导入备份，策略为 `skip`/`duplicate`/`overwrite` |
-| `POST` | `/requests/:requestId/cancel` | 显式取消活动请求 |
-| `GET` | `/runtime-config` | 非敏感运行配置 |
-
-`/ask` 与 `/context-preview` 接受本次请求选项：
-
-```json
-{
-  "options": {
-    "temperature": 0.3,
-    "maxTokens": 2048,
-    "reasoningEnabled": true,
-    "reasoningEffort": "high"
-  }
-}
-```
-
-## 代码边界
-
-后端：
-
-- `server/routes/*`：只注册路由。
-- `server/controllers/*`：HTTP 输入输出。
-- `server/services/chatService.ts`：聊天与两阶段 Function Calling 编排。
-- `server/services/contextService.ts`：摘要和最近消息窗口。
-- `server/services/toolService.ts`：工具注册、执行和状态事件。
-- `server/tools/*`：单个工具 schema、校验和实现。
-- `server/utils/llm/*`：provider adapter 和流解析。
-- `server/utils/conversationStore.ts`：file/SQLite 统一持久化。
-
-前端：
-
-- `client/src/App.vue`：应用组合和高层事件。
-- `client/src/api/conversations.ts`：API 契约。
-- `client/src/composables/useConversations.ts`：会话状态。
-- `client/src/composables/useChatStream.ts`：流式请求、取消和工具状态。
-- `client/src/utils/streamProtocol.ts`：NDJSON v2 运行时校验。
-- `client/src/utils/markdownRenderer.ts`：Markdown、安全和高亮。
+| `GET/POST` | `/api/conversations` | 列表、新建 |
+| `GET/PATCH/DELETE` | `/api/conversations/:id` | 详情、重命名、删除 |
+| `POST` | `/api/conversations/:id/clear` | 清空消息和摘要 |
+| `POST` | `/api/conversations/:id/ask` | NDJSON v2 流式问答 |
+| `POST` | `/api/conversations/:id/context-preview` | 实际上下文预览 |
+| `POST` | `/api/conversations/:id/summary` | 生成摘要 |
+| `GET` | `/api/conversations/search?q=` | 搜索标题和消息 |
+| `GET` | `/api/conversations/:id/export.md` | 单会话 Markdown |
+| `GET` | `/api/conversations/export.json` | 全量 schema v1 备份 |
+| `POST` | `/api/conversations/import` | `skip`/`duplicate`/`overwrite` 导入 |
+| `POST` | `/api/requests/:requestId/cancel` | 取消活动请求 |
+| `GET` | `/api/runtime-config` | 非敏感运行配置和模型能力目录 |
 
 ## 检查与测试
 
-基础检查：
-
 ```bash
-pnpm run check
-pnpm run build:client
-pnpm run test:unit
+pnpm run check                 # server/client 类型检查 + React lint
+pnpm run test:unit             # 全部后端 Node tests + React Vitest
+pnpm run build                 # 全部静态检查 + React 生产构建
+pnpm run audit:production      # 整个 workspace 生产依赖审计
+pnpm run test:cdp:all-mock     # React-only 全量 mock 浏览器回归
 ```
 
-专项测试：
+专项入口仍保留在根 `package.json`。自动化默认使用 mock、fixture 和临时存储；真实模型只在明确确认后执行。
 
-```bash
-pnpm run test:context
-pnpm run test:conversation-search
-pnpm run test:conversation-export
-pnpm run test:conversation-summary
-pnpm run test:conversation-import
-pnpm run test:model-options
-pnpm run test:llm-adapter
-pnpm run test:tools
-pnpm run test:client-logic
-```
+## 相关文档
 
-CDP mock 回归：
-
-```bash
-pnpm run test:cdp:p0
-pnpm run test:cdp:ui
-pnpm run test:cdp:context-debug
-pnpm run test:cdp:conversation-search
-pnpm run test:cdp:conversation-export
-pnpm run test:cdp:roadmap
-pnpm run test:cdp:sidebar-state
-pnpm run test:cdp:markdown
-pnpm run test:cdp:highlight
-pnpm run test:cdp:all-mock
-```
-
-真实 provider 套件被刻意隔离：
-
-```bash
-pnpm run test:cdp:real
-```
-
-只有明确要验证真实模型或真实工具时才运行。`all-mock` 包含 P0、完整 UI、上下文、搜索、导出、Roadmap、侧栏状态、Markdown 和高亮专项。测试定义见 [回归测试用例](docs/regression-test-cases.md)，当前阶段执行证据见 `docs/cdp-regression-results-2026-07-31.md`。
+- [架构](docs/architecture.md)
+- [功能清单](docs/features.md)
+- [流式协议 v2](docs/streaming-protocol.md)
+- [回归测试矩阵](docs/regression-test-cases.md)
+- [生产部署说明](docs/production-deployment.md)
+- [TypeScript 7 / Express 5 工具链升级记录](docs/toolchain-upgrade-2026-08-09.md)
+- [阶段交付审查（2026-08-09）](docs/release-readiness-2026-08-09.md)
+- [Roadmap](docs/roadmap.md)
+- [React 迁移收口](docs/react-migration-plan.md)
+- [实验记录](docs/experiments.md)

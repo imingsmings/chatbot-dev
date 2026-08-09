@@ -4,19 +4,22 @@ import { getConversation, updateConversationSummary } from '../utils/conversatio
 import type { Conversation } from '../types/conversation.ts'
 import type { ModelRequestOptions } from '../types/llm.ts'
 
+const DEFAULT_SUMMARY_MAX_TOKENS = 1024
+
 type GenerateSummaryResult =
   | {
       conversation: Conversation
       error?: never
     }
   | {
-      error: 'not_found' | 'empty'
+      error: 'not_found' | 'empty' | 'conversation_changed'
       conversation?: never
     }
 
 async function generateConversationSummary(
   conversationId: string,
-  options: ModelRequestOptions = {}
+  options: ModelRequestOptions = {},
+  signal?: AbortSignal
 ): Promise<GenerateSummaryResult> {
   const conversation = await getConversation(conversationId)
 
@@ -29,15 +32,27 @@ async function generateConversationSummary(
   }
 
   const content = (await callLLM(buildConversationSummaryPrompt(conversation.messages), {
+    signal,
     modelOptions: {
       ...options,
       reasoningEnabled: false,
-      maxTokens: options.maxTokens ?? 1024
+      maxTokens: options.maxTokens ?? DEFAULT_SUMMARY_MAX_TOKENS
     }
   })).trim()
 
   if (!content) {
     throw new Error('模型未返回摘要内容')
+  }
+
+  const latestConversation = await getConversation(conversationId)
+  if (!latestConversation) {
+    return { error: 'not_found' }
+  }
+  if (
+    latestConversation.updatedAt !== conversation.updatedAt ||
+    latestConversation.messages.length !== conversation.messages.length
+  ) {
+    return { error: 'conversation_changed' }
   }
 
   const updated = await updateConversationSummary(conversationId, {
@@ -56,5 +71,6 @@ async function generateConversationSummary(
 }
 
 export {
+  DEFAULT_SUMMARY_MAX_TOKENS,
   generateConversationSummary
 }

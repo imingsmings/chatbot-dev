@@ -10,12 +10,6 @@ function buildStandardPrompt(
   conversations: StoredMessage[],
   summary?: ConversationContextSummary
 ): PromptMessage[] {
-  // return [
-  //   `你是一个中文智能助手，请使用中文回答用户的问题。`,
-  //   ...conversations.map((item) => `${item.role === 'user' ? '用户' : '助手'}：${item.content}`),
-  //   ` 问题：${userInput}`
-  // ].join('\n')
-
   return [
     {
       role: 'system',

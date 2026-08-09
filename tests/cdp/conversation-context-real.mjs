@@ -132,6 +132,33 @@ async function waitFor(client, expression, timeoutMs = REAL_WAIT_TIMEOUT_MS) {
   throw new Error(`Timed out waiting for expression: ${expression}`)
 }
 
+async function clickSelector(client, selector) {
+  const point = await evaluate(
+    client,
+    `(() => {
+      const element = document.querySelector(${JSON.stringify(selector)});
+      if (!element) throw new Error('Cannot find selector: ${selector}');
+      element.scrollIntoView({ block: 'center', inline: 'nearest' });
+      const rect = element.getBoundingClientRect();
+      return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+    })()`,
+  )
+  await client.send('Input.dispatchMouseEvent', {
+    type: 'mousePressed',
+    x: point.x,
+    y: point.y,
+    button: 'left',
+    clickCount: 1,
+  })
+  await client.send('Input.dispatchMouseEvent', {
+    type: 'mouseReleased',
+    x: point.x,
+    y: point.y,
+    button: 'left',
+    clickCount: 1,
+  })
+}
+
 async function screenshot(client, name) {
   if (!CAPTURE_SCREENSHOTS) return null
   const result = await client.send('Page.captureScreenshot', {
@@ -204,7 +231,12 @@ async function submitPromptDialog(client, value) {
     `(() => {
       const input = document.querySelector('.modal-content[role="dialog"] .dialog-input');
       if (!input) throw new Error('Cannot find dialog input');
-      input.value = ${JSON.stringify(value)};
+      if (document.querySelector('.model-menu-trigger')) {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')
+          .set.call(input, ${JSON.stringify(value)});
+      } else {
+        input.value = ${JSON.stringify(value)};
+      }
       input.dispatchEvent(new Event('input', { bubbles: true }));
     })()`,
   )
@@ -224,14 +256,25 @@ async function clickConversationTitle(client, title) {
 }
 
 async function renameActiveConversation(client, title) {
-  await evaluate(
+  const menuOpened = await evaluate(
     client,
     `(() => {
-      const button = document.querySelector('.conversation-item-shell.active .conversation-action-btn[title="重命名"]');
-      if (!button) throw new Error('Cannot find active rename button');
-      button.click();
+      const shell = document.querySelector('.conversation-item-shell.active');
+      const button = shell?.querySelector('.conversation-action-btn[aria-label="重命名"]');
+      if (button) {
+        button.click();
+        return false;
+      }
+      const trigger = shell?.querySelector('.conversation-menu-trigger');
+      if (!trigger) throw new Error('Cannot find active rename action');
+      return true;
     })()`,
   )
+  if (menuOpened) {
+    await clickSelector(client, '.conversation-item-shell.active .conversation-menu-trigger')
+    await waitFor(client, `Boolean(document.querySelector('.conversation-actions-menu .conversation-action-btn[aria-label="重命名"]'))`)
+    await clickSelector(client, '.conversation-actions-menu .conversation-action-btn[aria-label="重命名"]')
+  }
   await waitForDialog(client, '重命名会话')
   await submitPromptDialog(client, title)
   await waitFor(
@@ -246,20 +289,45 @@ async function renameActiveConversation(client, title) {
 }
 
 async function confirmActiveDelete(client) {
-  await evaluate(
+  const menuOpened = await evaluate(
     client,
     `(() => {
-      const button = document.querySelector('.conversation-item-shell.active .conversation-action-btn[title="删除"]');
-      if (!button) throw new Error('Cannot find active delete button');
-      button.click();
+      const shell = document.querySelector('.conversation-item-shell.active');
+      const button = shell?.querySelector('.conversation-action-btn[aria-label="删除"]');
+      if (button) {
+        button.click();
+        return false;
+      }
+      const trigger = shell?.querySelector('.conversation-menu-trigger');
+      if (!trigger) throw new Error('Cannot find active delete action');
+      return true;
     })()`,
   )
+  if (menuOpened) {
+    await clickSelector(client, '.conversation-item-shell.active .conversation-menu-trigger')
+    await waitFor(client, `Boolean(document.querySelector('.conversation-actions-menu .conversation-action-btn[aria-label="删除"]'))`)
+    await clickSelector(client, '.conversation-actions-menu .conversation-action-btn[aria-label="删除"]')
+  }
   await waitForDialog(client, '删除会话')
   await confirmDialog(client, '删除')
 }
 
 async function clearCurrentConversation(client) {
-  await clickText(client, 'button', '清空当前会话')
+  const clicked = await evaluate(
+    client,
+    `(() => {
+      const button = [...document.querySelectorAll('button')]
+        .find((node) => node.textContent.trim() === '清空当前会话');
+      if (!button) return false;
+      button.click();
+      return true;
+    })()`,
+  )
+  if (!clicked) {
+    await clickSelector(client, '.user-menu-trigger')
+    await waitFor(client, `[...document.querySelectorAll('button')].some((node) => node.textContent.trim() === '清空当前会话')`)
+    await clickSelector(client, '.sidebar-user-menu button[aria-label="清空当前会话"]')
+  }
   await waitForDialog(client, '清空当前会话')
   await confirmDialog(client, '清空')
 }
@@ -269,7 +337,12 @@ async function ask(client, question) {
     client,
     `(() => {
       const input = document.querySelector('textarea');
-      input.value = ${JSON.stringify(question)};
+      if (document.querySelector('.model-menu-trigger')) {
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')
+          .set.call(input, ${JSON.stringify(question)});
+      } else {
+        input.value = ${JSON.stringify(question)};
+      }
       input.dispatchEvent(new Event('input', { bubbles: true }));
       document.querySelector('form').dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
     })()`,
@@ -292,7 +365,7 @@ async function askAndWait(client, question, expectedText) {
 
 async function createAndRenameConversation(client, title) {
   await clickText(client, 'button', '新建')
-  await waitFor(client, `document.querySelector('.empty-state')`)
+  await waitFor(client, `Boolean(document.querySelector('.empty-state'))`)
   await renameActiveConversation(client, title)
 }
 
@@ -359,7 +432,7 @@ async function main() {
     })
     await client.send('Page.addScriptToEvaluateOnNewDocument', { source: observeScript })
     await client.send('Page.navigate', { url: APP_URL })
-    await waitFor(client, `document.querySelector('textarea') && document.querySelector('.conversation-item-shell')`)
+    await waitFor(client, `Boolean(document.querySelector('textarea') && document.querySelector('.conversation-item-shell'))`)
     await screenshot(client, '01-initial-conversation-list')
 
     await createAndRenameConversation(client, TITLE_A)

@@ -1,12 +1,14 @@
-import { resolveModelOptions } from '../../modelOptions.ts'
+import { buildToolResultPrompt } from '../../promptTemplates.ts'
 import type {
+  EffectiveModelOptions,
   LlmAdapter,
+  LlmProviderConfig,
   LlmStreamEvent,
-  LlmToolChoice,
-  ModelRequestOptions
+  LlmStreamWithToolsResult,
+  LlmToolChoice
 } from '../../../types/llm.ts'
 import type { PromptMessage } from '../../../types/conversation.ts'
-import type { FunctionToolDefinition } from '../../../types/tools.ts'
+import type { FunctionToolDefinition, ToolResult } from '../../../types/tools.ts'
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
@@ -21,48 +23,59 @@ function getChoice(data: unknown): Record<string, unknown> | null {
   return isRecord(choice) ? choice : null
 }
 
-function buildHeaders(): Record<string, string> {
+function buildHeaders(config: LlmProviderConfig & { apiKey: string }): Record<string, string> {
   return {
     'Content-Type': 'application/json',
-    Authorization: `Bearer ${process.env.DEEPSEEK_API_KEY}`
+    Authorization: `Bearer ${config.apiKey}`
   }
 }
 
 function buildBody({
-  model,
   prompt,
   stream,
   tools,
   toolChoice,
-  options
+  options,
+  continuation
 }: {
-  model: string | undefined
+  config: LlmProviderConfig
   prompt: PromptMessage[]
   stream: boolean
   tools?: FunctionToolDefinition[]
   toolChoice?: LlmToolChoice
-  options?: ModelRequestOptions
+  options: EffectiveModelOptions
+  continuation?: {
+    firstResponse: LlmStreamWithToolsResult
+    toolResults: ToolResult[]
+  }
 }): unknown {
-  const effectiveOptions = resolveModelOptions(options)
+  const requestPrompt = continuation
+    ? buildToolResultPrompt(
+        prompt,
+        continuation.firstResponse.toolCalls,
+        continuation.toolResults,
+        continuation.firstResponse.reasoningContent
+      )
+    : prompt
   const body: Record<string, unknown> = {
-    model,
-    messages: prompt,
+    model: options.model,
+    messages: requestPrompt,
     stream
   }
 
-  if (effectiveOptions.temperature !== undefined) {
-    body.temperature = effectiveOptions.temperature
+  if (options.temperature !== undefined) {
+    body.temperature = options.temperature
   }
 
-  if (effectiveOptions.maxTokens !== undefined) {
-    body.max_tokens = effectiveOptions.maxTokens
+  if (options.maxTokens !== undefined) {
+    body.max_tokens = options.maxTokens
   }
 
-  if (effectiveOptions.reasoningEnabled) {
+  if (options.reasoningEnabled) {
     body.thinking = {
       type: 'enabled'
     }
-    body.reasoning_effort = effectiveOptions.reasoningEffort
+    body.reasoning_effort = options.reasoningEffort
   } else {
     body.thinking = {
       type: 'disabled'

@@ -52,7 +52,7 @@ export type ConversationSearchResult = ConversationSummary & {
 
 export type ConversationTitleUpdateResult =
   | {
-      error: 'empty_title'
+      error: 'empty_title' | 'title_too_long'
       conversation?: never
     }
   | {

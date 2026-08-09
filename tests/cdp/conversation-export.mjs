@@ -178,13 +178,30 @@ const mockScript = `
 `
 
 async function clickConversationExport(client, title, clickCount = 1) {
-  await evaluate(
+  const usesPopup = await evaluate(
     client,
     `(() => {
       const shell = [...document.querySelectorAll('.conversation-item-shell')]
         .find((item) => item.innerText.includes(${JSON.stringify(title)}));
       if (!shell) throw new Error('conversation shell not found: ${title}');
-      const button = [...shell.querySelectorAll('button')]
+      const trigger = shell.querySelector('.conversation-menu-trigger');
+      if (trigger) {
+        trigger.click();
+        return true;
+      }
+      return false;
+    })()`,
+  )
+  if (usesPopup) {
+    await waitForEval(client, `Boolean(document.querySelector('.conversation-actions-menu'))`)
+  }
+  await evaluate(
+    client,
+    `(() => {
+      const shell = [...document.querySelectorAll('.conversation-item-shell')]
+        .find((item) => item.innerText.includes(${JSON.stringify(title)}));
+      const root = document.querySelector('.conversation-actions-menu') || shell;
+      const button = [...root.querySelectorAll('.conversation-action-btn')]
         .find((item) => item.textContent.trim() === '导出');
       if (!button) throw new Error('export button not found: ${title}');
       for (let index = 0; index < ${clickCount}; index += 1) button.click();
@@ -193,11 +210,28 @@ async function clickConversationExport(client, title, clickCount = 1) {
 }
 
 async function clickButtonByText(client, text, clickCount = 1) {
+  if (text === '导出全部 JSON') {
+    const usesUserMenu = await evaluate(
+      client,
+      `(() => {
+        const trigger = document.querySelector('.user-menu-trigger');
+        if (!trigger) return false;
+        trigger.click();
+        return true;
+      })()`,
+    )
+    if (usesUserMenu) {
+      await waitForEval(client, `Boolean(document.querySelector('.sidebar-user-menu'))`)
+    }
+  }
   await evaluate(
     client,
     `(() => {
       const button = [...document.querySelectorAll('button')]
-        .find((item) => item.textContent.trim() === ${JSON.stringify(text)});
+        .find((item) =>
+          item.textContent.trim() === ${JSON.stringify(text)} ||
+          item.getAttribute('aria-label') === ${JSON.stringify(text)}
+        );
       if (!button) throw new Error('button not found: ${text}');
       for (let index = 0; index < ${clickCount}; index += 1) button.click();
     })()`
@@ -232,7 +266,8 @@ async function main() {
       `(() => {
         const button = [...document.querySelectorAll('.conversation-action-btn')]
           .find((item) => item.textContent.trim() === '导出中...');
-        return button?.disabled === true && button.getAttribute('aria-busy') === 'true';
+        return Boolean(button?.matches(':disabled, [data-disabled], [aria-disabled="true"]')) &&
+          button.getAttribute('aria-busy') === 'true';
       })()`
     )
     const singleBusyState = await readExportState(client)
@@ -244,7 +279,10 @@ async function main() {
     await waitForEval(
       client,
       `[...document.querySelectorAll('.conversation-action-btn')]
-        .some((item) => item.textContent.trim() === '导出' && item.disabled === false)`
+        .some((item) =>
+          item.textContent.trim() === '导出' &&
+          !item.matches(':disabled, [data-disabled], [aria-disabled="true"]')
+        )`
     )
     let state = await readExportState(client)
     assert(state.exportRequests.includes('markdown:export-cdp-1'), 'single conversation export endpoint was not called')
@@ -259,7 +297,8 @@ async function main() {
       `(() => {
         const button = [...document.querySelectorAll('button')]
           .find((item) => item.textContent.trim() === '导出中...');
-        return button?.disabled === true && button.getAttribute('aria-busy') === 'true';
+        return Boolean(button?.matches(':disabled, [data-disabled], [aria-disabled="true"]')) &&
+          button.getAttribute('aria-busy') === 'true';
       })()`
     )
     const allBusyState = await readExportState(client)
@@ -271,7 +310,10 @@ async function main() {
     await waitForEval(
       client,
       `[...document.querySelectorAll('button')]
-        .some((item) => item.textContent.trim() === '导出全部 JSON' && item.disabled === false)`
+        .some((item) =>
+          item.textContent.trim() === '导出全部 JSON' &&
+          !item.matches(':disabled, [data-disabled], [aria-disabled="true"]')
+        )`
     )
     state = await readExportState(client)
     assert(state.exportRequests.includes('all-json'), 'all conversations export endpoint was not called')

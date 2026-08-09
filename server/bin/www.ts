@@ -1,90 +1,67 @@
 #!/usr/bin/env node
 
-/**
- * Module dependencies.
- */
-
-import app from '../app.ts'
 import debugLib from 'debug'
 import http from 'node:http'
+import https from 'node:https'
 import type { AddressInfo } from 'node:net'
+import createApp from '../app.ts'
+import { getDeploymentConfig, loadTlsServerOptions } from '../config/deploymentConfig.ts'
 
 const debug = debugLib('server:server')
+const deployment = getDeploymentConfig()
+const app = createApp({ clientHosting: deployment.client })
+const server = deployment.https.enabled
+  ? https.createServer(loadTlsServerOptions(deployment.https), app)
+  : http.createServer(app)
 
-/**
- * Get port from environment and store in Express.
- */
+app.set('port', deployment.port)
+server.on('error', onError)
+server.on('listening', onListening)
 
-const port = normalizePort(process.env.PORT || "7001");
-app.set("port", port);
-
-/**
- * Create HTTP server.
- */
-
-const server = http.createServer(app);
-
-/**
- * Listen on provided port, on all network interfaces.
- */
-
-server.listen(port);
-server.on("error", onError);
-server.on("listening", onListening);
-
-/**
- * Normalize a port into a number, string, or false.
- */
-
-function normalizePort(val: string): number | string | false {
-  const port = parseInt(val, 10);
-
-  if (isNaN(port)) {
-    // named pipe
-    return val;
-  }
-
-  if (port >= 0) {
-    // port number
-    return port;
-  }
-
-  return false;
+if (typeof deployment.port === 'number') {
+  server.listen(deployment.port, deployment.host)
+} else {
+  server.listen(deployment.port)
 }
-
-/**
- * Event listener for HTTP server "error" event.
- */
 
 function onError(error: NodeJS.ErrnoException): void {
-  if (error.syscall !== "listen") {
-    throw error;
+  if (error.syscall !== 'listen') {
+    throw error
   }
 
-  const bind = typeof port === "string" ? "Pipe " + port : "Port " + port;
+  const bind = typeof deployment.port === 'string'
+    ? `Pipe ${deployment.port}`
+    : `Port ${deployment.port}`
 
-  // handle specific listen errors with friendly messages
   switch (error.code) {
-    case "EACCES":
-      console.error(bind + " requires elevated privileges");
-      process.exit(1);
-      break;
-    case "EADDRINUSE":
-      console.error(bind + " is already in use");
-      process.exit(1);
-      break;
+    case 'EACCES':
+      console.error(`${bind} requires elevated privileges`)
+      process.exit(1)
+    case 'EADDRINUSE':
+      console.error(`${bind} is already in use`)
+      process.exit(1)
     default:
-      throw error;
+      throw error
   }
 }
 
-/**
- * Event listener for HTTP server "listening" event.
- */
-
 function onListening(): void {
-  const addr = server.address();
-  const bind = typeof addr === "string" ? "pipe " + addr : "port " + (addr as AddressInfo).port;
-  debug("Listening on " + bind);
-  console.log("服务器已启动，监听端口：" + bind);
+  const address = server.address()
+  if (!address) {
+    throw new Error('服务器已触发 listening 事件，但未返回监听地址')
+  }
+  const bind = typeof address === 'string'
+    ? `pipe ${address}`
+    : `port ${(address as AddressInfo).port}`
+  const protocol = deployment.https.enabled ? 'https' : 'http'
+
+  debug(`Listening on ${bind}`)
+  if (typeof address === 'string') {
+    console.log(`服务器已启动，监听 ${bind}`)
+    return
+  }
+
+  const displayHost = deployment.host === '0.0.0.0' ? 'localhost' : deployment.host
+  console.log(`服务器已启动：${protocol}://${displayHost}:${address.port}`)
+  console.log(`前端构建托管：${deployment.client.enabled ? '已启用' : '未启用'}`)
 }

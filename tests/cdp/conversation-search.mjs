@@ -186,7 +186,8 @@ async function setSearchQuery(client, query) {
     `(() => {
       const input = document.querySelector('.conversation-search-input');
       if (!input) throw new Error('search input not found');
-      input.value = ${JSON.stringify(query)};
+      const valueSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+      valueSetter.call(input, ${JSON.stringify(query)});
       input.dispatchEvent(new Event('input', { bubbles: true }));
     })()`
   )

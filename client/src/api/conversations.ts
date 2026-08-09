@@ -1,12 +1,12 @@
 import type {
   ContextPreview,
   ConversationDetail,
+  ConversationImportResult,
   ConversationSearchResult,
   ConversationSummary,
-  ConversationImportResult,
   ModelRequestOptions,
   RuntimeInfo,
-} from '@/types/chat'
+} from '#types/chat'
 
 export type DownloadedFile = {
   blob: Blob
@@ -52,12 +52,16 @@ function parseContentDispositionFilename(value: string | null, fallback: string)
 
 async function readDownload(response: Response, fallbackFilename: string): Promise<DownloadedFile> {
   if (!response.ok) {
-    throw new Error(`请求失败：${response.status}`)
+    const data = (await response.json().catch(() => null)) as { message?: string } | null
+    throw new Error(data?.message || `请求失败：${response.status}`)
   }
 
   return {
     blob: await response.blob(),
-    filename: parseContentDispositionFilename(response.headers.get('Content-Disposition'), fallbackFilename),
+    filename: parseContentDispositionFilename(
+      response.headers.get('Content-Disposition'),
+      fallbackFilename,
+    ),
   }
 }
 
@@ -136,7 +140,8 @@ export async function deleteConversation(id: string) {
   })
 
   if (!response.ok) {
-    throw new Error(`请求失败：${response.status}`)
+    const data = (await response.json().catch(() => null)) as { message?: string } | null
+    throw new Error(data?.message || `请求失败：${response.status}`)
   }
 }
 
@@ -199,6 +204,7 @@ export async function cancelRequest(requestId: string) {
   })
 
   if (!response.ok) {
-    throw new Error(`请求失败：${response.status}`)
+    const data = (await response.json().catch(() => null)) as { message?: string } | null
+    throw new Error(data?.message || `请求失败：${response.status}`)
   }
 }

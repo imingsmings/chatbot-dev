@@ -70,3 +70,12 @@
 - 不同 provider 的 tool call 兼容性。
 
 执行真实实验时，应记录 endpoint 对应的 provider/model、输入、参数、耗时、输出和结论，但不得把 API key 或完整凭据写入本文档。
+
+## 2026-08-02 OpenAI Responses 全链路
+
+- Goal：验证 OpenAI-compatible Responses relay 在现有 NDJSON v2、React reasoning UI、Function Calling 和停止恢复流程中的真实行为。
+- Provider/model：已配置的 OpenAI-compatible Responses endpoint / `gpt-5.6-luna`；不记录 endpoint 和凭据。
+- Parameters：`reasoningEffort=high/medium`、`reasoning.summary=detailed`、`store=false`，不发送 temperature。
+- Evidence：浏览器观察到流式中间态；reasoning summary 进入独立思考区；calculator 通过 `call_id` continuation 返回正确结果；停止触发 fetch abort，后续请求恢复成功。
+- Conclusion：真实 provider 的文本、reasoning summary、工具两阶段和取消恢复已与应用协议连通。Mock 回归继续承担异常、上游释放和边界条件的稳定验证。
+- Reproduction：`pnpm run test:cdp:react:real-openai`；该命令会调用真实模型并自动清理 `CDPOPENAIREAL-` 测试会话。

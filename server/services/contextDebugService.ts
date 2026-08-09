@@ -1,7 +1,8 @@
 import { buildContextMessages } from './contextService.ts'
 import { getToolDefinitions } from './toolService.ts'
-import { getConversationStoreKind } from '../utils/conversationStore.ts'
+import { readConversationStoreKind } from '../config/conversationStoreConfig.ts'
 import { resolveModelOptions } from '../utils/modelOptions.ts'
+import { getProviderConfig } from '../utils/llm/providerConfig.ts'
 import type { Conversation, PromptMessage } from '../types/conversation.ts'
 import type { ModelRequestOptions } from '../types/llm.ts'
 import type { FunctionToolDefinition } from '../types/tools.ts'
@@ -42,24 +43,20 @@ type ContextPreview = {
   }
 }
 
-function hasConfiguredValue(value: string | undefined): boolean {
-  const trimmed = value?.trim() ?? ''
-  return Boolean(trimmed) && !trimmed.startsWith('replace_with_')
-}
-
 function readContextPreviewModel(options: ModelRequestOptions = {}): ContextPreviewModel {
   const effectiveOptions = resolveModelOptions(options)
+  const config = getProviderConfig(effectiveOptions.provider)
 
   return {
-    provider: process.env.LLM_PROVIDER?.trim() || 'deepseek',
-    model: process.env.LLM_MODEL?.trim() || null,
-    endpointConfigured: hasConfiguredValue(process.env.LLM_ENDPOINT),
-    apiKeyConfigured: hasConfiguredValue(process.env.DEEPSEEK_API_KEY),
+    provider: effectiveOptions.provider,
+    model: effectiveOptions.model ?? null,
+    endpointConfigured: Boolean(config.endpoint),
+    apiKeyConfigured: Boolean(config.apiKey),
     reasoningEnabled: effectiveOptions.reasoningEnabled,
     reasoningEffort: effectiveOptions.reasoningEffort,
     stream: true,
     toolChoice: 'auto',
-    storageBackend: getConversationStoreKind(),
+    storageBackend: readConversationStoreKind(),
     temperature: effectiveOptions.temperature ?? null,
     maxTokens: effectiveOptions.maxTokens ?? null
   }

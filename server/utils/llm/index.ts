@@ -1,7 +1,9 @@
 import { createAbortError } from '../abort.ts'
 import { DEFAULT_TIMEOUT_MS, fetchWithTimeout } from '../httpClient.ts'
 import { readLinesFromStream } from '../streamReader.ts'
-import deepseekAdapter from './adapters/deepseek.ts'
+import { resolveModelOptions } from '../modelOptions.ts'
+import { assertProviderConfigured, getProviderConfig } from './providerConfig.ts'
+import { getProviderAdapter } from './providerRegistry.ts'
 import type {
   LlmAdapter,
   LlmCallOptions,
@@ -11,26 +13,9 @@ import type {
   LlmStreamWithToolsResult
 } from '../../types/llm.ts'
 import type { PromptMessage } from '../../types/conversation.ts'
-import type { ChatCompletionToolCall } from '../../types/tools.ts'
+import type { ChatCompletionToolCall, ToolResult } from '../../types/tools.ts'
 
-const adapters: Record<string, LlmAdapter> = {
-  deepseek: deepseekAdapter
-}
-
-const LLM_PROVIDER = process.env.LLM_PROVIDER || 'deepseek'
-const LLM_ENDPOINT = process.env.LLM_ENDPOINT
-const LLM_MODEL = process.env.LLM_MODEL
 const TOOL_STREAM_CONTENT_BUFFER_MS = 120
-
-function getAdapter(): LlmAdapter {
-  const adapter = adapters[LLM_PROVIDER]
-
-  if (!adapter) {
-    throw new Error(`Unsupported LLM provider: ${LLM_PROVIDER}`)
-  }
-
-  return adapter
-}
 
 async function readResponseText(
   response: Response,
@@ -103,6 +88,16 @@ type CallLLMInput = {
   tools?: LlmCallOptions['tools']
   toolChoice?: LlmCallOptions['toolChoice']
   modelOptions?: LlmCallOptions['modelOptions']
+  continuation?: {
+    firstResponse: LlmStreamWithToolsResult
+    toolResults: ToolResult[]
+  }
+}
+
+function getSnapshotDelta(current: string, snapshot: string | undefined): string {
+  if (!snapshot || snapshot === current) return ''
+  if (!current) return snapshot
+  return snapshot.startsWith(current) ? snapshot.slice(current.length) : ''
 }
 
 function applyToolCallDeltas(
@@ -142,30 +137,37 @@ function normalizeCollectedToolCalls(toolCalls: Map<number, ChatCompletionToolCa
 }
 
 async function requestModel(
-  adapter: LlmAdapter,
-  { prompt, stream = false, signal, tools, toolChoice, modelOptions }: CallLLMInput
+  { prompt, stream = false, signal, tools, toolChoice, modelOptions, continuation }: CallLLMInput
 ) {
-  if (!LLM_ENDPOINT) {
-    throw new Error('LLM_ENDPOINT 未配置')
-  }
+  const effectiveOptions = resolveModelOptions(modelOptions)
+  const config = getProviderConfig(effectiveOptions.provider)
+  const adapter = getProviderAdapter(effectiveOptions.provider)
+  assertProviderConfigured(config)
 
-  return fetchWithTimeout(
-    LLM_ENDPOINT,
+  const upstream = await fetchWithTimeout(
+    config.endpoint,
     {
       method: 'POST',
-      headers: adapter.buildHeaders(),
+      headers: adapter.buildHeaders(config),
       body: JSON.stringify(adapter.buildBody({
-        model: LLM_MODEL,
+        config,
         prompt,
         stream,
         tools,
         toolChoice,
-        options: modelOptions
+        options: effectiveOptions,
+        continuation
       }))
     },
     DEFAULT_TIMEOUT_MS,
     signal
   )
+
+  return {
+    adapter,
+    effectiveOptions,
+    upstream
+  }
 }
 
 async function callLLM({
@@ -175,17 +177,19 @@ async function callLLM({
   signal,
   tools,
   toolChoice,
-  modelOptions
+  modelOptions,
+  continuation
 }: CallLLMInput): Promise<string | LlmStreamResult> {
-  const adapter = getAdapter()
-  const upstream = await requestModel(adapter, {
+  const request = await requestModel({
     prompt,
     stream,
     signal,
     tools,
     toolChoice,
-    modelOptions
+    modelOptions,
+    continuation
   })
+  const { adapter, upstream } = request
   const { response } = upstream
 
   try {
@@ -201,17 +205,18 @@ async function callLLM({
 
     let fullResponse = ''
     let reasoningContent = ''
+    const parseStreamLine = adapter.createStreamParser?.() ?? adapter.parseStreamLine
 
     if (!response.body) {
       throw new Error('模型未返回流式响应')
     }
 
     const handleStreamLine = (line: string): false | void => {
-      const event = adapter.parseStreamLine(line)
+      const event = parseStreamLine(line)
       if (!event) return
 
-      if (event.done) {
-        return false
+      if (event.error) {
+        throw new Error(event.error)
       }
 
       if (event.toolCallDeltas?.length) {
@@ -227,6 +232,22 @@ async function callLLM({
         fullResponse += event.content
         callback?.(event.content, 'content')
       }
+
+      const reasoningSnapshotDelta = getSnapshotDelta(reasoningContent, event.reasoningSnapshot)
+      if (reasoningSnapshotDelta) {
+        reasoningContent += reasoningSnapshotDelta
+        callback?.(reasoningSnapshotDelta, 'reasoning')
+      }
+
+      const contentSnapshotDelta = getSnapshotDelta(fullResponse, event.contentSnapshot)
+      if (contentSnapshotDelta) {
+        fullResponse += contentSnapshotDelta
+        callback?.(contentSnapshotDelta, 'content')
+      }
+
+      if (event.done) {
+        return false
+      }
     }
 
     await readLinesFromStream(response.body, handleStreamLine, {
@@ -238,6 +259,11 @@ async function callLLM({
       content: fullResponse,
       reasoningContent
     }
+  } catch (error) {
+    if (upstream.isTimedOut()) {
+      throw new Error('请求超时，请稍候重试')
+    }
+    throw error
   } finally {
     upstream.cleanup()
   }
@@ -248,8 +274,7 @@ async function callLLMStreamWithTools(
   callback: LlmStreamCallback,
   options: LlmCallOptions = {}
 ): Promise<LlmStreamWithToolsResult> {
-  const adapter = getAdapter()
-  const upstream = await requestModel(adapter, {
+  const request = await requestModel({
     prompt,
     stream: true,
     signal: options.signal,
@@ -257,6 +282,7 @@ async function callLLMStreamWithTools(
     toolChoice: options.toolChoice,
     modelOptions: options.modelOptions
   })
+  const { adapter, effectiveOptions, upstream } = request
   const { response } = upstream
 
   try {
@@ -274,7 +300,9 @@ async function callLLMStreamWithTools(
     let pendingContent = ''
     let pendingContentStartedAt = 0
     let contentUnlocked = false
+    let providerState: unknown
     const toolCalls = new Map<number, ChatCompletionToolCall>()
+    const parseStreamLine = adapter.createStreamParser?.() ?? adapter.parseStreamLine
 
     const flushPendingContent = (): void => {
       if (!pendingContent) {
@@ -288,11 +316,11 @@ async function callLLMStreamWithTools(
     }
 
     const handleStreamLine = (line: string): false | void => {
-      const event = adapter.parseStreamLine(line)
+      const event = parseStreamLine(line)
       if (!event) return
 
-      if (event.done) {
-        return false
+      if (event.error) {
+        throw new Error(event.error)
       }
 
       if (event.finishReason) {
@@ -304,6 +332,12 @@ async function callLLMStreamWithTools(
         callback(event.reasoningContent, 'reasoning')
       }
 
+      const reasoningSnapshotDelta = getSnapshotDelta(reasoningContent, event.reasoningSnapshot)
+      if (reasoningSnapshotDelta) {
+        reasoningContent += reasoningSnapshotDelta
+        callback(reasoningSnapshotDelta, 'reasoning')
+      }
+
       if (event.toolCallDeltas?.length) {
         pendingContent = ''
         pendingContentStartedAt = 0
@@ -313,6 +347,11 @@ async function callLLMStreamWithTools(
       if (event.content) {
         fullResponse += event.content
 
+        if (event.contentPhase === 'final_answer' && !contentUnlocked) {
+          flushPendingContent()
+          contentUnlocked = true
+        }
+
         if (contentUnlocked) {
           callback(event.content, 'content')
           return
@@ -321,9 +360,30 @@ async function callLLMStreamWithTools(
         pendingContent += event.content
         pendingContentStartedAt ||= Date.now()
 
-        if (Date.now() - pendingContentStartedAt >= TOOL_STREAM_CONTENT_BUFFER_MS) {
+        if (
+          event.contentPhase !== 'commentary' &&
+          Date.now() - pendingContentStartedAt >= TOOL_STREAM_CONTENT_BUFFER_MS
+        ) {
           flushPendingContent()
         }
+      }
+
+      const contentSnapshotDelta = getSnapshotDelta(fullResponse, event.contentSnapshot)
+      if (contentSnapshotDelta) {
+        fullResponse += contentSnapshotDelta
+        if (contentUnlocked) {
+          callback(contentSnapshotDelta, 'content')
+        } else {
+          pendingContent += contentSnapshotDelta
+        }
+      }
+
+      if (event.providerState !== undefined) {
+        providerState = event.providerState
+      }
+
+      if (event.done) {
+        return false
       }
     }
 
@@ -339,11 +399,19 @@ async function callLLMStreamWithTools(
     }
 
     return {
+      provider: effectiveOptions.provider,
+      model: effectiveOptions.model,
       content: fullResponse,
       reasoningContent,
       toolCalls: collectedToolCalls,
-      finishReason
+      finishReason,
+      providerState
     }
+  } catch (error) {
+    if (upstream.isTimedOut()) {
+      throw new Error('请求超时，请稍候重试')
+    }
+    throw error
   } finally {
     upstream.cleanup()
   }
@@ -371,8 +439,33 @@ function callLLMStream(
   }) as Promise<LlmStreamResult>
 }
 
+function callLLMStreamAfterTools(
+  prompt: PromptMessage[],
+  firstResponse: LlmStreamWithToolsResult,
+  toolResults: ToolResult[],
+  callback: LlmStreamCallback,
+  options: LlmCallOptions = {}
+): Promise<LlmStreamResult> {
+  return callLLM({
+    prompt,
+    stream: true,
+    callback,
+    signal: options.signal,
+    modelOptions: {
+      ...options.modelOptions,
+      provider: firstResponse.provider,
+      model: firstResponse.model
+    },
+    continuation: {
+      firstResponse,
+      toolResults
+    }
+  }) as Promise<LlmStreamResult>
+}
+
 export {
   callLLMOnce as callLLM,
   callLLMStream,
+  callLLMStreamAfterTools,
   callLLMStreamWithTools
 }

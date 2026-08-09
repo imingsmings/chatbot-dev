@@ -3,6 +3,7 @@ import { test } from 'node:test'
 import { calculateExpression, validateCalculatorArgs } from '../../server/tools/calculatorTool.ts'
 import { validateCurrentTimeArgs } from '../../server/tools/currentTimeTool.ts'
 import { executeToolCalls, getToolDefinitions } from '../../server/services/toolService.ts'
+import { formatDate, getWeather } from '../../server/utils/weatherHandler.ts'
 import type { ToolExecutionEvent } from '../../server/types/tools.ts'
 
 test('calculator handles precedence, parentheses, powers and validation errors', () => {
@@ -18,6 +19,38 @@ test('current time validation accepts IANA zones and rejects invalid zones', () 
     timeZone: 'Asia/Shanghai'
   })
   assert.throws(() => validateCurrentTimeArgs({ timeZone: 'Mars/Base' }), /IANA/)
+})
+
+test('weather date parsing uses local calendar dates at timezone boundaries', () => {
+  const nearUtcBoundary = new Date(2026, 0, 2, 0, 30)
+  assert.equal(formatDate('今天', nearUtcBoundary), '2026-01-02')
+  assert.equal(formatDate('明天', nearUtcBoundary), '2026-01-03')
+  assert.equal(formatDate('2026-02-03', nearUtcBoundary), '2026-02-03')
+  assert.equal(formatDate('下周', nearUtcBoundary), null)
+})
+
+test('weather city lookup network failures use a stable recoverable error', async () => {
+  const originalFetch = globalThis.fetch
+  const originalHost = process.env.HEFENG_API_HOST
+  const originalKey = process.env.HEFENG_API_KEY
+  process.env.HEFENG_API_HOST = 'mock.weather.local'
+  process.env.HEFENG_API_KEY = 'test-key'
+  globalThis.fetch = async () => {
+    throw new TypeError('network down')
+  }
+
+  try {
+    await assert.rejects(
+      getWeather({ city: '北京', date: '今天' }),
+      /天气查询服务暂时不可用/,
+    )
+  } finally {
+    globalThis.fetch = originalFetch
+    if (originalHost === undefined) delete process.env.HEFENG_API_HOST
+    else process.env.HEFENG_API_HOST = originalHost
+    if (originalKey === undefined) delete process.env.HEFENG_API_KEY
+    else process.env.HEFENG_API_KEY = originalKey
+  }
 })
 
 test('tool registry exposes weather, time and calculator and emits execution events', async () => {

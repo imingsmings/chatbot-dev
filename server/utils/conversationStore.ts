@@ -5,6 +5,8 @@ import { createRequire } from 'node:module'
 import path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import { fileURLToPath } from 'node:url'
+import { MAX_AUTO_TITLE_LENGTH } from '../config/productLimits.ts'
+import { readConversationStoreKind } from '../config/conversationStoreConfig.ts'
 import type {
   Conversation,
   ConversationContextSummary,
@@ -26,8 +28,6 @@ const ROOT_LEGACY_DATA_FILE = path.join(DATA_DIR, 'conversations.json')
 const SQLITE_DB_PATH = process.env.CONVERSATION_DB_PATH || path.join(DATA_DIR, 'sqlite', 'conversations.sqlite3')
 const DEFAULT_TITLE = '新的聊天'
 const SQLITE_JSON_MIGRATION_KEY = 'json_migration_completed'
-
-type StoreKind = 'file' | 'sqlite'
 
 type ConversationStore = {
   listConversations: () => Promise<ConversationSummary[]>
@@ -58,7 +58,7 @@ let fileMigrationPromise: Promise<void> | null = null
 let sqliteMigrationPromise: Promise<void> | null = null
 let sqliteDb: DatabaseSync | null = null
 let sqliteDatabaseSync: (new (location: string) => DatabaseSync) | null = null
-const writeQueues = new Map<string, Promise<void>>()
+const fileMutationQueues = new Map<string, Promise<void>>()
 
 function now(): string {
   return new Date().toISOString()
@@ -72,18 +72,10 @@ function createId(): string {
   return `conv_${Date.now()}_${Math.random().toString(36).slice(2)}`
 }
 
-function getStoreKind(): StoreKind {
-  const rawKind = (process.env.CONVERSATION_STORE || 'file').trim().toLowerCase()
-
-  if (!rawKind || rawKind === 'file' || rawKind === 'json' || rawKind === 'fs') {
-    return 'file'
-  }
-
-  if (rawKind === 'sqlite' || rawKind === 'sqlite3') {
-    return 'sqlite'
-  }
-
-  throw new Error(`Unsupported CONVERSATION_STORE: ${process.env.CONVERSATION_STORE}`)
+function recoverConversationId(value: unknown): string {
+  const payload = JSON.stringify(value) ?? String(value)
+  const digest = crypto.createHash('sha256').update(payload).digest('hex').slice(0, 24)
+  return `conv_recovered_${digest}`
 }
 
 function getConversationFilePath(id: string): string | null {
@@ -100,6 +92,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {
   return error instanceof Error
+}
+
+function normalizeTimestamp(value: unknown, fallback: string): string {
+  return typeof value === 'string' && !Number.isNaN(Date.parse(value)) ? value : fallback
 }
 
 function normalizeMessage(message: unknown): StoredMessage {
@@ -126,7 +122,10 @@ function normalizeMessage(message: unknown): StoredMessage {
   return normalizedMessage
 }
 
-function normalizeConversationSummary(value: unknown): ConversationContextSummary | undefined {
+function normalizeConversationSummary(
+  value: unknown,
+  fallbackUpdatedAt: string
+): ConversationContextSummary | undefined {
   if (!isRecord(value) || typeof value.content !== 'string' || !value.content.trim()) {
     return undefined
   }
@@ -141,21 +140,25 @@ function normalizeConversationSummary(value: unknown): ConversationContextSummar
   return {
     content: value.content.trim(),
     sourceMessageCount,
-    updatedAt: typeof value.updatedAt === 'string' ? value.updatedAt : now()
+    updatedAt: normalizeTimestamp(value.updatedAt, fallbackUpdatedAt)
   }
 }
 
-function normalizeConversation(conversation: unknown): Conversation {
+function normalizeConversation(conversation: unknown, expectedId?: string): Conversation {
   const rawConversation = isRecord(conversation) ? conversation : {}
-  const createdAt = typeof rawConversation.createdAt === 'string' ? rawConversation.createdAt : now()
-  const updatedAt = typeof rawConversation.updatedAt === 'string' ? rawConversation.updatedAt : createdAt
+  const createdAt = normalizeTimestamp(rawConversation.createdAt, now())
+  const updatedAt = normalizeTimestamp(rawConversation.updatedAt, createdAt)
   const title =
     typeof rawConversation.title === 'string' && rawConversation.title.trim()
       ? rawConversation.title.trim()
       : DEFAULT_TITLE
 
   const normalized: Conversation = {
-    id: typeof rawConversation.id === 'string' ? rawConversation.id : createId(),
+    id: expectedId ?? (
+      typeof rawConversation.id === 'string' && getConversationFilePath(rawConversation.id)
+        ? rawConversation.id
+        : recoverConversationId(rawConversation)
+    ),
     title,
     createdAt,
     updatedAt,
@@ -163,7 +166,7 @@ function normalizeConversation(conversation: unknown): Conversation {
     messages: Array.isArray(rawConversation.messages) ? rawConversation.messages.map(normalizeMessage) : []
   }
 
-  const summary = normalizeConversationSummary(rawConversation.summary)
+  const summary = normalizeConversationSummary(rawConversation.summary, updatedAt)
   if (summary) {
     normalized.summary = summary
   }
@@ -192,7 +195,9 @@ function summarizeConversation(conversation: Conversation): ConversationSummary 
 function createTitleFromQuestion(question: string): string {
   const text = question.trim()
   if (!text) return DEFAULT_TITLE
-  return text.length > 18 ? `${text.slice(0, 18)}...` : text
+  return text.length > MAX_AUTO_TITLE_LENGTH
+    ? `${text.slice(0, MAX_AUTO_TITLE_LENGTH)}...`
+    : text
 }
 
 function sortConversationSummaries(conversations: Conversation[]): ConversationSummary[] {
@@ -233,6 +238,24 @@ async function ensureConversationDir(): Promise<void> {
   await fs.mkdir(CONVERSATIONS_DIR, { recursive: true })
 }
 
+async function withFileConversationMutation<T>(
+  id: string,
+  mutation: () => Promise<T>
+): Promise<T> {
+  const previous = fileMutationQueues.get(id) ?? Promise.resolve()
+  const result = previous.catch(() => undefined).then(mutation)
+  const tail = result.then(() => undefined, () => undefined)
+  fileMutationQueues.set(id, tail)
+
+  try {
+    return await result
+  } finally {
+    if (fileMutationQueues.get(id) === tail) {
+      fileMutationQueues.delete(id)
+    }
+  }
+}
+
 async function writeConversationFile(conversation: Conversation): Promise<void> {
   await ensureConversationDir()
 
@@ -241,53 +264,58 @@ async function writeConversationFile(conversation: Conversation): Promise<void> 
     throw new Error('会话 ID 不合法')
   }
 
-  const previousWrite = writeQueues.get(conversation.id) || Promise.resolve()
-  const nextWrite = previousWrite.catch(() => undefined).then(() =>
-    fs.writeFile(filePath, `${JSON.stringify(conversation, null, 2)}\n`, 'utf8')
-  )
-  writeQueues.set(conversation.id, nextWrite)
+  const temporaryPath = `${filePath}.${process.pid}.${crypto.randomUUID()}.tmp`
   try {
-    await nextWrite
-  } finally {
-    if (writeQueues.get(conversation.id) === nextWrite) {
-      writeQueues.delete(conversation.id)
-    }
+    await fs.writeFile(
+      temporaryPath,
+      `${JSON.stringify(conversation, null, 2)}\n`,
+      { encoding: 'utf8', flag: 'wx' }
+    )
+    await fs.rename(temporaryPath, filePath)
+  } catch (error) {
+    await fs.rm(temporaryPath, { force: true }).catch(() => undefined)
+    throw error
   }
 }
 
 async function writeConversationFileIfAbsent(conversation: Conversation): Promise<void> {
-  await ensureConversationDir()
+  await withFileConversationMutation(conversation.id, async () => {
+    await ensureConversationDir()
 
-  const filePath = getConversationFilePath(conversation.id)
-  if (!filePath) {
-    throw new Error('会话 ID 不合法')
-  }
-
-  try {
-    await fs.access(filePath)
-    return
-  } catch (err: unknown) {
-    if (!isNodeError(err) || err.code !== 'ENOENT') {
-      throw err
+    const filePath = getConversationFilePath(conversation.id)
+    if (!filePath) {
+      throw new Error('会话 ID 不合法')
     }
-  }
 
-  await writeConversationFile(conversation)
+    try {
+      await fs.access(filePath)
+      return
+    } catch (err: unknown) {
+      if (!isNodeError(err) || err.code !== 'ENOENT') {
+        throw err
+      }
+    }
+
+    await writeConversationFile(conversation)
+  })
 }
 
-async function readConversationFile(id: string): Promise<Conversation | null> {
-  await migrateLegacyFileStore()
-
+async function readConversationFileRaw(id: string): Promise<Conversation | null> {
   const filePath = getConversationFilePath(id)
   if (!filePath) return null
 
   try {
     const raw = await fs.readFile(filePath, 'utf8')
-    return normalizeConversation(JSON.parse(raw))
+    return normalizeConversation(JSON.parse(raw), id)
   } catch (err: unknown) {
     if (isNodeError(err) && err.code === 'ENOENT') return null
     throw err
   }
+}
+
+async function readConversationFile(id: string): Promise<Conversation | null> {
+  await migrateLegacyFileStore()
+  return readConversationFileRaw(id)
 }
 
 async function readAllConversationFiles(): Promise<Conversation[]> {
@@ -299,13 +327,25 @@ async function readAllConversationFiles(): Promise<Conversation[]> {
     entries
       .filter((entry) => entry.isFile() && entry.name.endsWith('.json'))
       .map(async (entry) => {
+        const id = entry.name.slice(0, -'.json'.length)
+        if (!getConversationFilePath(id)) {
+          return null
+        }
         const filePath = path.join(CONVERSATIONS_DIR, entry.name)
-        const raw = await fs.readFile(filePath, 'utf8')
-        return normalizeConversation(JSON.parse(raw))
+        try {
+          const raw = await fs.readFile(filePath, 'utf8')
+          return normalizeConversation(JSON.parse(raw), id)
+        } catch (error) {
+          if (error instanceof SyntaxError) {
+            console.error(`Skipping malformed conversation file: ${entry.name}`)
+            return null
+          }
+          throw error
+        }
       })
   )
 
-  return conversations
+  return conversations.filter((conversation): conversation is Conversation => conversation !== null)
 }
 
 async function importConversationFilesIntoFileStore(sourceDir: string): Promise<void> {
@@ -321,7 +361,11 @@ async function importConversationFilesIntoFileStore(sourceDir: string): Promise<
 
     const filePath = path.join(sourceDir, entry.name)
     const raw = await fs.readFile(filePath, 'utf8')
-    await writeConversationFileIfAbsent(normalizeConversation(JSON.parse(raw)))
+    const fileId = entry.name.slice(0, -'.json'.length)
+    const conversation = getConversationFilePath(fileId)
+      ? normalizeConversation(JSON.parse(raw), fileId)
+      : normalizeConversation(JSON.parse(raw))
+    await writeConversationFileIfAbsent(conversation)
   }
 }
 
@@ -336,7 +380,9 @@ async function importLegacyAggregateIntoFileStore(filePath: string, options: { r
 
   const data = JSON.parse(raw) as unknown
   const conversations =
-    isRecord(data) && Array.isArray(data.conversations) ? data.conversations.map(normalizeConversation) : []
+    isRecord(data) && Array.isArray(data.conversations)
+      ? data.conversations.map((conversation) => normalizeConversation(conversation))
+      : []
 
   for (const conversation of conversations) {
     await writeConversationFileIfAbsent(conversation)
@@ -391,52 +437,64 @@ async function createFileConversation(title: unknown = DEFAULT_TITLE): Promise<C
 }
 
 async function renameFileConversation(id: string, title: unknown): Promise<Conversation | null> {
-  const conversation = await readConversationFile(id)
   const nextTitle = typeof title === 'string' ? title.trim() : ''
-
-  if (!conversation || !nextTitle) {
+  if (!nextTitle) {
     return null
   }
 
-  conversation.title = nextTitle
-  conversation.titleManuallyEdited = true
-  conversation.updatedAt = now()
-  await writeConversationFile(conversation)
+  await migrateLegacyFileStore()
+  return withFileConversationMutation(id, async () => {
+    const conversation = await readConversationFileRaw(id)
+    if (!conversation) {
+      return null
+    }
 
-  return cloneConversation(conversation)
+    conversation.title = nextTitle
+    conversation.titleManuallyEdited = true
+    conversation.updatedAt = now()
+    await writeConversationFile(conversation)
+
+    return cloneConversation(conversation)
+  })
 }
 
 async function appendFileMessages(id: string, messages: StoredMessage[]): Promise<Conversation | null> {
-  const conversation = await readConversationFile(id)
+  await migrateLegacyFileStore()
+  return withFileConversationMutation(id, async () => {
+    const conversation = await readConversationFileRaw(id)
 
-  if (!conversation) {
-    return null
-  }
+    if (!conversation) {
+      return null
+    }
 
-  await writeConversationFile(applyAppendedMessages(conversation, messages))
+    await writeConversationFile(applyAppendedMessages(conversation, messages))
 
-  return cloneConversation(conversation)
+    return cloneConversation(conversation)
+  })
 }
 
 async function updateFileSummary(
   id: string,
   summary: ConversationContextSummary | null
 ): Promise<Conversation | null> {
-  const conversation = await readConversationFile(id)
+  await migrateLegacyFileStore()
+  return withFileConversationMutation(id, async () => {
+    const conversation = await readConversationFileRaw(id)
 
-  if (!conversation) {
-    return null
-  }
+    if (!conversation) {
+      return null
+    }
 
-  if (summary) {
-    conversation.summary = { ...summary }
-  } else {
-    delete conversation.summary
-  }
-  conversation.updatedAt = now()
-  await writeConversationFile(conversation)
+    if (summary) {
+      conversation.summary = { ...summary }
+    } else {
+      delete conversation.summary
+    }
+    conversation.updatedAt = now()
+    await writeConversationFile(conversation)
 
-  return cloneConversation(conversation)
+    return cloneConversation(conversation)
+  })
 }
 
 async function importFileConversation(
@@ -446,63 +504,69 @@ async function importFileConversation(
   await migrateLegacyFileStore()
 
   const conversation = normalizeConversation(sourceConversation)
-  const existing = await readConversationFile(conversation.id)
+  return withFileConversationMutation(conversation.id, async () => {
+    const existing = await readConversationFileRaw(conversation.id)
 
-  if (existing && strategy === 'skip') {
+    if (existing && strategy === 'skip') {
+      return {
+        sourceId: sourceConversation.id,
+        conversationId: null,
+        status: 'skipped'
+      }
+    }
+
+    if (existing && strategy === 'duplicate') {
+      const duplicate = createImportedDuplicate(conversation)
+      await writeConversationFile(duplicate)
+      return {
+        sourceId: sourceConversation.id,
+        conversationId: duplicate.id,
+        status: 'duplicated'
+      }
+    }
+
+    await writeConversationFile(conversation)
     return {
       sourceId: sourceConversation.id,
-      conversationId: null,
-      status: 'skipped'
+      conversationId: conversation.id,
+      status: existing ? 'overwritten' : 'created'
     }
-  }
-
-  if (existing && strategy === 'duplicate') {
-    const duplicate = createImportedDuplicate(conversation)
-    await writeConversationFile(duplicate)
-    return {
-      sourceId: sourceConversation.id,
-      conversationId: duplicate.id,
-      status: 'duplicated'
-    }
-  }
-
-  await writeConversationFile(conversation)
-  return {
-    sourceId: sourceConversation.id,
-    conversationId: conversation.id,
-    status: existing ? 'overwritten' : 'created'
-  }
+  })
 }
 
 async function clearFileConversation(id: string): Promise<Conversation | null> {
-  const conversation = await readConversationFile(id)
+  await migrateLegacyFileStore()
+  return withFileConversationMutation(id, async () => {
+    const conversation = await readConversationFileRaw(id)
 
-  if (!conversation) {
-    return null
-  }
+    if (!conversation) {
+      return null
+    }
 
-  conversation.messages = []
-  delete conversation.summary
-  conversation.updatedAt = now()
-  await writeConversationFile(conversation)
+    conversation.messages = []
+    delete conversation.summary
+    conversation.updatedAt = now()
+    await writeConversationFile(conversation)
 
-  return cloneConversation(conversation)
+    return cloneConversation(conversation)
+  })
 }
 
 async function deleteFileConversation(id: string): Promise<boolean> {
   await migrateLegacyFileStore()
 
-  const filePath = getConversationFilePath(id)
-  if (!filePath) return false
+  return withFileConversationMutation(id, async () => {
+    const filePath = getConversationFilePath(id)
+    if (!filePath) return false
 
-  try {
-    await fs.unlink(filePath)
-    writeQueues.delete(id)
-    return true
-  } catch (err: unknown) {
-    if (isNodeError(err) && err.code === 'ENOENT') return false
-    throw err
-  }
+    try {
+      await fs.unlink(filePath)
+      return true
+    } catch (err: unknown) {
+      if (isNodeError(err) && err.code === 'ENOENT') return false
+      throw err
+    }
+  })
 }
 
 function getSqliteDb(): DatabaseSync {
@@ -597,7 +661,7 @@ function conversationFromSqliteRow(row: SqliteConversationRow): Conversation {
     titleManuallyEdited: Boolean(row.title_manually_edited),
     messages: JSON.parse(row.messages) as unknown,
     summary: row.summary ? JSON.parse(row.summary) as unknown : undefined
-  })
+  }, row.id)
 }
 
 function upsertSqliteConversation(conversation: Conversation): void {
@@ -653,7 +717,10 @@ async function readJsonConversationFilesForSqliteMigration(sourceDir: string): P
       .map(async (entry) => {
         const filePath = path.join(sourceDir, entry.name)
         const raw = await fs.readFile(filePath, 'utf8')
-        return normalizeConversation(JSON.parse(raw))
+        const fileId = entry.name.slice(0, -'.json'.length)
+        return getConversationFilePath(fileId)
+          ? normalizeConversation(JSON.parse(raw), fileId)
+          : normalizeConversation(JSON.parse(raw))
       })
   )
 }
@@ -663,7 +730,7 @@ async function readLegacyJsonConversations(filePath: string): Promise<Conversati
     const raw = await fs.readFile(filePath, 'utf8')
     const data = JSON.parse(raw) as unknown
     return isRecord(data) && Array.isArray(data.conversations)
-      ? data.conversations.map(normalizeConversation)
+      ? data.conversations.map((conversation) => normalizeConversation(conversation))
       : []
   } catch (err: unknown) {
     if (isNodeError(err) && err.code === 'ENOENT') return []
@@ -876,7 +943,7 @@ async function deleteSqliteConversation(id: string): Promise<boolean> {
 }
 
 function getStore(): ConversationStore {
-  if (getStoreKind() === 'sqlite') {
+  if (readConversationStoreKind() === 'sqlite') {
     return {
       listConversations: listSqliteConversations,
       getConversation: getSqliteConversation,
@@ -937,10 +1004,6 @@ async function importConversation(
   return getStore().importConversation(conversation, strategy)
 }
 
-function getConversationStoreKind(): StoreKind {
-  return getStoreKind()
-}
-
 async function clearConversation(id: string): Promise<Conversation | null> {
   return getStore().clearConversation(id)
 }
@@ -955,7 +1018,6 @@ export {
   clearConversation,
   createConversation,
   deleteConversation,
-  getConversationStoreKind,
   getConversation,
   importConversation,
   listConversations,

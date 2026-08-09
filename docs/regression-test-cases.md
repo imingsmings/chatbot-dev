@@ -1,351 +1,106 @@
-# Chatbot 回归测试用例
+# 回归测试矩阵
 
-本文档用于后续代码重构、问题修复和功能调整后的回归测试。
+当前测试对象是唯一的 React 客户端与 Express 后端。默认使用 mock、fixture 和临时存储，不调用真实模型、天气或生产集成，不生成截图。
 
-默认规则：
+## 交付门禁
 
-- 默认使用 mock 上游，保证稳定、可重复、低成本。
-- 默认使用 CDP 自动化执行测试，不做手工点测作为最终结论。
-- 默认不截图，只输出结果摘要和失败原因。
-- 只有明确要求“真实接口”时，才执行真实模型或真实外部 API 测试。
-- 只有明确要求“截图”时，才保存并返回截图。
-- 所有 SQLite 回归必须使用 `mktemp` 创建的临时数据目录和临时数据库，不直接使用或写入 `server/data/sqlite`。
-- 每次重构或问题修复后，默认至少执行 P0。
-- 涉及 UI、Markdown、样式、复制、重试、滚动时，加跑对应 P1。
-- 涉及真实模型质量、真实 tool API、真实上下文表现时，加跑 P2。
-
-## P0 必跑
-
-| ID | 场景 | 默认方式 | 关键断言 |
-| --- | --- | --- | --- |
-| P0-01 | 正常发送消息 | mock | 用户消息插入；assistant 返回；按钮恢复“发送”；会话 messageCount +2 |
-| P0-02 | 生成中按钮状态 | mock + CDP | 请求中显示“停止”；输入框禁用；结束后恢复“发送” |
-| P0-03 | 流式中停止 | mock + 可观测上游 | `/ask` 取消；上游 stream 提前 close；不持久化完整问答；部分内容保留 |
-| P0-04 | 首 token 前停止 | mock 慢 function-call | function-call 上游提前 close；不进入 stream；不持久化问答 |
-| P0-05 | 上游慢响应停止 | mock 慢 stream | stream 建立但未吐 token 时停止；上游提前 close |
-| P0-06 | 新建聊天中断生成 | mock | 旧请求取消；旧上游 close；新会话为空；旧会话不写完整回答 |
-| P0-07 | 停止后继续发送 | mock | 旧请求释放；新 requestId 正常；内容不串流 |
-| P0-08 | 重复停止 | mock/CDP | 显示可见停止等待态；连续点击只调用一次 cancel；最终请求释放并恢复发送 |
-| P0-09 | cancel 接口 | API + mock | `/requests/:requestId/cancel` 成功；未知 requestId 返回 `cancelled: false`；无 500 |
-| P0-10 | 正常会话 CRUD | API/CDP | 列表、新建、详情、重命名、清空、删除均正常 |
-| P0-11 | 会话上下文隔离 | mock | A/B 会话上下文互不污染；切回 A 历史恢复 |
-| P0-12 | 本地 JSON 持久化 | API/文件检查 | 一个会话一个 JSON；增删改清落盘正确 |
-| P0-13 | 服务端错误 JSON | API | 404/500 返回 JSON；不返回 HTML 错误页 |
-| P0-14 | tool 调用成功 | mock tool | 模型流式返回原生 tool_calls 后，后端调用 tool，并基于 tool result 生成回答；tool_calls 前的普通 content 不提前泄漏到最终响应；reasoning_content 会随 tool result 回灌 |
-| P0-15 | tool 调用失败 | mock tool error | tool 异常不打断服务；回答友好降级；不暴露内部堆栈 |
-| P0-16 | 未知 tool | mock | 未注册 tool 返回可控结果；后端不崩溃 |
-| P0-17 | tool 期间停止 | mock 慢 tool / 慢 answer | 停止后请求释放；后续 answer 阶段不继续消耗；不持久化完整问答 |
-| P0-18 | invalid requestId | API/CDP | `/ask` 返回 400 JSON；服务端不崩溃 |
-| P0-19 | duplicate requestId | API/CDP | 第二个同 requestId 请求返回 409 JSON；首个请求可正常结束 |
-| P0-20 | tool arguments 非法 JSON | mock LLM | 非法 arguments fallback 到标准回答；后续请求仍可恢复 |
-| P0-21 | 损坏上游 stream | mock LLM | malformed upstream stream 返回可控 error；服务端不崩溃 |
-| P0-22 | 前端损坏 NDJSON | mock/CDP | 客户端进入错误态；后续请求可恢复 |
-| P0-23 | 模型空响应 | mock LLM | 返回可控 error；不写入完整问答 |
-| P0-24 | tool answer 阶段停止 | mock tool + 慢 answer | tool 已返回后停止，answer stream abort；不持久化完整问答 |
-| P0-25 | 异常后恢复发送 | mock | 前序异常后，新请求仍可成功生成 |
-| P0-26 | 流式协议 header | mock/API/CDP | `/ask` 返回 `X-Chat-Stream-Protocol: 2`；前端只接受当前协议版本 |
-| P0-27 | tool 决策阶段使用会话上下文 | mock tool | 历史消息中的上下文能影响 tool call 参数；不同会话仍隔离 |
-| P0-28 | reasoning 持久化 | mock LLM | assistant 的 `reasoningContent` 和非负 `reasoningDurationMs` 落盘，刷新/切换后可恢复 |
-| P0-29 | reasoning_delta 前端渲染 | mock/CDP | reasoning 流式阶段显示 `Thinking...`；正文出现后显示 `Thoughts`；正文正常渲染 |
-| P0-30 | reasoning 阶段停止 | mock 慢 reasoning | 停止后请求释放；不持久化完整问答；后续发送正常 |
-| P0-31 | 缺失/错误协议版本 | mock/CDP | 前端进入可恢复错误态；不会误渲染不兼容流；后续请求可恢复 |
-| P0-32 | 非法流式事件 | mock/CDP | 非法 `reasoning_delta`、非法 `done.reasoningDurationMs` 均进入可恢复错误态 |
-| P0-33 | reasoning 不污染复制内容 | mock/CDP | assistant 复制只复制最终回答正文，不混入 Thoughts/reasoning |
-| P0-34 | 会话操作清空未发送草稿 | mock/CDP | 新建、切换、删除、清空当前会话后 textarea 均为空 |
-| P0-35 | 长 tool preamble 不泄漏 | mock tool | 模型在 tool_call 前输出超过旧缓冲阈值的普通 content，最终响应仍不泄漏 preamble |
-| P0-36 | JSON 到 SQLite 迁移 | API/SQLite | `CONVERSATION_STORE=sqlite` 首次启动导入单会话 JSON 与 legacy JSON；保留 reasoning 字段；迁移元数据完整且重启幂等 |
-| P0-37 | SQLite ask 持久化 | API/SQLite + mock LLM | SQLite 后端下 `/ask` 正常返回协议 header；用户和 assistant 消息落库；自动标题生成；重启后仍可读 |
-| P0-38 | SQLite CRUD | API/SQLite | SQLite 后端下重命名、清空、删除均正常；默认文件 JSON 实现不受影响 |
-| P0-39 | tool-choice 普通回答流式输出 | mock LLM/API | tool-choice 请求中先收到 `reasoning_delta`、最终无 tool call 时，普通回答必须产生多个 `delta`，且第一个 `delta` 早于 `done` |
-| P0-40 | 空问题校验 | API/CDP | 仅空白字符的问题在进入模型前返回 400 JSON，不创建活动请求或持久化消息 |
-
-## P1 常规回归
-
-| ID | 场景 | 默认方式 | 关键断言 |
-| --- | --- | --- | --- |
-| P1-01 | assistant 复制 | mock/CDP | 复制成功；短暂显示“已复制”；生成中不显示复制 |
-| P1-02 | 停止后复制部分内容 | mock/CDP | stopped 内容保留；停止后可复制 |
-| P1-03 | 失败消息重试 | mock error | 原失败位置重试；不重复插入用户问题 |
-| P1-04 | 自动滚动到底部 | mock/CDP | 用户接近底部时流式内容跟随 |
-| P1-05 | 查看历史不强拉底部 | mock/CDP | 用户滚到历史位置时，新 token 不强制拉到底 |
-| P1-06 | 空态和侧栏状态 | mock/CDP | 空会话、按钮禁用、侧栏高亮正确 |
-| P1-07 | Markdown 基础渲染 | fixture mock | 标题、列表、表格、引用、链接、代码块正常 |
-| P1-08 | Markdown 安全 | fixture mock | script/img/onerror/onclick 不执行 |
-| P1-09 | 用户消息纯文本 | fixture mock | 用户 Markdown 不被渲染 |
-| P1-10 | 流式 Markdown | fixture mock | 中间态稳定，完成态完整渲染 |
-| P1-11 | Markdown 复制原文 | fixture mock | 复制的是原始 Markdown 文本 |
-| P1-12 | 代码高亮基础 | fixture mock | JS/TS/JSON/Bash/Python/SQL 高亮 |
-| P1-13 | Go/C/C++/Rust 高亮 | fixture mock | 四种语言 token 正常 |
-| P1-14 | JSX/MJS/TSX 高亮 | fixture mock | alias 生效 |
-| P1-15 | 大括号/注释可见 | fixture mock | `{}`、行注释、块注释颜色可读 |
-| P1-16 | 长代码/表格移动端布局 | fixture mock | 页面无整体横向溢出，内部可滚动 |
-| P1-17 | 刷新后渲染持久化 | fixture mock | 刷新后 Markdown/高亮仍正确 |
-| P1-18 | 切换会话中断生成 | mock/CDP | 生成中切换已有会话会 abort 旧请求；内容不串会话 |
-| P1-19 | 生成中删除当前会话 | mock/CDP | 当前实现为 no-op；会话不被删除，UI 不错乱 |
-| P1-20 | 生成中清空当前会话 | mock/CDP | 清空按钮禁用或 no-op；不会清空正在生成的会话 |
-| P1-21 | 生成中重命名当前会话 | mock/CDP | 当前实现允许重命名；生成状态不丢失 |
-| P1-22 | 输入框行为 | mock/CDP | 空输入不能发送；生成中禁用；高度增长后发送恢复 |
-| P1-23 | 建议问题卡片 | mock/CDP | 点击填充输入；生成中不造成并发请求 |
-| P1-24 | 主题切换 | mock/CDP | 明暗主题可切换并持久化；生成中切换不影响 stream |
-| P1-25 | 移动端布局 | mock/CDP | 390px 宽度无页面级横向溢出；composer 不遮挡最后消息 |
-| P1-26 | 默认会话标题 | API/CDP | 新会话默认标题正确 |
-| P1-27 | 首条消息自动标题 | API/CDP | 未手动改名时，首条用户消息生成标题 |
-| P1-28 | 手动标题保护 | API/CDP | 手动重命名后，后续消息不覆盖标题 |
-| P1-29 | legacy migration | API/文件检查 | 旧聚合 JSON 迁移成单会话 JSON，并生成 `.migrated` |
-| P1-30 | legacy migration 幂等 | API/文件检查 | 重复读取不会重复迁移或重复会话 |
-| P1-31 | 损坏 JSON 文件 | API/文件检查 | 返回 JSON 错误且服务不崩溃 |
-| P1-32 | reasoning 面板展开/收起 | mock/CDP | details open 状态可切换；正文、复制、重试不受影响 |
-| P1-33 | reasoning 长文本和移动端布局 | mock/CDP | 长 reasoning 自动换行；390px 下不产生页面级横向溢出 |
-| P1-34 | reasoning + Markdown 正文 | fixture mock | reasoning 纯文本展示；assistant 正文 Markdown/高亮仍正常 |
-| P1-35 | 旧会话无 reasoning 字段 | API/fixture | 旧数据正常 normalize；无 reasoning 字段不报错 |
-| P1-36 | 无效 reasoningDurationMs normalize | API/fixture | 非数字、负数、非有限值被丢弃 |
-| P1-37 | LAN dev 配置 | 本地配置检查 | Vite 监听 `0.0.0.0`；API proxy 仍指向 `127.0.0.1:7001` |
-| P1-38 | 完整 UI 交互矩阵 | mock/CDP | 覆盖 UI-01 到 UI-41，包含弹窗、错误态、刷新恢复、移动端、快速操作和流式边界 |
-| P1-39 | 最近上下文窗口 | Node test + mock fetch | `buildContextMessages` 只保留配置范围内的最近历史消息；当前用户问题始终保留 |
-| P1-40 | 上下文字符预算边界 | Node test + mock fetch | 边界消息加入后会超过字符预算时，整条消息被丢弃，不做半条截断 |
-| P1-41 | 最新超长历史消息 | Node test + mock fetch | 最新一条历史消息本身超过字符预算时，完整保留该消息，避免历史上下文为空 |
-| P1-42 | 普通回答使用 managed context | Node test + mock fetch | `generateConversationAnswer` 发给模型的 request body 不包含被窗口裁掉的旧历史 |
-| P1-43 | tool answer 复用 managed context | Node test + mock fetch | tool decision 和 tool result answer 阶段都不重新带回被裁掉的旧历史；tool result 仍正常参与回答 |
-| P1-44 | 上下文配置 fallback | Node test | `CONTEXT_MAX_HISTORY_MESSAGES` 或 `CONTEXT_MAX_HISTORY_CHARS` 非法时回退默认值，不导致历史窗口为空或异常扩大 |
-| P1-45 | 字符预算等值边界 | Node test | 历史消息累计字符数刚好等于预算时保留该边界消息；再旧的消息仍被丢弃 |
-| P1-46 | 空历史 prompt | Node test | 无历史消息时仍发送 system prompt 和当前用户问题；统计信息为 0 |
-| P1-47 | 历史顺序和统计 | Node test | 选中的最近历史按原始时间顺序进入 prompt；`selectedHistoryMessages`、`droppedHistoryMessages`、`selectedHistoryChars` 准确 |
-| P1-48 | 当前问题预算隔离 | Node test | 当前用户问题不受历史字符预算影响，即使问题很长也必须完整发送 |
-| P1-49 | 上下文预览接口 | Node test | 预览结果包含最终 messages、统计、模型参数和 tool definitions；不暴露 API key 或 secret 原值 |
-| P1-50 | 上下文调试面板 | mock/CDP + 截图 | 点击“上下文”后打开调试面板，显示当前草稿问题、被选中的历史、模型参数和工具定义 |
-| P1-51 | 上下文预览不落库 | mock/CDP | 打开预览只调用 `/context-preview`，不会触发 `/ask`，不会修改会话 messages |
-| P1-52 | 上下文调试移动端布局 | mock/CDP + 截图 | 390px 宽度下面板不产生页面级横向溢出，modal 宽度不超过视口 |
-| P1-53 | 会话搜索 service | Node test | 标题和消息内容均可命中；特殊字符按普通文本搜索；空关键词不返回结果 |
-| P1-54 | 会话搜索只读性 | Node test | 搜索不会修改会话 messages 或 updatedAt |
-| P1-55 | 侧栏标题搜索 | mock/CDP | 输入标题关键词后只显示标题命中会话，并展示“标题匹配” |
-| P1-56 | 侧栏消息搜索 | mock/CDP | 输入消息关键词后显示消息命中会话、匹配片段和“消息匹配” |
-| P1-57 | 搜索结果跳转和清空 | mock/CDP | 点击搜索结果进入对应会话；清空搜索恢复默认列表排序 |
-| P1-58 | 搜索特殊字符和移动端布局 | mock/CDP | `[a+b]?` 等特殊字符可搜索；390px 下不产生页面级横向溢出 |
-| P1-59 | 会话搜索路由顺序 | Node test | `/conversations/search` 注册在 `/conversations/:id` 前，避免被动态 id 路由吞掉 |
-| P1-60 | 会话搜索无结果和失败恢复 | mock/CDP | 无命中显示“无匹配会话”；接口失败显示“搜索失败”并清空旧结果；清空关键词后状态恢复 |
-| P1-61 | 会话搜索竞态保护 | mock/CDP | 慢响应先发、快响应后发时，最终只展示最新关键词结果，旧响应不能覆盖当前 UI |
-| P1-62 | SQLite 会话搜索 | Node test + 临时 SQLite | `CONVERSATION_STORE=sqlite` 时标题和消息内容搜索语义与 file store 一致；特殊字符按普通文本匹配；搜索不修改消息或 updatedAt；数据库写入临时路径 |
-| P1-63 | 会话导出 service/API | Node test | 单会话 Markdown 可读且包含 reasoning；全量 JSON 备份保留 reasoningContent/reasoningDurationMs；导出不修改 messages 或 updatedAt |
-| P1-64 | SQLite 会话导出 | Node test + 临时 SQLite | `CONVERSATION_STORE=sqlite` 时 Markdown 和 JSON 导出读取临时 SQLite，保留 reasoning，且不修改会话数据 |
-| P1-65 | 会话导出 UI 下载 | mock/CDP | 点击单会话“导出”下载 Markdown；点击“导出全部 JSON”下载备份；文件名来自响应头；不触发 `/ask` |
-| P1-66 | 会话导出移动端布局 | mock/CDP | 390px 下导出按钮不产生页面级横向溢出 |
-| P1-67 | 会话摘要 file store | Node test | 摘要生成后记录内容、来源消息数和更新时间；刷新后可读；清空会话同步清空摘要 |
-| P1-68 | 会话摘要 SQLite store | Node test + 临时 SQLite | SQLite 新旧 schema 都能保存和读取摘要；不写入真实数据库 |
-| P1-69 | 摘要参与模型上下文 | Node test/CDP | context preview 包含摘要 system message，原始消息不被摘要修改 |
-| P1-70 | 会话备份导入 | Node test | schema v1 完整校验；`skip`/`duplicate`/`overwrite` 冲突语义正确；畸形数据不产生部分写入 |
-| P1-71 | SQLite 备份导入 | Node test + 临时 SQLite | 导入语义与 file store 一致；reasoning 和 summary 保留 |
-| P1-72 | 模型运行信息 | mock/CDP | provider、model、storage 和默认参数可见；不返回 API key 原值 |
-| P1-73 | 请求级模型参数 | Node test/CDP | temperature/max tokens/reasoning 通过校验并进入 context preview 与 `/ask` request body |
-| P1-74 | Prompt 模板与变量 | Node test/CDP | 六类模板可选；变量完整替换；只填充输入框不自动发送 |
-| P1-75 | 工具注册与失败隔离 | Node test | weather/time/calculator 注册；表达式不使用 eval；外部失败生成 `success=false` |
-| P1-76 | Tool 生命周期 UI | mock/CDP | `tool_start` 显示执行中；`tool_result` 显示成功或失败摘要；不展示 tool decision preamble |
-| P1-77 | 长文本流式模式切换 | mock/CDP | 41,280 字符回答流式中使用轻量渲染；done 后完整高亮且内容不丢失 |
-| P1-78 | Markdown 增强 | mock/CDP | 语言标签、代码复制、安全外链、表格样式有效；不降低 XSS 和远程图片边界 |
-| P1-79 | Roadmap 功能移动端 | mock/CDP | 390px 下工具状态、弹窗、textarea 和 Markdown 无页面级横向溢出 |
-| P1-80 | DeepSeek SSE data 字段兼容 | Node test | `data: {json}`、`data:{json}` 和 `data:[DONE]` 均可解析；空 data 与非 data 行忽略 |
-| P1-81 | 侧栏异步操作状态 | mock/CDP | 新建、切换、重命名、删除、清空有等待态；连续点击各只产生一次请求；失败后恢复 |
-| P1-82 | 导入导出重复点击保护 | mock/CDP | 导入、单会话导出、全量导出显示等待态；连续触发只产生一次请求并在完成后恢复 |
-
-## UI 场景矩阵
-
-以下 UI 场景默认由 `tests/cdp/ui-scenarios.mjs` 覆盖；除非单独说明，均使用 mock，不调用真实接口，不截图。
-
-| ID | 场景 | 关键断言 |
+| 门禁 | 命令 | 证明内容 |
 | --- | --- | --- |
-| UI-01 | 首屏初始化加载态 | 侧栏、空态、suggestion、active 会话、composer 状态正确；无页面级横向溢出 |
-| UI-02 | 会话列表空/多/长标题 | 空列表自动创建会话；多会话和超长标题不挤压操作按钮 |
-| UI-03 | 会话列表滚动 | 大量会话时侧栏可滚动；当前会话保持高亮；操作按钮可点击 |
-| UI-04 | rename 取消 | 应用内 prompt 取消后标题不变、会话数量不变 |
-| UI-05 | rename 空白 | 空白标题不提交；原标题不丢 |
-| UI-06 | delete confirm 取消 | 取消删除后会话仍存在，当前会话不切换 |
-| UI-07 | clear confirm 取消 | 取消清空后消息和未发送草稿不被清掉 |
-| UI-08 | 删除非当前会话 | 删除侧栏非 active 会话后，当前聊天内容和高亮不变 |
-| UI-09 | 删除最后一个会话 | 删除唯一会话后自动进入新空会话，composer 可聚焦 |
-| UI-10 | 切换会话时请求失败 | 详情接口失败时 UI 不崩，当前可用会话保持不变 |
-| UI-11 | 新建会话失败 | 创建接口失败时不清空当前消息，当前 active 会话不变 |
-| UI-12 | 发送时创建会话失败 | 无 currentConversationId 时创建失败不丢用户输入；当前实现通常由禁用态避免触发 |
-| UI-13 | 发送 HTTP 500 | `/ask` 非 200 显示错误消息；后续可继续发送 |
-| UI-14 | stream 中途网络断开 | 已有部分正文时显示“响应中断”；复制和重试状态正确 |
-| UI-15 | stream 长时间无 token 超时 | 触发超时文案；请求释放；后续发送正常 |
-| UI-16 | done 后还有多余 chunk | `done` 后的额外内容不渲染 |
-| UI-17 | 多行输入视觉 | Shift+Enter 不提交；textarea 高度增长，发送后恢复 |
-| UI-18 | 超长单词输入 | textarea 和消息区域不产生页面级横向滚动 |
-| UI-19 | 发送后 focus | 新建、删除最后会话、切换后 composer focus 符合当前设计 |
-| UI-20 | 生成中按钮禁用矩阵 | 生成中 textarea、清空、删除、导入和导出禁用；复制/重试不显示；停止可用 |
-| UI-21 | 复制按钮显示条件 | pending/streaming 不显示复制；stopped/done 且有正文时可复制 |
-| UI-22 | 重试按钮显示条件 | 仅 error assistant 显示重试；stopped 不显示重试 |
-| UI-23 | retry 后滚动位置 | 失败位置原位替换；不重复插入用户问题 |
-| UI-24 | reasoning 展开中继续流式 | reasoning 面板流式阶段打开，完成后可展开/收起 |
-| UI-25 | reasoning only 错误 | 只有 reasoning 没有 answer 时进入“模型未返回内容”错误态 |
-| UI-26 | reasoning 长文本移动端 | 390px 下长 reasoning 换行，不产生页面级横向溢出 |
-| UI-27 | Markdown + reasoning 组合 | reasoning 纯文本展示；answer Markdown/代码块正常渲染 |
-| UI-28 | 主题刷新持久化 | 明/暗切换写入 localStorage；reload 后保持 |
-| UI-29 | 主题下可访问性 | 明暗主题下核心按钮、错误态、reasoning 文本可读 |
-| UI-30 | 移动端侧栏/主区 | 390px 下侧栏、消息区、composer 无遮挡，最后消息可见 |
-| UI-31 | 窄屏长按钮文案 | “清空当前会话”“已复制”“停止”等不产生页面级横向溢出 |
-| UI-32 | 页面级横向溢出总检查 | 桌面和移动核心状态 `scrollWidth <= innerWidth` |
-| UI-33 | suggestion 空态消失 | 有消息后 suggestion 不再显示；空态时可再次出现 |
-| UI-34 | suggestion 点击后发送 | suggestion 点击只填充输入，不直接发送，不绕过禁用态 |
-| UI-35 | 快速连续点击发送 | 只产生一个 `/ask`；不重复插入用户消息 |
-| UI-36 | 快速切换会话 | A/B/C 快速切换时 active、高亮、消息内容一致，不串流 |
-| UI-37 | 浏览器刷新恢复当前会话 | reload 后会话列表和当前详情恢复；未发送草稿按当前设计清空 |
-| UI-38 | 后端返回旧数据格式 | messages 无 reasoning 字段时 UI 兼容，不显示空 reasoning 面板 |
-| UI-39 | 空 assistant content | 空正文但有 error/stopped 状态时不出现异常空白操作区 |
-| UI-40 | 应用内弹窗 alert/confirm/prompt 流程 | rename/delete/clear/new-chat error 的 alert/confirm/prompt 均由 `AppDialog` 承载，可被 CDP 稳定断言 |
-| UI-41 | 异步按钮等待态与连点保护 | 新建、切换、重命名、删除、清空、导入、导出和停止均有等待/禁用反馈；同一操作连点只发一次请求；失败后恢复 |
+| 静态检查 | `pnpm run check` | Server/Client 共享 TS 7、普通/类型感知 Oxlint |
+| 后端单测 | `pnpm run test:server` | API、存储、Provider、工具、上下文和异常边界 |
+| React 单测 | `pnpm run test:client` | reducers、hooks、API、协议、Markdown、组件 |
+| 全部单测 | `pnpm run test:unit` | 后端 + React |
+| 生产构建 | `pnpm run build:client` | Vite 8 bundle、chunk 拆分、无 Vue runtime |
+| 生产托管 | `tests/server/clientHosting.test.ts` | 构建 fail-fast、SPA、API 隔离、缓存和安全头 |
+| HTTPS 配置 | `tests/server/deploymentConfig.test.ts` | production defaults、路径、布尔/端口和证书异常 |
+| 浏览器回归 | `pnpm run test:cdp:all-mock` | 完整 React UI/API mock 矩阵 |
+| 生产依赖审计 | `pnpm run audit:production` | 根 workspace 全部生产依赖，要求 0 已知漏洞 |
 
-## P2 真实接口回归
+## React 单元边界
 
-P2 仅在明确要求“真实接口”时执行。
-
-| ID | 场景 | 方式 | 关键断言 |
-| --- | --- | --- | --- |
-| P2-01 | 真实模型普通问答 | 真实 LLM | 能返回完整 assistant；会话持久化正确 |
-| P2-02 | 真实模型停止生成 | 真实 LLM | 前端停止；后端 abort；不继续写完整回答 |
-| P2-03 | 真实上下文会话 | 真实 LLM | 同会话能利用上下文；不同会话隔离 |
-| P2-04 | 真实 Markdown 输出 | 真实 LLM | 标题、列表、代码、表格渲染正确 |
-| P2-05 | 真实代码高亮输出 | 真实 LLM | Go/C/Rust/TSX 等 fenced code 高亮正常 |
-| P2-06 | 真实 tool 调用 | 真实 tool API | tool 成功调用并回答；失败时友好降级 |
-| P2-07 | 真实接口临时数据清理 | API | 所有测试会话被删除，不污染侧栏 |
-| P2-08 | 真实普通回答流式中间态截图 | 真实 LLM + CDP 截图 | 流式中间态有 assistant 行、处于生成中、已有正文片段、无错误态；保存中间态和完成态截图 |
-
-## 执行策略
-
-| 变更类型 | 建议执行范围 |
+| 范围 | 关键断言 |
 | --- | --- |
-| 普通重构或 bug 修复 | P0 |
-| UI、交互、按钮、滚动变更 | P0 + `ui`，必要时补 P1-01 到 P1-06 的结果定位 |
-| Markdown 或高亮变更 | P0 + P1-07 到 P1-17 |
-| 会话存储或路由变更 | P0-10 到 P0-13、P0-36 到 P0-38，再补 P0-01 到 P0-06 |
-| tool、weather、function call 变更 | P0-14 到 P0-17、P0-35、P0-39，再补 P0-01 到 P0-06 |
-| reasoning、思考过程、流式协议变更 | P0-26 到 P0-33、P0-39，再补 P0-01 到 P0-07 |
-| 上下文窗口、prompt 构造或 `chatService` 模型请求变更 | `pnpm run test:context` + `pnpm run check`；重点覆盖 P1-39 到 P1-49，涉及 tool prompt 时补 P0-14、P0-27、P0-39 |
-| 上下文调试面板或预览 UI 变更 | `pnpm run test:context` + `CDP_SCREENSHOTS=1 pnpm run test:cdp:context-debug` + `pnpm run check`；覆盖 P1-49 到 P1-52 |
-| 会话搜索 API、侧栏搜索或搜索结果跳转变更 | `pnpm run test:conversation-search` + `pnpm run test:cdp:conversation-search` + `pnpm run check`；覆盖 P1-53 到 P1-62 |
-| 会话导出 API、下载按钮或备份格式变更 | `pnpm run test:conversation-export` + `pnpm run test:cdp:conversation-export` + `pnpm run check`；覆盖 P1-63 到 P1-66 |
-| 会话摘要、导入、模型参数、模板、工具状态或长文本渲染 | `pnpm run test:unit` + `pnpm run test:cdp:roadmap` + `pnpm run check`；覆盖 P1-67 到 P1-79 |
-| 侧栏按钮、导入导出或停止等待态 | `pnpm run test:cdp:sidebar-state` + `pnpm run test:cdp:conversation-export` + `pnpm run test:cdp:roadmap` + `pnpm run test:cdp:ui`；覆盖 P0-08、P1-81、P1-82、UI-41 |
-| composer 草稿、会话切换/清空/删除变更 | P0-34 + P1-18 到 P1-25 |
-| Vite dev server 或 LAN 访问变更 | P1-37，并手动确认目标机器可访问前端入口 |
-| 真实模型链路验证 | P0 + P2 |
-| 明确要求截图 | 设置 `CDP_SCREENSHOTS=1`，对本次执行用例保存并返回截图 |
-| 未明确要求截图 | 不产出截图，只输出结果摘要 |
+| conversation reducer | 不可变 upsert/sort；删除 active 立即清空 ID、summary、messages |
+| useConversations | Strict Mode 初始化去重；选择乱序；删除后继加载失败不保留已删除详情 |
+| useChatStream | delta/reasoning/tool/done；手工取消一次；首包/流空闲超时；协议错误后恢复；卸载清理 |
+| stream protocol | v2 六类事件；拆包；未知/损坏 JSON；负耗时；空 tool/error 字段 |
+| model catalog | provider/model 能力；disabled；空/损坏运行目录 fallback |
+| Markdown | HTML/图片禁用；外链安全；代码语言与净化；stream/complete 模式 |
+| UI components | 模型设置能力约束、对话框/主题等生命周期 |
 
-所有回归测试默认通过 CDP 自动化脚本执行。若临时需要人工辅助定位问题，人工观察只能作为诊断信息，最终结果仍以 CDP 自动化断言为准。
+## 后端单元边界
 
-## 推荐执行顺序
-
-1. 先跑 P0-01 到 P0-09，确认核心发送、停止和请求释放。
-2. 再跑 P0-10 到 P0-13，确认会话生命周期和持久化。
-3. 如果涉及 tool/function call，继续跑 P0-14 到 P0-17。
-4. 如果涉及 UI/Markdown/高亮，再跑对应 P1。
-5. 只有明确要求真实接口时，最后跑 P2。
-
-## 失败定位索引
-
-| 失败现象 | 优先排查方向 |
+| 范围 | 关键断言 |
 | --- | --- |
-| 点击停止后前端仍显示生成中 | `client/src/App.vue` 或拆分后的 composer/request 状态管理 |
-| `/ask` 未变成 aborted/canceled | 前端 `AbortController`、fetch signal、请求发起封装 |
-| 前端取消但上游仍继续输出 | `server/routes/index.ts`、`server/utils/llm/index.ts`、`server/utils/streamReader.ts`、request registry |
-| 停止后仍写入完整回答 | `appendMessages` 调用时机、abort 后的 finally/catch 分支 |
-| 重试重复插入用户问题 | retry 插入索引、`appendUser: false` 路径 |
-| 切换会话串上下文 | 当前 `conversationId`、prompt 构造、会话详情加载 |
-| 前端直接报协议版本错误 | `server/utils/ndjsonStream.ts` header、`client/src/utils/streamProtocol.ts` |
-| reasoning 面板不显示或复制混入 reasoning | `server/utils/llm/index.ts` chunk type、`client/src/components/MessageList.vue`、`copyMessage` |
-| Markdown 不渲染或渲染不安全 | `MarkdownMessage.vue`、`markdown-it`、`DOMPurify` 配置 |
-| 代码块符号不可见 | highlight CSS、代码块基础文字颜色、背景色 |
-| 表格或长代码导致页面横向溢出 | markdown/table/pre 容器 overflow 样式 |
-| tool 调用异常导致 500 | tool 调用 try/catch、工具结果封装、answer prompt |
+| context | 消息数/字符预算、完整边界消息、空历史、当前问题不裁剪、摘要参与 |
+| file store | CRUD、搜索、导入导出、摘要；40 路同会话写不丢失；原子写无临时残留；payload ID/时间损坏恢复 |
+| SQLite | CRUD、搜索、导入导出、摘要、临时 DB、JSON migration |
+| chat persistence | 会话在回答完成前删除时拒绝假成功 |
+| summary | 空/不存在、持久化、清空；生成期间内容变化拒绝陈旧写入 |
+| request registry | requestId 校验、同会话单活动请求、取消和完成清理 |
+| model options | 范围、能力、禁用模型、启动配置一致性 |
+| provider config | OpenAI URL normalization、非 HTTP/HTTPS 拒绝、凭据不公开 |
+| adapters | DeepSeek/OpenAI SSE、reasoning summary、tool arguments 聚合、call_id continuation |
+| tools | 安全计算器、IANA 时间、天气本地日期、网络/HTTP 失败隔离 |
+| production hosting | 缺失 build、SPA deep link、静态缓存、`/api` JSON 404、非 GET 不回退 |
+| TLS configuration | 生产默认值、`~/` 展开、非法布尔/端口、缺失或损坏证书 fail-fast |
 
-## 临时数据清理规则
+## CDP suites
 
-- mock/CDP 测试创建的临时会话必须在脚本结束时删除。
-- 真实接口测试建议使用固定前缀，例如 `CDP-`、`CDPCTX-`、`CDPMDREAL-`。
-- SQLite 测试必须设置临时 `CONVERSATION_DATA_DIR`，必要时同时设置临时 `CONVERSATION_DB_PATH`；禁止用真实本地库做自动化回归。
-- 测试结束后必须调用会话列表接口确认临时会话已清理。
-- 不要删除人工创建的业务会话，除非用户明确指定。
+| Suite | 入口 | 主要覆盖 |
+| --- | --- | --- |
+| P0 | `pnpm run test:cdp:p0` | ask/stop/cancel、会话 API、工具、核心 UI |
+| P1 | `pnpm run test:cdp:p1` | UI、Markdown、高亮、边界状态 |
+| UI | `pnpm run test:cdp:ui` | 复制、重试、滚动、草稿、主题、移动端、错误恢复 |
+| Context | `pnpm run test:cdp:context-debug` | 实际上下文、统计、移动布局 |
+| Search | `pnpm run test:cdp:conversation-search` | 输入、跳转、空/错/竞态 |
+| Export | `pnpm run test:cdp:conversation-export` | 下载、文件名、JSON 备份 |
+| Roadmap | `pnpm run test:cdp:roadmap` | 摘要、导入、模型参数、模板、工具状态、长 Markdown |
+| Sidebar | `pnpm run test:cdp:sidebar-state` | 操作等待态、连点互斥和失败恢复 |
+| All mock | `pnpm run test:cdp:all-mock` | 上述去重后的完整集合 |
 
-## 现有脚本映射
+### UI 必测边界
 
-以下脚本是正式 CDP 回归入口。若代码结构变化，允许微调脚本，但用例语义保持不变。
+- Enter 提交、Shift+Enter 换行、空白与快速连点不发送。
+- 新建/切换会话时中止生成，旧响应不能污染新会话。
+- 删除/清空当前会话清理草稿和页面状态。
+- 用户接近底部时跟随正文/reasoning/代码块；上滚查看历史时保持位置。
+- 代码块最后增长时 bottom gap 保持在阈值内。
+- 停止、HTTP 失败、网络断开、损坏 NDJSON、缺少 done 和超时后均可恢复。
+- 明暗主题刷新保持；390px 无页面级横向溢出。
+- 图标按钮有可读 `aria-label`；Dialog/Dropdown 的 Escape、focus 和 disabled 状态正确。
 
-| 覆盖范围 | 当前脚本 |
+## 变更到测试映射
+
+| 变更 | 最小验证 |
 | --- | --- |
-| 统一 runner | `tests/cdp/run-cdp-regression.mjs` |
-| 完整 UI 矩阵 | `tests/cdp/run-cdp-regression.mjs ui` |
-| 停止生成、上游取消、request cancel | `tests/cdp/upstream-abort.mjs` |
-| 会话 API、JSON/SQLite 持久化、JSON 到 SQLite 迁移、错误 JSON、tool mock、流式协议 header、reasoning 持久化、tool 上下文、标题和存储边界 | `tests/cdp/p0-api-tool.mjs` |
-| 上下文窗口、字符预算边界、配置 fallback、空历史、顺序统计、prompt 裁剪、tool answer managed context、上下文预览接口 | `tests/server/contextService.test.ts` |
-| 上下文调试面板、预览不落库、移动端布局和截图 | `tests/cdp/context-debug.mjs` |
-| 会话搜索 file store service、标题/消息命中、特殊字符、只读性、路由顺序 | `tests/server/conversationSearch.test.ts` |
-| 会话搜索 SQLite store、标题/消息命中、特殊字符、只读性、临时数据库隔离 | `tests/server/conversationSearchSqlite.test.ts` |
-| 侧栏搜索、搜索结果跳转、清空搜索、无结果、失败恢复、竞态保护、移动端布局 | `tests/cdp/conversation-search.mjs` |
-| 会话导出 file store、Markdown、JSON 备份、headers、路由顺序 | `tests/server/conversationExport.test.ts` |
-| 会话导出 SQLite store、reasoning 保留、临时数据库隔离 | `tests/server/conversationExportSqlite.test.ts` |
-| 会话导出下载交互、文件名、JSON 备份、移动端布局 | `tests/cdp/conversation-export.mjs` |
-| 会话摘要 file/SQLite、清空和上下文参与 | `tests/server/conversationSummary.test.ts`、`tests/server/conversationSummarySqlite.test.ts` |
-| 会话导入 file/SQLite、冲突策略和畸形备份 | `tests/server/conversationImport.test.ts`、`tests/server/conversationImportSqlite.test.ts` |
-| 模型参数、工具、模板和流式协议纯逻辑 | `tests/server/modelOptions.test.ts`、`tests/server/toolService.test.ts`、`tests/client/*.test.ts` |
-| DeepSeek SSE data 字段兼容 | `tests/server/deepseekAdapter.test.ts` |
-| 摘要/参数/导入/模板/tool UI/长 Markdown/移动端集成 | `tests/cdp/roadmap-features.mjs` |
-| 基础 UI、复制、重试、滚动、新建/切换中断、输入框、主题、移动端、reasoning 面板、流式协议错误、草稿清理 | `tests/cdp/ui-scenarios.mjs` |
-| 侧栏新建/切换/重命名/删除/清空等待态、连点互斥和失败恢复 | `tests/cdp/sidebar-operation-state.mjs` |
-| 真实接口基础 UI | `tests/cdp/real-scenarios.mjs` |
-| 会话上下文、重命名、清空、删除 | `tests/cdp/conversation-context-real.mjs` |
-| Markdown fixture 渲染 | `tests/cdp/markdown-rendering.mjs` |
-| Markdown 真实接口渲染 | `tests/cdp/markdown-real.mjs` |
-| 代码高亮 fixture 渲染 | `tests/cdp/highlight-rendering.mjs` |
+| React 纯逻辑/hook | `check` + `test:client` |
+| UI/交互/布局/滚动 | 上述 + `test:cdp:ui` |
+| Markdown/高亮 | `test:client` + `test:cdp:markdown` + `test:cdp:highlight` |
+| 流式/取消/超时 | `test:unit` + `test:cdp:p0` + `test:cdp:ui` |
+| file/SQLite/导入 | `test:server` + P0/对应专项 CDP |
+| Provider/Function Calling | adapter/tool tests + P0；真实 provider 需另行确认 |
+| 构建/依赖/入口 | `check` + `build:client` + `all-mock` |
+| 托管/HTTPS | deployment/clientHosting tests + 生产 HTTPS 本机冒烟 |
 
-## 执行命令
+## 数据与进程清理
 
-默认不截图：
+- 自动化会话使用明确测试前缀或捕获 ID，结束时只删除本轮创建的数据。
+- file/SQLite 测试必须使用 `mkdtemp` 隔离目录。
+- runner 启动的 Vite、后端和浏览器 profile 必须在 `finally` 中清理。
+- 测试前检查端口；不停止用户已有进程。
+- `.tmp/cdp-results/*.json` 是机器可读结果，不作为源码提交。
+
+## 真实接口
+
+仅在用户明确确认时执行：
 
 ```bash
-pnpm run test:context
-pnpm run test:conversation-export
-pnpm run test:conversation-search
-pnpm run test:conversation-summary
-pnpm run test:conversation-import
-pnpm run test:model-options
-pnpm run test:llm-adapter
-pnpm run test:tools
-pnpm run test:client-logic
-pnpm run test:unit
-pnpm run test:cdp:conversation-export
-pnpm run test:cdp:context-debug
-pnpm run test:cdp:conversation-search
-pnpm run test:cdp:roadmap
-pnpm run test:cdp:sidebar-state
-node tests/cdp/run-cdp-regression.mjs p0
-node tests/cdp/run-cdp-regression.mjs p1
-node tests/cdp/run-cdp-regression.mjs ui
-node tests/cdp/run-cdp-regression.mjs markdown
-node tests/cdp/run-cdp-regression.mjs highlight
-node tests/cdp/run-cdp-regression.mjs all-mock
+pnpm run test:cdp:real
+pnpm run test:cdp:real-model-options
+pnpm run test:cdp:real-openai
 ```
 
-统一 runner 会写入机器可读汇总，例如 `.tmp/cdp-results/p0.json`、`.tmp/cdp-results/all-mock.json`。汇总文件包含 suite 名称、开始/结束时间、每个脚本的名称、路径和脚本末尾 JSON 结果，后续结果文档应优先从该文件提取。
+真实测试必须说明模型、场景、可能费用、截图与否，并清理全部测试会话。未明确要求截图时保持 `CDP_SCREENSHOTS=0`。
 
-需要截图时：
-
-```bash
-CDP_SCREENSHOTS=1 node tests/cdp/run-cdp-regression.mjs all-mock
-```
-
-真实接口只在明确要求时执行：
-
-```bash
-node tests/cdp/run-cdp-regression.mjs real
-```
-
-若要验证 SQLite 存储路径，使用临时数据目录，避免污染现有本地 JSON 数据：
-
-```bash
-REAL_SQLITE_DIR=$(mktemp -d /tmp/chatbot-real-sqlite-XXXXXX)
-CONVERSATION_STORE=sqlite \
-CONVERSATION_DATA_DIR="$REAL_SQLITE_DIR" \
-CONVERSATION_DB_PATH="$REAL_SQLITE_DIR/sqlite/conversations.sqlite3" \
-CDP_REAL_SCRIPT_RETRIES=1 \
-node tests/cdp/run-cdp-regression.mjs real
-```
+2026-08-09 的本阶段最终执行结果见 [阶段交付审查](release-readiness-2026-08-09.md)。

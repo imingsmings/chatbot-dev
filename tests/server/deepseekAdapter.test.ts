@@ -34,3 +34,26 @@ test('DeepSeek adapter ignores non-data SSE lines', () => {
   assert.equal(deepseekAdapter.parseStreamLine(': keep-alive'), null)
   assert.equal(deepseekAdapter.parseStreamLine('event: message'), null)
 })
+
+test('DeepSeek adapter sends the request-selected V4 model to the upstream API', () => {
+  const body = deepseekAdapter.buildBody({
+    config: {
+      id: 'deepseek',
+      endpoint: 'https://mock.local/chat/completions',
+      apiKey: 'test-key',
+      defaultModel: 'deepseek-v4-flash'
+    },
+    prompt: [{ role: 'user', content: 'hello' }],
+    stream: true,
+    options: {
+      provider: 'deepseek',
+      model: 'deepseek-v4-pro',
+      maxTokens: undefined,
+      temperature: undefined,
+      reasoningEnabled: true,
+      reasoningEffort: 'high'
+    }
+  }) as Record<string, unknown>
+
+  assert.equal(body.model, 'deepseek-v4-pro')
+})

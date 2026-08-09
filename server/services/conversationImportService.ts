@@ -1,4 +1,9 @@
 import { importConversation } from '../utils/conversationStore.ts'
+import {
+  MAX_CONVERSATION_TITLE_LENGTH,
+  MAX_IMPORT_CONVERSATIONS,
+  MAX_MESSAGES_PER_CONVERSATION,
+} from '../config/productLimits.ts'
 import { EXPORT_SCHEMA_VERSION } from './conversationExportService.ts'
 import type {
   Conversation,
@@ -8,8 +13,6 @@ import type {
   StoredMessage
 } from '../types/conversation.ts'
 
-const MAX_IMPORT_CONVERSATIONS = 2000
-const MAX_MESSAGES_PER_CONVERSATION = 20000
 const VALID_CONVERSATION_ID = /^conv_[a-zA-Z0-9_-]+$/
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -122,6 +125,12 @@ function parseConversation(value: unknown, index: number): Conversation {
     updatedAt: readTimestamp(value, 'updatedAt'),
     titleManuallyEdited: value.titleManuallyEdited,
     messages: value.messages.map(parseStoredMessage)
+  }
+
+  if (conversation.title.length > MAX_CONVERSATION_TITLE_LENGTH) {
+    throw new Error(
+      `conversations[${index}] 的 title 不能超过 ${MAX_CONVERSATION_TITLE_LENGTH} 个字符`,
+    )
   }
 
   const summary = parseContextSummary(value.summary)

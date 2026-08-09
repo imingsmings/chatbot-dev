@@ -143,6 +143,7 @@ const calculatorTool: ToolRegistryItem<CalculatorToolArgs> = {
     function: {
       name: 'calculate',
       description: '计算只包含数字、括号和 +、-、*、/、%、^ 运算符的数学表达式。',
+      strict: true,
       parameters: {
         type: 'object',
         properties: {

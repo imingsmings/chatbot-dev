@@ -6,6 +6,7 @@ import {
   listConversations,
   renameConversation
 } from '../utils/conversationStore.ts'
+import { MAX_CONVERSATION_TITLE_LENGTH } from '../config/productLimits.ts'
 import type {
   Conversation,
   ConversationSearchResult,
@@ -115,6 +116,12 @@ async function updateConversationTitle(id: string, title: unknown): Promise<Conv
   if (!nextTitle) {
     return {
       error: 'empty_title'
+    }
+  }
+
+  if (nextTitle.length > MAX_CONVERSATION_TITLE_LENGTH) {
+    return {
+      error: 'title_too_long'
     }
   }
 

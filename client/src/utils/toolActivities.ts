@@ -1,4 +1,4 @@
-import type { ToolActivity } from '@/types/chat'
+import type { ToolActivity } from '#types/chat'
 
 type InterruptedToolStatus = Extract<ToolActivity['status'], 'error' | 'stopped'>
 

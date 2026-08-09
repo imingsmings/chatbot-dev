@@ -1,151 +1,207 @@
 # Chatbot Architecture
 
-本文档描述当前实现，不包含多用户、商业化或大规模平台化设想。项目定位是个人学习和内部使用，设计重点是本地稳定、可调试、可回归。
+本文描述 React-only 当前实现。项目定位是个人学习和内部使用，优先保证本地稳定、可调试和可回归，不扩展为多租户 SaaS 或通用 Agent 平台。
 
 ## 系统视图
 
 ```mermaid
 flowchart LR
-  subgraph Browser["Browser / Vue 3"]
-    UI["Components"]
-    State["Composables"]
-    API["API client"]
-    Markdown["Markdown renderer"]
-    UI --> State --> API
-    State --> Markdown
+  subgraph Browser["Browser / React 19"]
+    App["App composition"]
+    UI["shadcn Base UI + Tailwind 4"]
+    Hooks["Hooks / lifecycle"]
+    Reducers["Conversation + stream reducers"]
+    ClientAPI["HTTP + NDJSON v2 reader"]
+    Markdown["markdown-it + DOMPurify + highlight.js"]
+    App --> UI
+    App --> Hooks
+    Hooks --> Reducers
+    Hooks --> ClientAPI
+    UI --> Markdown
   end
 
-  subgraph Server["Express / TypeScript"]
-    Routes["Routes"]
-    Controllers["Controllers"]
-    Services["Services"]
-    LLM["LLM adapter"]
-    Tools["Tool registry"]
-    Store["Conversation store"]
-    Routes --> Controllers --> Services
-    Services --> LLM
-    Services --> Tools
-    Services --> Store
+  subgraph Server["Express 5 / TypeScript 7"]
+    TLS["Node HTTPS + certificate validation"]
+    Static["Vite dist + SPA fallback"]
+    Routes["Routes"] --> Controllers["Controllers"] --> Services["Services"]
+    Services --> LLM["Provider registry + adapters"]
+    Services --> Tools["Tool registry"]
+    Services --> Store["Conversation store"]
+    TLS --> Static
+    TLS --> Routes
   end
 
-  subgraph LocalData["Local data"]
-    JSON["JSON files"]
-    SQLite["SQLite"]
-  end
+  Providers["DeepSeek Chat Completions / OpenAI Responses"]
+  Weather["Weather API"]
+  Files["Atomic JSON files"]
+  SQLite["SQLite WAL"]
 
-  Provider["DeepSeek-compatible provider"]
-  ExternalTools["Weather API / local tools"]
-
-  API -->|"HTTP + NDJSON"| Routes
-  LLM -->|"SSE"| Provider
-  Tools --> ExternalTools
-  Store --> JSON
+  Browser -->|"same-origin HTTPS"| TLS
+  ClientAPI -->|"/api + NDJSON v2"| Routes
+  LLM -->|"HTTP + provider SSE"| Providers
+  Tools --> Weather
+  Store --> Files
   Store --> SQLite
 ```
 
-## 模块边界
-
-### 前端
+## 前端边界
 
 | 模块 | 职责 |
 | --- | --- |
-| `client/src/App.vue` | 页面级组合、弹窗和高层事件编排 |
-| `client/src/api/conversations.ts` | HTTP 契约、下载、导入、流式请求入口 |
-| `client/src/composables/useConversations.ts` | 会话列表、详情和本地 UI 状态 |
-| `client/src/composables/useChatStream.ts` | 请求生命周期、NDJSON 消费、中止、tool 状态 |
-| `client/src/utils/streamProtocol.ts` | 协议版本和事件运行时校验 |
-| `client/src/utils/markdownRenderer.ts` | Markdown 解析、净化、高亮和链接策略 |
-| `client/src/utils/promptTemplates.ts` | 静态模板定义和变量替换 |
+| `client/src/app/App.tsx` | 页面组合和高层事件连接，不承载底层协议逻辑 |
+| `client/src/components/*` | 展示、交互、ARIA 与 shadcn 组件组合 |
+| `client/src/hooks/useChatAppController.ts` | 页面用例编排与跨组件状态 |
+| `client/src/hooks/useConversations.ts` | 会话列表、详情、选择序列和 CRUD |
+| `client/src/hooks/useChatStream.ts` | requestId、AbortController、首包/流空闲超时、取消和恢复 |
+| `client/src/hooks/useAutoScroll.ts` | 用户滚动意图、MutationObserver 和 rAF 跟随 |
+| `client/src/reducers/*` | 不可变 conversation/stream 状态转换 |
+| `client/src/api/*` | HTTP 错误读取、下载和 NDJSON 拆包 |
+| `client/src/utils/streamProtocol.ts` | NDJSON v2 运行时校验 |
+| `client/src/utils/markdownRenderer.ts` | 禁用 HTML/图片、净化、高亮和安全外链 |
+| `client/src/utils/modelOptions.ts` | 运行时模型能力目录、损坏目录降级和参数约束 |
 
-前端不直接理解 provider SSE，也不保存 API key。它只消费后端定义的应用协议。
+前端不解析 provider SSE、不读取 API key，也不直接操作持久化文件。
 
-### 后端
+## 共享 TypeScript 工具链
+
+- 根 `pnpm-workspace.yaml` 通过 catalog 为 client/server 单点锁定 TypeScript 7.0.2 和 Node 22 类型。
+- 根 `tsconfig.base.json` 共享 `strict`、`noEmit`、`verbatimModuleSyntax`、side-effect import 和大小写一致性等通用规则。
+- `client/tsconfig.*.json` 只保留 DOM/JSX、Bundler 解析和 Vite 类型；`server/tsconfig.json` 只保留 NodeNext、TS 扩展名导入和 erasable syntax 规则。
+- workspace 只保留根 `pnpm-lock.yaml`，安装、CI 和生产审计都从仓库根目录执行。
+
+## 后端边界
 
 | 模块 | 职责 |
 | --- | --- |
-| `server/routes/*` | 路由注册和顺序 |
-| `server/controllers/*` | HTTP 输入校验、状态码和响应格式 |
-| `server/services/chatService.ts` | 上下文、模型、Function Calling、持久化编排 |
-| `server/services/contextService.ts` | 最近消息窗口、字符预算和摘要合并 |
-| `server/services/toolService.ts` | 工具注册、执行、失败隔离和生命周期事件 |
-| `server/services/conversation*Service.ts` | 搜索、导入、导出、摘要等用例逻辑 |
-| `server/utils/llm/*` | provider 适配、SSE 解析、超时和上游中止 |
-| `server/utils/conversationStore.ts` | file/SQLite 存储适配与数据规范化 |
-| `server/utils/ndjsonStream.ts` | 应用流式协议输出 |
+| `server/routes/*` | 路由与静态/动态路径顺序 |
+| `server/config/deploymentConfig.ts` | HOST/PORT、生产默认值、`~/` 路径和 TLS 证书/私钥校验 |
+| `server/config/clientHosting.ts` | `client/dist` 校验、静态缓存与 HTML SPA 回退 |
+| `server/controllers/*` | HTTP 输入、长度边界、状态码和流响应 |
+| `server/services/chatService.ts` | 上下文、模型、工具两阶段和成功后持久化 |
+| `server/services/contextService.ts` | 摘要、消息数和字符预算 |
+| `server/services/conversationSummaryService.ts` | 摘要生成及会话变化检测 |
+| `server/services/toolService.ts` | 工具参数校验、失败隔离和生命周期事件 |
+| `server/tools/*` | 单工具 schema、validator 和 handler |
+| `server/utils/llm/providerConfig.ts` | HTTP/HTTPS endpoint、凭据和默认模型 |
+| `server/utils/llm/modelCatalog.ts` | 公共模型能力与禁用状态 |
+| `server/utils/llm/adapters/*` | provider body、SSE 语义与 continuation |
+| `server/utils/requestRegistry.ts` | requestId 与单会话活动请求互斥 |
+| `server/utils/conversationStore.ts` | file/SQLite 规范化、迁移和 CRUD |
 
-控制器不拼 prompt，工具注册表不包含具体业务实现，provider 特有字段只存在于 adapter。
+Provider 特有字段只存在于 adapter。控制器不拼 prompt，工具注册表不内嵌天气/计算器实现。
 
-## 普通问答链路
+## 生产部署边界
+
+```mermaid
+flowchart TD
+  Build["pnpm run build"] --> Dist["client/dist hashed assets"]
+  Env["NODE_ENV=production + server/.env"] --> Boot["server/bin/www.ts"]
+  Cert["certificate + private key"] --> Validate["existence / dates / key match"]
+  Validate --> Boot
+  Dist --> Guard["index.html startup guard"] --> Boot
+  Boot --> HTTPS["Node HTTPS listener"]
+  HTTPS --> Assets["/assets/* one-year immutable cache"]
+  HTTPS --> Index["HTML GET -> index.html no-cache"]
+  HTTPS --> API["/api/* -> Express routes"]
+  API --> Missing["unknown API -> JSON 404; never SPA HTML"]
+```
+
+- `NODE_ENV=production` 时默认启用 HTTPS 和前端构建托管；均可用显式环境变量覆盖。
+- 生产 API 只位于 `/api/*`，避免会话 API 与 React 路由冲突。未托管前端的开发模式暂时保留根路径 API 兼容面。
+- `index.html` 使用 `no-cache`；带 hash 的 `/assets/*` 使用一年 immutable cache。
+- Node 直接终止 TLS；若改由反向代理终止 TLS，应显式设置 `HTTPS_ENABLED=false`，并只在受控网络内暴露 Node 端口。
+- 当前项目没有登录或多用户隔离，不能仅因启用 HTTPS 就视为适合公开互联网访问。
+
+## 普通问答时序
 
 ```mermaid
 sequenceDiagram
   participant U as User
-  participant C as Vue client
+  participant C as React client
   participant E as Express
   participant S as Chat service
   participant P as Provider
   participant D as Store
 
-  U->>C: 提交问题和本次模型参数
-  C->>E: POST /conversations/:id/ask
-  E->>S: conversation + question + AbortSignal
-  S->>S: 摘要 + 最近消息窗口 + 当前问题
-  S->>P: Chat Completions + tools
-  P-->>S: SSE reasoning/content/tool deltas
-  S-->>C: NDJSON reasoning_delta/delta
-  S->>D: 完成后原子追加 user + assistant
-  S-->>C: NDJSON done
+  U->>C: 提交问题 + 模型参数
+  C->>E: POST /conversations/:id/ask + requestId
+  E->>E: 校验 + 注册单会话活动请求
+  E->>S: Conversation + AbortSignal
+  S->>S: 摘要 + 最近历史 + 当前问题
+  S->>P: provider request + tools
+  P-->>S: provider SSE
+  S-->>C: reasoning_delta / delta / tool events
+  S->>D: 原子追加 user + assistant
+  S-->>C: done
 ```
 
-只有模型完整完成且请求未中止时才持久化完整问答。停止生成保留前端已经收到的部分内容，但不会把不完整问答写入会话存储。
+只有完整模型回答才写入存储。若会话在生成期间被删除，服务返回流错误而不是把“成功”但未落盘的结果交给前端。
 
-## Function Calling 两阶段
+## Function Calling
 
 ```mermaid
 sequenceDiagram
   participant S as Chat service
-  participant P as Provider
+  participant P as Provider adapter
   participant T as Tool service
-  participant C as Client
+  participant C as React client
 
-  S->>P: 阶段 1：messages + tools + tool_choice:auto
-  P-->>S: tool_calls
+  S->>P: messages + tools + tool_choice:auto
+  P-->>S: 完整聚合的 tool calls
   S-->>C: tool_start
-  S->>T: validateArgs + execute
-  T-->>S: result or controlled failure
+  S->>T: validateArgs + execute(signal)
+  T-->>S: result / controlled failure
   S-->>C: tool_result
-  S->>P: 阶段 2：原上下文 + assistant tool_calls + tool results
-  P-->>S: 最终答案 SSE
+  S->>P: provider-specific continuation
+  P-->>S: final answer SSE
   S-->>C: delta ... done
 ```
 
-阶段 1 的普通 content 被缓冲，不会把模型的工具判断前导语泄漏到最终回答。reasoning 可持久化并回灌到阶段 2，但不会作为普通正文展示。
+- DeepSeek continuation 使用 assistant `tool_calls` + `tool` messages。
+- OpenAI continuation 重放 Responses output items，并以 `call_id` 关联 `function_call_output`。
+- OpenAI 使用 `store:false`，不依赖 provider 端历史。
 
-## 上下文与摘要
+## 取消与超时
 
-模型上下文由以下部分组成：
+```mermaid
+flowchart LR
+  Stop["停止 / 首包或流空闲超时 / 页面卸载"] --> Abort["Client AbortController"]
+  Abort --> Cancel["POST /requests/:id/cancel"]
+  Cancel --> Registry["Server request registry"]
+  Registry --> ProviderAbort["Provider fetch / stream abort"]
+  Registry --> ToolAbort["Tool AbortSignal"]
+```
 
-1. system prompt。
-2. 可选的持久化会话摘要。
-3. 最近历史消息，默认最多 20 条、12,000 字符。
-4. 当前用户问题，始终完整保留。
+- 客户端超时从发起 fetch 前开始，因此覆盖“迟迟没有响应头”。
+- 同一 requestId 只取消一次；请求结束后清理取消集合、timer 和 refs。
+- 后端同一会话只允许一个活动 ask，避免并行回答的语义和持久化竞态。
+- 停止保留屏幕上已收到的部分内容，但不持久化不完整问答。
 
-窗口只影响发给模型的数据，不裁剪前端历史或存储。摘要由用户手动生成或重新生成，记录来源消息数和更新时间；清空会话时同步清空摘要。
+## 存储一致性
 
-## 数据存储
+### File store
 
-`conversationStore.ts` 对上层提供统一接口：
+- 每个会话一份 JSON。
+- 同一会话的 read-modify-write 进入串行 mutation queue，避免并发追加互相覆盖。
+- 写入先落到同目录唯一临时文件，再 rename 替换，避免进程中断留下半份 JSON。
+- 从文件读取时以文件名 ID 为准，防止 payload ID 串写其他文件。
+- 损坏时间戳回退为有效 ISO 时间；非法临时文件名不会进入会话列表。
 
-- `file`：每个会话一个 JSON 文件，支持旧聚合 JSON 迁移。
-- `sqlite`：会话行保存消息 JSON 和摘要 JSON，启动时补齐旧库缺失字段。
+### SQLite
 
-全量 JSON 备份带 schema 版本。导入先完整校验，再按 `skip`、`duplicate` 或 `overwrite` 处理 ID 冲突，避免解析到一半产生部分写入。
+- WAL 模式；同步事务保证 migration 和批量写边界。
+- messages/summary 以 JSON 保存，对外保持与 file store 相同语义。
+- 旧 JSON 迁移通过 metadata 标记实现幂等。
 
-## 扩展点
+## 输入与错误边界
 
-- 新 provider：实现 `LlmAdapter`，注册 provider，不把特有解析放进 controller。
-- 新工具：新增独立 `server/tools/<name>Tool.ts`，包含 schema、参数校验和 handler，再加入注册表。
-- 新流式事件：同时修改后端/前端判别联合、提升协议版本并补兼容测试。
-- 新存储：实现现有 conversation store 语义，重点验证 CRUD、导入导出、摘要和迁移。
+集中限制位于 `server/config/productLimits.ts`：自动标题、会话标题、搜索词、问题、导入会话数和单会话消息数。Provider endpoint 仅支持 HTTP/HTTPS；天气网络异常返回稳定可恢复错误；生产环境未处理的 5xx 不向客户端泄漏内部路径或上游细节。
 
-当前不需要抽象成通用多模型网关或 agent 平台；这些抽象会增加个人项目的维护成本，而不会改善当前学习目标。
+## 扩展约束
+
+- 新 provider：实现 `LlmAdapter`，登记 provider registry/model catalog，并补 adapter/真实协议 mock 测试。
+- 新工具：新增独立 tool 文件，提供 schema、validator、handler 和 AbortSignal 测试。
+- 新流事件：更新前后端判别联合、提升协议版本并补兼容测试。
+- 新存储：实现现有 CRUD/导入/摘要/并发语义，不能只满足 happy path。
+
+当前不增加新功能；本阶段只接受缺陷修复、回归覆盖、文档和维护性收敛。

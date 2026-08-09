@@ -31,7 +31,8 @@ async function ask(client, question) {
     client,
     `(() => {
       const input = document.querySelector('textarea');
-      input.value = ${JSON.stringify(question)};
+      const valueSetter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set;
+      valueSetter.call(input, ${JSON.stringify(question)});
       input.dispatchEvent(new Event('input', { bubbles: true }));
       document.querySelector('form').dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
     })()`,

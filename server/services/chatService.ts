@@ -1,6 +1,9 @@
 import { appendMessages } from '../utils/conversationStore.ts'
-import { callLLMStream, callLLMStreamWithTools } from '../utils/llm/index.ts'
-import { buildToolResultPrompt } from '../utils/promptTemplates.ts'
+import {
+  callLLMStream,
+  callLLMStreamAfterTools,
+  callLLMStreamWithTools
+} from '../utils/llm/index.ts'
 import { throwIfAborted } from '../utils/abort.ts'
 import { buildContextMessages } from './contextService.ts'
 import { executeToolCalls, getToolDefinitions } from './toolService.ts'
@@ -93,16 +96,16 @@ async function generateConversationAnswer({
       })
 
       throwIfAborted(signal)
-      const answerPrompt = buildToolResultPrompt(
+      const answerResponse = await callLLMStreamAfterTools(
         prompt,
-        firstResponse.toolCalls,
+        firstResponse,
         toolResults,
-        firstResponse.reasoningContent
+        forwardStreamChunk,
+        {
+          signal,
+          modelOptions
+        }
       )
-      const answerResponse = await callLLMStream(answerPrompt, forwardStreamChunk, {
-        signal,
-        modelOptions
-      })
       finalResponse = answerResponse.content
     }
   }
@@ -133,10 +136,14 @@ async function generateConversationAnswer({
     assistantMessage.reasoningDurationMs = reasoningDurationMs
   }
 
-  await appendMessages(conversationId, [
+  const persistedConversation = await appendMessages(conversationId, [
     { role: 'user', content: question },
     assistantMessage
   ])
+
+  if (!persistedConversation) {
+    throw new Error('会话已被删除，响应未保存')
+  }
 
   return {
     content: finalResponse,

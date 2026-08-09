@@ -106,6 +106,7 @@ out
 # Misc
 AGENTS.md
 agents.md
+proto/
 lib-cov
 .grunt
 .lock-wscript

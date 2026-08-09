@@ -1,16 +1,16 @@
-import type { ModelRequestOptions } from '../types/llm.ts'
+import {
+  findModelDescriptor,
+  getModelDescriptor,
+  isLlmProviderId,
+  isModelDisabled,
+  MAX_MODEL_TOKENS
+} from './llm/modelCatalog.ts'
+import { getProviderConfig, readDefaultProvider } from './llm/providerConfig.ts'
+import type { EffectiveModelOptions, LlmProviderId, ModelRequestOptions } from '../types/llm.ts'
 
 const TRUE_VALUES = new Set(['1', 'true', 'yes', 'on', 'enabled'])
 const FALSE_VALUES = new Set(['0', 'false', 'no', 'off', 'disabled'])
-const MAX_MODEL_TOKENS = 65536
 const MAX_REASONING_EFFORT_LENGTH = 32
-
-type EffectiveModelOptions = {
-  temperature?: number
-  maxTokens?: number
-  reasoningEnabled: boolean
-  reasoningEffort: string
-}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -41,12 +41,64 @@ function parseOptionalInteger(value: string | undefined): number | undefined {
   return parsed !== undefined && Number.isInteger(parsed) ? parsed : undefined
 }
 
-function readDefaultModelOptions(): EffectiveModelOptions {
+function readProviderEnv(provider: LlmProviderId, suffix: string, legacyName: string): string | undefined {
+  const providerValue = process.env[`${provider.toUpperCase()}_${suffix}`]
+  if (providerValue !== undefined && providerValue.trim() !== '') {
+    return providerValue
+  }
+
+  return provider === readDefaultProvider() ? process.env[legacyName] : undefined
+}
+
+function readDefaultModelOptions(provider = readDefaultProvider()): EffectiveModelOptions {
+  const config = getProviderConfig(provider)
   return {
-    temperature: parseOptionalNumber(process.env.LLM_TEMPERATURE),
-    maxTokens: parseOptionalInteger(process.env.LLM_MAX_TOKENS),
-    reasoningEnabled: parseBoolean(process.env.LLM_REASONING_ENABLED, true),
-    reasoningEffort: process.env.LLM_REASONING_EFFORT?.trim() || 'max'
+    provider,
+    model: config.defaultModel,
+    temperature: parseOptionalNumber(readProviderEnv(provider, 'TEMPERATURE', 'LLM_TEMPERATURE')),
+    maxTokens: parseOptionalInteger(readProviderEnv(provider, 'MAX_TOKENS', 'LLM_MAX_TOKENS')),
+    reasoningEnabled: parseBoolean(
+      readProviderEnv(provider, 'REASONING_ENABLED', 'LLM_REASONING_ENABLED'),
+      true
+    ),
+    reasoningEffort: readProviderEnv(provider, 'REASONING_EFFORT', 'LLM_REASONING_EFFORT')?.trim() ||
+      (provider === 'openai' ? 'medium' : 'max')
+  }
+}
+
+function validateEffectiveModelOptions(
+  options: EffectiveModelOptions,
+  requestOptions: ModelRequestOptions = {}
+): void {
+  const descriptor = getModelDescriptor(options.provider, options.model)
+  if (isModelDisabled(options.model)) {
+    throw new Error(`${descriptor?.label ?? options.model} 当前已禁用`)
+  }
+  if (!descriptor) {
+    const configuredDefaultModel = getProviderConfig(options.provider).defaultModel
+    if (requestOptions.model !== undefined && options.model !== configuredDefaultModel) {
+      throw new Error(`${options.provider} 不支持模型 ${options.model}`)
+    }
+    return
+  }
+
+  if (options.maxTokens !== undefined && options.maxTokens > descriptor.capabilities.maxOutputTokens) {
+    throw new Error(
+      `maxTokens 不能超过 ${descriptor.label} 的最大值 ${descriptor.capabilities.maxOutputTokens}`
+    )
+  }
+
+  if (options.temperature !== undefined && !descriptor.capabilities.temperature) {
+    throw new Error(`${descriptor.label} 不支持 temperature 参数`)
+  }
+
+  if (
+    options.reasoningEnabled &&
+    !descriptor.capabilities.reasoningEfforts.includes(options.reasoningEffort)
+  ) {
+    throw new Error(
+      `${descriptor.label} 的 reasoningEffort 必须是 ${descriptor.capabilities.reasoningEfforts.join('、')}`
+    )
   }
 }
 
@@ -60,6 +112,28 @@ function parseModelRequestOptions(value: unknown): ModelRequestOptions {
   }
 
   const options: ModelRequestOptions = {}
+
+  if (value.provider !== undefined && value.provider !== null) {
+    if (typeof value.provider !== 'string' || !isLlmProviderId(value.provider.trim().toLowerCase())) {
+      throw new Error('provider 必须是 deepseek 或 openai')
+    }
+    options.provider = value.provider.trim().toLowerCase() as LlmProviderId
+  }
+
+  if (value.model !== undefined && value.model !== null) {
+    if (typeof value.model !== 'string' || !value.model.trim()) {
+      throw new Error('model 必须是非空字符串')
+    }
+    const model = findModelDescriptor(value.model.trim())
+    if (!model) {
+      throw new Error(`不支持模型 ${value.model.trim()}`)
+    }
+    if (options.provider && options.provider !== model.provider) {
+      throw new Error(`模型 ${model.id} 不属于 provider ${options.provider}`)
+    }
+    options.provider = model.provider
+    options.model = model.id
+  }
 
   if (value.temperature !== undefined && value.temperature !== null) {
     if (
@@ -104,18 +178,26 @@ function parseModelRequestOptions(value: unknown): ModelRequestOptions {
     options.reasoningEffort = value.reasoningEffort.trim()
   }
 
+  validateEffectiveModelOptions(resolveModelOptions(options), options)
   return options
 }
 
 function resolveModelOptions(overrides: ModelRequestOptions = {}): EffectiveModelOptions {
-  const defaults = readDefaultModelOptions()
-
-  return {
+  const provider = overrides.provider ??
+    (overrides.model ? findModelDescriptor(overrides.model)?.provider : undefined) ??
+    readDefaultProvider()
+  const defaults = readDefaultModelOptions(provider)
+  const options = {
+    provider,
+    model: overrides.model ?? defaults.model,
     temperature: overrides.temperature ?? defaults.temperature,
     maxTokens: overrides.maxTokens ?? defaults.maxTokens,
     reasoningEnabled: overrides.reasoningEnabled ?? defaults.reasoningEnabled,
     reasoningEffort: overrides.reasoningEffort ?? defaults.reasoningEffort
   }
+
+  validateEffectiveModelOptions(options, overrides)
+  return options
 }
 
 export {
@@ -123,5 +205,6 @@ export {
   MAX_MODEL_TOKENS,
   parseModelRequestOptions,
   readDefaultModelOptions,
-  resolveModelOptions
+  resolveModelOptions,
+  validateEffectiveModelOptions
 }

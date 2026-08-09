@@ -28,14 +28,16 @@ const currentTimeTool: ToolRegistryItem<CurrentTimeToolArgs> = {
     function: {
       name: 'getCurrentTime',
       description: '获取当前日期和时间，可指定 IANA 时区。',
+      strict: true,
       parameters: {
         type: 'object',
         properties: {
           timeZone: {
-            type: 'string',
-            description: '可选 IANA 时区，例如 Asia/Shanghai、UTC'
+            type: ['string', 'null'],
+            description: 'IANA 时区，例如 Asia/Shanghai、UTC；使用本地时区时传 null'
           }
         },
+        required: ['timeZone'],
         additionalProperties: false
       }
     }

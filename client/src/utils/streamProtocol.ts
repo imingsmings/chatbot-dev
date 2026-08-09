@@ -60,7 +60,9 @@ export function parseChatStreamEvent(line: string): ChatStreamEvent {
     case 'done':
       if (
         value.reasoningDurationMs !== undefined &&
-        (typeof value.reasoningDurationMs !== 'number' || !Number.isFinite(value.reasoningDurationMs))
+        (typeof value.reasoningDurationMs !== 'number' ||
+          !Number.isFinite(value.reasoningDurationMs) ||
+          value.reasoningDurationMs < 0)
       ) {
         throw new Error('服务端返回了无效的完成事件')
       }
@@ -70,7 +72,7 @@ export function parseChatStreamEvent(line: string): ChatStreamEvent {
         reasoningDurationMs: value.reasoningDurationMs,
       }
     case 'error':
-      if (typeof value.message !== 'string') {
+      if (typeof value.message !== 'string' || !value.message.trim()) {
         throw new Error('服务端返回了无效的错误事件')
       }
 
@@ -81,7 +83,9 @@ export function parseChatStreamEvent(line: string): ChatStreamEvent {
     case 'tool_start':
       if (
         typeof value.name !== 'string' ||
-        (value.toolCallId !== undefined && typeof value.toolCallId !== 'string')
+        !value.name.trim() ||
+        (value.toolCallId !== undefined &&
+          (typeof value.toolCallId !== 'string' || !value.toolCallId.trim()))
       ) {
         throw new Error('服务端返回了无效的工具开始事件')
       }
@@ -93,9 +97,11 @@ export function parseChatStreamEvent(line: string): ChatStreamEvent {
     case 'tool_result':
       if (
         typeof value.name !== 'string' ||
+        !value.name.trim() ||
         typeof value.summary !== 'string' ||
         typeof value.success !== 'boolean' ||
-        (value.toolCallId !== undefined && typeof value.toolCallId !== 'string')
+        (value.toolCallId !== undefined &&
+          (typeof value.toolCallId !== 'string' || !value.toolCallId.trim()))
       ) {
         throw new Error('服务端返回了无效的工具结果事件')
       }

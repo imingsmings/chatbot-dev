@@ -34,7 +34,11 @@ class CdpClient {
         this.pending.delete(payload.id)
 
         if (payload.error) {
-          request.reject(new Error(`${payload.error.message}: ${payload.error.data || ''}`))
+          request.reject(
+            new Error(
+              `${request.method}${request.expression ? ` (${request.expression.slice(0, 180)})` : ''}: ${payload.error.message}: ${payload.error.data || ''}`,
+            ),
+          )
         } else {
           request.resolve(payload.result || {})
         }
@@ -66,6 +70,8 @@ class CdpClient {
         reject(new Error(`CDP command timed out: ${method}${context}`))
       }, CDP_COMMAND_TIMEOUT_MS)
       this.pending.set(id, {
+        method,
+        expression: method === 'Runtime.evaluate' ? params.expression : '',
         resolve: (value) => {
           clearTimeout(timer)
           resolve(value)
@@ -182,13 +188,13 @@ async function resetPage(client) {
   await navigateAndWait(client, APP_URL)
   await waitFor(
     client,
-    `location.href.startsWith(${JSON.stringify(APP_URL)}) && document.querySelector("textarea")`,
+    `location.href.startsWith(${JSON.stringify(APP_URL)}) && Boolean(document.querySelector("textarea"))`,
   )
 
   const isEmpty = await evaluate(client, 'Boolean(document.querySelector(".empty-state"))')
   if (!isEmpty) {
     await clickText(client, 'button', '新建')
-    await waitFor(client, 'document.querySelector("textarea") && document.querySelector(".empty-state")')
+    await waitFor(client, 'Boolean(document.querySelector("textarea") && document.querySelector(".empty-state"))')
   }
 }
 
@@ -209,7 +215,8 @@ async function ask(client, question) {
     client,
     `(() => {
       const input = document.querySelector('textarea');
-      input.value = ${JSON.stringify(question)};
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')
+        .set.call(input, ${JSON.stringify(question)});
       input.dispatchEvent(new Event('input', { bubbles: true }));
       document.querySelector('form').dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
     })()`,
@@ -217,12 +224,40 @@ async function ask(client, question) {
 }
 
 async function clickText(client, selector, text) {
+  const clicked = await evaluate(
+    client,
+    `(() => {
+      const el = [...document.querySelectorAll(${JSON.stringify(selector)})]
+        .find((node) => node.textContent.trim() === ${JSON.stringify(text)});
+      if (!el) return false;
+      el.click();
+      return true;
+    })()`,
+  )
+  if (clicked) return
+
+  const triggerSelector = ['导入 JSON', '导出全部 JSON', '清空当前会话'].includes(text)
+    ? '.user-menu-trigger'
+    : ['参数', '模板', '摘要', '上下文'].includes(text)
+      ? '.chat-header .header-icon-btn[aria-label="更多操作"]'
+      : null
+  if (!triggerSelector) throw new Error(`Cannot find clickable text: ${text}`)
+
+  await evaluate(
+    client,
+    `document.querySelector(${JSON.stringify(triggerSelector)})?.click()`,
+  )
+  await waitFor(
+    client,
+    `[...document.querySelectorAll(${JSON.stringify(selector)})]
+      .some((node) => node.textContent.trim() === ${JSON.stringify(text)})`,
+  )
   await evaluate(
     client,
     `(() => {
       const el = [...document.querySelectorAll(${JSON.stringify(selector)})]
         .find((node) => node.textContent.trim() === ${JSON.stringify(text)});
-      if (!el) throw new Error('Cannot find clickable text: ${text}');
+      if (!el) throw new Error('Cannot find menu action: ${text}');
       el.click();
     })()`,
   )
@@ -265,7 +300,8 @@ async function submitPromptDialog(client, value, options = {}) {
     `(() => {
       const input = document.querySelector('.modal-content[role="dialog"] .dialog-input');
       if (!input) throw new Error('Cannot find dialog input');
-      input.value = ${JSON.stringify(value)};
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')
+        .set.call(input, ${JSON.stringify(value)});
       input.dispatchEvent(new Event('input', { bubbles: true }));
     })()`,
   )
@@ -296,16 +332,32 @@ async function clickConversationAt(client, index) {
 }
 
 async function clickConversationActionAt(client, index, title) {
-  const rect = await evaluate(
+  const usesPopup = await evaluate(
     client,
     `(() => {
       const shell = [...document.querySelectorAll('.conversation-item-shell')][${index}];
       if (!shell) throw new Error('Cannot find conversation shell at index ${index}');
-      const button = [...shell.querySelectorAll('.conversation-action-btn')]
-        .find((node) => node.getAttribute('title') === ${JSON.stringify(title)} || node.textContent.trim() === ${JSON.stringify(title)});
-      if (!button) throw new Error('Cannot find conversation action ${title} at index ${index}');
       shell.scrollIntoView({ block: 'center', inline: 'nearest' });
+      const trigger = shell.querySelector('.conversation-menu-trigger');
+      if (trigger) {
+        trigger.click();
+        return true;
+      }
       shell.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, cancelable: true, view: window }));
+      return false;
+    })()`,
+  )
+  if (usesPopup) {
+    await waitFor(client, `Boolean(document.querySelector('.conversation-actions-menu'))`)
+  }
+  const rect = await evaluate(
+    client,
+    `(() => {
+      const shell = [...document.querySelectorAll('.conversation-item-shell')][${index}];
+      const root = document.querySelector('.conversation-actions-menu') || shell;
+      const button = [...root.querySelectorAll('.conversation-action-btn')]
+        .find((node) => node.getAttribute('aria-label') === ${JSON.stringify(title)} || node.textContent.trim() === ${JSON.stringify(title)});
+      if (!button) throw new Error('Cannot find conversation action ${title} at index ${index}');
       button.focus();
       const rect = button.getBoundingClientRect();
       return {
@@ -336,13 +388,29 @@ async function clickConversationActionAt(client, index, title) {
 }
 
 async function invokeConversationActionAt(client, index, title) {
-  await evaluate(
+  const usesPopup = await evaluate(
     client,
     `(() => {
       const shell = [...document.querySelectorAll('.conversation-item-shell')][${index}];
       if (!shell) throw new Error('Cannot find conversation shell at index ${index}');
-      const button = [...shell.querySelectorAll('.conversation-action-btn')]
-        .find((node) => node.getAttribute('title') === ${JSON.stringify(title)} || node.textContent.trim() === ${JSON.stringify(title)});
+      const trigger = shell.querySelector('.conversation-menu-trigger');
+      if (trigger) {
+        trigger.click();
+        return true;
+      }
+      return false;
+    })()`,
+  )
+  if (usesPopup) {
+    await waitFor(client, `Boolean(document.querySelector('.conversation-actions-menu'))`)
+  }
+  await evaluate(
+    client,
+    `(() => {
+      const shell = [...document.querySelectorAll('.conversation-item-shell')][${index}];
+      const root = document.querySelector('.conversation-actions-menu') || shell;
+      const button = [...root.querySelectorAll('.conversation-action-btn')]
+        .find((node) => node.getAttribute('aria-label') === ${JSON.stringify(title)} || node.textContent.trim() === ${JSON.stringify(title)});
       if (!button) throw new Error('Cannot find conversation action ${title} at index ${index}');
       button.click();
     })()`,
@@ -373,7 +441,8 @@ async function typeText(client, text) {
     client,
     `(() => {
       const input = document.querySelector('textarea');
-      input.value = ${JSON.stringify(text)};
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')
+        .set.call(input, ${JSON.stringify(text)});
       input.dispatchEvent(new Event('input', { bubbles: true }));
     })()`,
   )
@@ -384,6 +453,17 @@ function makeLongChunks(prefix, count) {
     { length: count },
     (_, index) => `${prefix} ${index + 1}. 这是一段用于拉长聊天内容的文本。\n`,
   )
+}
+
+function makeCodeBlockChunks(count) {
+  return [
+    '```ts\n',
+    ...Array.from(
+      { length: count },
+      (_, index) => `const streamedRow${index + 1} = '代码块自动滚动第 ${index + 1} 行';\n`,
+    ),
+    '```',
+  ]
 }
 
 const mockScript = `
@@ -531,6 +611,10 @@ const mockScript = `
     if (pathname === '/runtime-config' && method === 'GET') {
       return json({
         runtime: {
+          profile: {
+            name: 'Jason Wang',
+            avatarUrl: '/assets/jw.svg',
+          },
           provider: 'deepseek',
           model: 'mock-chat-model',
           storageBackend: 'file',
@@ -845,15 +929,25 @@ async function main() {
     console.log('UI stage: initialization, sidebar, dialogs, and API failures')
     const initialState = await evaluate(
       client,
-      `(() => ({
-        hasSidebar: Boolean(document.querySelector('.sidebar')),
-        hasEmptyState: Boolean(document.querySelector('.empty-state')),
-        suggestionCount: document.querySelectorAll('.suggestion-card').length,
-        activeCount: document.querySelectorAll('.conversation-item-shell.active').length,
-        sendDisabled: [...document.querySelectorAll('button')].find((button) => button.textContent.trim() === '发送')?.disabled === true,
-        textareaDisabled: document.querySelector('textarea')?.disabled === false,
-        pageOverflowX: document.documentElement.scrollWidth > window.innerWidth,
-      }))()`,
+      `(() => {
+        const userMenuTrigger = document.querySelector('.user-menu-trigger');
+        const userAvatar = document.querySelector('.user-avatar');
+        return {
+          hasSidebar: Boolean(document.querySelector('.sidebar')),
+          hasEmptyState: Boolean(document.querySelector('.empty-state')),
+          suggestionCount: document.querySelectorAll('.suggestion-card').length,
+          activeCount: document.querySelectorAll('.conversation-item-shell.active').length,
+          sendDisabled: [...document.querySelectorAll('button')].find((button) => button.textContent.trim() === '发送')?.disabled === true,
+          textareaDisabled: document.querySelector('textarea')?.disabled === false,
+          pageOverflowX: document.documentElement.scrollWidth > window.innerWidth,
+          userMenuHeight: userMenuTrigger?.getBoundingClientRect().height,
+          userAvatarSize: userAvatar?.getBoundingClientRect().width,
+          userAvatarSource: userAvatar?.getAttribute('src'),
+          userAvatarLoaded: userAvatar instanceof HTMLImageElement && userAvatar.complete && userAvatar.naturalWidth > 0,
+          userName: userMenuTrigger?.querySelector('.user-name')?.textContent?.trim(),
+          userMenuIconCount: userMenuTrigger?.querySelectorAll('svg').length,
+        };
+      })()`,
     )
     if (
       !initialState.hasSidebar ||
@@ -862,7 +956,13 @@ async function main() {
       initialState.activeCount !== 1 ||
       !initialState.sendDisabled ||
       !initialState.textareaDisabled ||
-      initialState.pageOverflowX
+      initialState.pageOverflowX ||
+      initialState.userMenuHeight !== 44 ||
+      initialState.userAvatarSize !== 32 ||
+      initialState.userAvatarSource !== '/assets/jw.svg' ||
+      !initialState.userAvatarLoaded ||
+      initialState.userName !== 'Jason Wang' ||
+      initialState.userMenuIconCount !== 1
     ) {
       throw new Error(`Initial UI state failed: ${JSON.stringify(initialState)}`)
     }
@@ -889,16 +989,32 @@ async function main() {
     await seedConversations(client, manyConversations)
     await client.send('Page.reload')
     await waitFor(client, `document.body.innerText.includes('旧格式助手消息，没有 reasoning 字段')`)
+    const sidebarUsesPopup = await evaluate(
+      client,
+      `(() => {
+        const trigger = document.querySelector('.conversation-item-shell.active .conversation-menu-trigger');
+        if (!trigger) return false;
+        trigger.click();
+        return true;
+      })()`,
+    )
+    if (sidebarUsesPopup) {
+      await waitFor(client, `Boolean(document.querySelector('.conversation-actions-menu'))`)
+    }
     const sidebarState = await evaluate(
       client,
       `(() => {
         const panel = document.querySelector('.conversation-panel');
         const title = document.querySelector('.conversation-title');
         const activeShell = document.querySelector('.conversation-item-shell.active');
-        const actionRects = [...activeShell.querySelectorAll('.conversation-action-btn')]
+        const actionRoot = document.querySelector('.conversation-actions-menu') || activeShell;
+        const actionRects = [...actionRoot.querySelectorAll('.conversation-action-btn')]
           .map((button) => button.getBoundingClientRect());
-        const actionLabels = [...activeShell.querySelectorAll('.conversation-action-btn')]
+        const actionLabels = [...actionRoot.querySelectorAll('.conversation-action-btn')]
           .map((button) => button.textContent.trim());
+        const chatScrollRect = document.querySelector('.chat-scroll').getBoundingClientRect();
+        const firstUserMessageRect = document.querySelector('.message-row.user .message-text')
+          .getBoundingClientRect();
         return {
           count: document.querySelectorAll('.conversation-item-shell').length,
           panelScrollable: panel.scrollHeight > panel.clientHeight,
@@ -907,6 +1023,20 @@ async function main() {
           actionLabels,
           actionsVisible: actionRects.length === 3 && actionRects.every((rect) => rect.width > 0 && rect.height > 0),
           hasReasoningPanelForOldData: Boolean(document.querySelector('.reasoning-panel')),
+          chatScrollRect: {
+            top: Math.round(chatScrollRect.top),
+            right: Math.round(chatScrollRect.right),
+            bottom: Math.round(chatScrollRect.bottom),
+          },
+          firstUserMessageRect: {
+            top: Math.round(firstUserMessageRect.top),
+            right: Math.round(firstUserMessageRect.right),
+            bottom: Math.round(firstUserMessageRect.bottom),
+          },
+          firstUserMessageFullyVisible:
+            firstUserMessageRect.top >= chatScrollRect.top &&
+            firstUserMessageRect.right <= chatScrollRect.right &&
+            firstUserMessageRect.bottom <= chatScrollRect.bottom,
           pageOverflowX: document.documentElement.scrollWidth > window.innerWidth,
         };
       })()`,
@@ -919,10 +1049,13 @@ async function main() {
       JSON.stringify(sidebarState.actionLabels) !== JSON.stringify(['导出', '重命名', '删除']) ||
       !sidebarState.actionsVisible ||
       sidebarState.hasReasoningPanelForOldData ||
+      !sidebarState.firstUserMessageFullyVisible ||
       sidebarState.pageOverflowX
     ) {
       throw new Error(`Sidebar boundary assertions failed: ${JSON.stringify(sidebarState)}`)
     }
+    await client.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape' })
+    await client.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape' })
 
     const titleBeforeRename = await evaluate(
       client,
@@ -952,7 +1085,11 @@ async function main() {
       throw new Error(`Rename cancel/blank/failure assertions failed: ${JSON.stringify(renameState)}`)
     }
 
-    await waitFor(client, `document.querySelector('.clear-history-btn')?.disabled === false`)
+    await waitFor(
+      client,
+      `document.querySelector('.user-menu-trigger')?.disabled !== true ||
+        document.querySelector('.clear-history-btn')?.disabled === false`,
+    )
     await clickConversationActionAt(client, 0, '删除')
     await waitForDialog(client, '删除会话')
     await cancelDialog(client)
@@ -988,7 +1125,7 @@ async function main() {
         `(() => ({
           domCount: document.querySelectorAll('.conversation-item-shell').length,
           activeTitle: document.querySelector('.conversation-item-shell.active .conversation-title')?.textContent.trim(),
-          clearDisabled: document.querySelector('.clear-history-btn')?.disabled,
+          userMenuTriggerDisabled: document.querySelector('.user-menu-trigger')?.disabled,
           snapshot: window.__mockSnapshot(),
         }))()`,
       )
@@ -1119,12 +1256,135 @@ async function main() {
     if (
       !reasoningState.hasPanel ||
       reasoningState.open !== false ||
-      reasoningState.summary !== 'Thoughts' ||
+      !(reasoningState.summary === 'Thoughts' || reasoningState.summary.startsWith('已深度思考')) ||
       !reasoningState.reasoningText.includes('先分析问题。再给出结论。') ||
       !reasoningState.answerText.includes('最终回答。')
     ) {
       throw new Error(`Reasoning panel assertions failed: ${JSON.stringify(reasoningState)}`)
     }
+
+    const densityAlignmentState = await evaluate(
+      client,
+      `(() => {
+        const messageList = document.querySelector('.message-list');
+        const composer = document.querySelector('.composer-inner');
+        const assistantText = [...document.querySelectorAll('.message-row.assistant .message-text')].at(-1);
+        const reasoningSummary = document.querySelector('.reasoning-summary');
+        const textarea = document.querySelector('textarea');
+        const modelTrigger = document.querySelector('.model-menu-trigger');
+        const microphoneButton = document.querySelector('.microphone-btn');
+        const sendButton = document.querySelector('.send-btn');
+        const reasoningPanel = document.querySelector('.reasoning-panel');
+        const messageRect = messageList.getBoundingClientRect();
+        const composerRect = composer.getBoundingClientRect();
+        const triggerRect = modelTrigger.getBoundingClientRect();
+        const microphoneRect = microphoneButton.getBoundingClientRect();
+        const sendRect = sendButton.getBoundingClientRect();
+        const reasoningRect = reasoningPanel.getBoundingClientRect();
+        const answerRect = assistantText.getBoundingClientRect();
+        const triggerStyle = getComputedStyle(modelTrigger);
+        const fontSize = (element) => Number.parseFloat(getComputedStyle(element).fontSize);
+        return {
+          xDelta: Math.abs(messageRect.x - composerRect.x),
+          widthDelta: Math.abs(messageRect.width - composerRect.width),
+          assistantFontSize: fontSize(assistantText),
+          reasoningFontSize: fontSize(reasoningSummary),
+          inputFontSize: fontSize(textarea),
+          triggerFontSize: fontSize(modelTrigger),
+          triggerHeight: triggerRect.height,
+          triggerBorderWidth: Number.parseFloat(triggerStyle.borderLeftWidth),
+          microphoneSize: { width: microphoneRect.width, height: microphoneRect.height },
+          sendSize: { width: sendRect.width, height: sendRect.height },
+          placeholder: textarea.getAttribute('placeholder'),
+          reasoningAnswerGap: answerRect.top - reasoningRect.bottom,
+          pageOverflowX: document.documentElement.scrollWidth > window.innerWidth,
+        };
+      })()`,
+    )
+    if (
+      densityAlignmentState.xDelta > 1 ||
+      densityAlignmentState.widthDelta > 1 ||
+      ![densityAlignmentState.assistantFontSize, densityAlignmentState.reasoningFontSize,
+        densityAlignmentState.inputFontSize, densityAlignmentState.triggerFontSize]
+        .every((size) => size >= 13 && size <= 15) ||
+      densityAlignmentState.triggerHeight > 32.5 ||
+      densityAlignmentState.triggerBorderWidth !== 0 ||
+      densityAlignmentState.placeholder !== 'Ask AI' ||
+      Math.abs(densityAlignmentState.sendSize.width - densityAlignmentState.microphoneSize.width) > 0.5 ||
+      Math.abs(densityAlignmentState.sendSize.height - densityAlignmentState.microphoneSize.height) > 0.5 ||
+      densityAlignmentState.sendSize.width < 33 ||
+      densityAlignmentState.sendSize.width > 35 ||
+      densityAlignmentState.reasoningAnswerGap < 8 ||
+      densityAlignmentState.reasoningAnswerGap > 16 ||
+      densityAlignmentState.pageOverflowX
+    ) {
+      throw new Error(`Chat density and alignment failed: ${JSON.stringify(densityAlignmentState)}`)
+    }
+
+    await evaluate(client, `document.querySelector('.model-menu-trigger')?.click()`)
+    await waitFor(client, `Boolean(document.querySelector('.model-options-menu'))`)
+    await evaluate(client, `document.querySelector('button[aria-label="Select Model"]')?.click()`)
+    await waitFor(client, `Boolean(document.querySelector('.model-submenu'))`)
+    const modelMenuState = await evaluate(
+      client,
+      `(() => {
+        const menu = document.querySelector('.model-options-menu');
+        const submenu = document.querySelector('.model-submenu');
+        const items = [...submenu.querySelectorAll('.option-item')];
+        const menuRect = menu.getBoundingClientRect();
+        const submenuRect = submenu.getBoundingClientRect();
+        return {
+          menuWidth: menuRect.width,
+          submenuWidth: submenuRect.width,
+          edgeGap: Math.min(
+            Math.abs(submenuRect.left - menuRect.right),
+            Math.abs(menuRect.left - submenuRect.right),
+          ),
+          labels: items.map((item) => item.textContent.trim()),
+          selectedCount: items.filter((item) => item.classList.contains('selected')).length,
+          maxItemHeight: Math.max(...items.map((item) => item.getBoundingClientRect().height)),
+          enabledColor: getComputedStyle(items.find((item) => !item.matches(':disabled, [data-disabled], [aria-disabled="true"]'))).color,
+        };
+      })()`,
+    )
+    if (
+      modelMenuState.menuWidth > 286 ||
+      modelMenuState.submenuWidth > 242 ||
+      modelMenuState.edgeGap > 1 ||
+      JSON.stringify(modelMenuState.labels) !== JSON.stringify(['DeepSeek V4 Flash', 'DeepSeek V4 Pro']) ||
+      modelMenuState.selectedCount !== 1 ||
+      modelMenuState.maxItemHeight > 36.5
+    ) {
+      throw new Error(`Model submenu density failed: ${JSON.stringify(modelMenuState)}`)
+    }
+    await evaluate(client, `document.querySelector('button[aria-label="Select DeepSeek V4 Pro"]')?.click()`)
+    await waitFor(client, `document.querySelector('.model-menu-trigger')?.getAttribute('aria-label')?.includes('DeepSeek V4 Pro')`)
+
+    await evaluate(client, `document.querySelector('.model-menu-trigger')?.click()`)
+    await waitFor(client, `Boolean(document.querySelector('.model-options-menu'))`)
+    await evaluate(client, `document.querySelector('button[aria-label="Select Effort"]')?.click()`)
+    await waitFor(client, `Boolean(document.querySelector('.effort-submenu'))`)
+    const effortMenuState = await evaluate(
+      client,
+      `(() => {
+        const items = [...document.querySelectorAll('.effort-submenu .option-item')];
+        return {
+          labels: items.map((item) => item.textContent.trim()),
+          selectedCount: document.querySelectorAll('.effort-submenu .option-item.selected').length,
+          enabledColor: getComputedStyle(items.find((item) => !item.matches(':disabled, [data-disabled], [aria-disabled="true"]'))).color,
+        };
+      })()`,
+    )
+    if (
+      JSON.stringify(effortMenuState.labels) !== JSON.stringify(['Off', 'Low', 'Medium', 'High', 'Max']) ||
+      effortMenuState.selectedCount !== 1 ||
+      effortMenuState.enabledColor !== modelMenuState.enabledColor
+    ) {
+      throw new Error(`Effort submenu structure failed: ${JSON.stringify(effortMenuState)}`)
+    }
+    await evaluate(client, `document.querySelector('button[aria-label="Select Effort High"]')?.click()`)
+    await waitFor(client, `document.querySelector('.model-menu-trigger')?.getAttribute('aria-label')?.endsWith(', High')`)
+
     await ensureClipboard(client)
     await clickText(client, 'button', '复制')
     await waitFor(client, `document.body.innerText.includes('已复制')`)
@@ -1418,6 +1678,46 @@ async function main() {
     await waitFor(client, `document.body.innerText.includes('已停止生成')`)
     await waitIdle(client)
 
+    await setPlan(client, [{
+      kind: 'success',
+      chunks: makeCodeBlockChunks(64),
+      interval: 15,
+      done: false,
+    }])
+    await evaluate(client, `document.querySelector('.chat-scroll').scrollTop = document.querySelector('.chat-scroll').scrollHeight`)
+    await delay(100)
+    const codeBlockScrollBefore = await evaluate(client, `Math.round(document.querySelector('.chat-scroll').scrollTop)`)
+    await ask(client, '代码块结尾时保持自动滚动')
+    await waitFor(
+      client,
+      `document.querySelector('.code-block code')?.textContent.includes('streamedRow64')`,
+    )
+    await delay(250)
+    const codeBlockFollowState = await evaluate(
+      client,
+      `(() => {
+        const scroll = document.querySelector('.chat-scroll');
+        const code = document.querySelector('.code-block');
+        return {
+          bottomGap: Math.round(scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight),
+          codeBlockHeight: Math.round(code.getBoundingClientRect().height),
+          scrollTop: Math.round(scroll.scrollTop),
+        };
+      })()`,
+    )
+    if (
+      codeBlockFollowState.bottomGap > 96 ||
+      codeBlockFollowState.codeBlockHeight < 600 ||
+      codeBlockFollowState.scrollTop <= codeBlockScrollBefore
+    ) {
+      throw new Error(
+        `Streaming code-block follow failed: before=${codeBlockScrollBefore}, state=${JSON.stringify(codeBlockFollowState)}`,
+      )
+    }
+    await clickText(client, 'button', '停止')
+    await waitFor(client, `document.body.innerText.includes('已停止生成')`)
+    await waitIdle(client)
+
     await setPlan(client, [
       { kind: 'success', chunks: makeLongChunks('新流式回复', 40), interval: 120, done: false },
     ])
@@ -1471,7 +1771,7 @@ async function main() {
     await waitFor(client, `document.body.innerText.includes('第一会话历史内容。')`)
     await waitIdle(client)
     await clickText(client, 'button', '新建')
-    await waitFor(client, `document.querySelector('.empty-state')`)
+    await waitFor(client, `Boolean(document.querySelector('.empty-state'))`)
     await ask(client, '第二会话生成中')
     await waitFor(client, `document.body.innerText.includes('第二会话正在生成。')`)
     await clickConversationAt(client, 1)
@@ -1502,14 +1802,12 @@ async function main() {
     const switchDraftValue = await evaluate(client, `document.querySelector('textarea')?.value`)
 
     await typeText(client, '删除当前会话前未发送草稿')
-    await evaluate(
+    const activeConversationIndex = await evaluate(
       client,
-      `(() => {
-        const button = document.querySelector('.conversation-item-shell.active .conversation-action-btn.danger');
-        if (!button) throw new Error('Cannot find active delete button');
-        button.click();
-      })()`,
+      `[...document.querySelectorAll('.conversation-item-shell')]
+        .findIndex((shell) => shell.classList.contains('active'))`,
     )
+    await clickConversationActionAt(client, activeConversationIndex, '删除')
     await waitForDialog(client, '删除会话')
     await confirmDialog(client, '删除')
     await waitFor(
@@ -1571,42 +1869,96 @@ async function main() {
     }])
     await ask(client, '生成中操作')
     await waitFor(client, `document.body.innerText.includes('生成中会话操作内容。')`)
-    const operationState = await evaluate(
+    const operationBeforeCount = await evaluate(
+      client,
+      `document.querySelectorAll('.conversation-title').length`,
+    )
+    const operationUsesUserMenu = await evaluate(
       client,
       `(() => {
-        const beforeTitles = [...document.querySelectorAll('.conversation-title')].map((node) => node.textContent.trim());
-        const clearDisabled = document.querySelector('.clear-history-btn')?.disabled === true;
-        const importDisabled = [...document.querySelectorAll('button')]
-          .find((button) => button.textContent.trim() === '导入 JSON')?.disabled === true;
-        const exportAllDisabled = [...document.querySelectorAll('button')]
-          .find((button) => button.textContent.trim() === '导出全部 JSON')?.disabled === true;
-        const singleExportDisabled = [...document.querySelectorAll('.conversation-action-btn')]
-          .filter((button) => button.getAttribute('title') === '导出 Markdown')
-          .every((button) => button.disabled === true);
-        document.querySelector('.conversation-action-btn.danger')?.click();
-        const afterDeleteTitles = [...document.querySelectorAll('.conversation-title')].map((node) => node.textContent.trim());
-        document.querySelector('.conversation-action-btn[title="重命名"]')?.click();
+        const trigger = document.querySelector('.user-menu-trigger');
+        if (!trigger) return false;
+        trigger.click();
+        return true;
+      })()`,
+    )
+    if (operationUsesUserMenu) {
+      await waitFor(client, `Boolean(document.querySelector('.sidebar-user-menu'))`)
+    }
+    const userOperationState = await evaluate(
+      client,
+      `(() => ({
+        clearDisabled: [...(document.querySelector('.sidebar-user-menu') || document.querySelector('.sidebar-footer')).querySelectorAll('button')]
+          .find((button) => button.textContent.trim() === '清空当前会话')?.matches(':disabled, [data-disabled], [aria-disabled="true"]') === true,
+        importDisabled: [...(document.querySelector('.sidebar-user-menu') || document.querySelector('.sidebar-footer')).querySelectorAll('button')]
+          .find((button) => button.textContent.trim() === '导入 JSON')?.matches(':disabled, [data-disabled], [aria-disabled="true"]') === true,
+        exportAllDisabled: [...(document.querySelector('.sidebar-user-menu') || document.querySelector('.sidebar-footer')).querySelectorAll('button')]
+          .find((button) => button.textContent.trim() === '导出全部 JSON')?.matches(':disabled, [data-disabled], [aria-disabled="true"]') === true,
+      }))()`,
+    )
+    if (operationUsesUserMenu) {
+      await client.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape' })
+      await client.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape' })
+    }
+
+    const generatingActiveIndex = await evaluate(
+      client,
+      `[...document.querySelectorAll('.conversation-item-shell')]
+        .findIndex((shell) => shell.classList.contains('active'))`,
+    )
+    const operationUsesConversationMenu = await evaluate(
+      client,
+      `(() => {
+        const shell = document.querySelectorAll('.conversation-item-shell')[${generatingActiveIndex}];
+        const trigger = shell?.querySelector('.conversation-menu-trigger');
+        if (!trigger) return false;
+        trigger.click();
+        return true;
+      })()`,
+    )
+    if (operationUsesConversationMenu) {
+      await waitFor(client, `Boolean(document.querySelector('.conversation-actions-menu'))`)
+    }
+    const conversationOperationState = await evaluate(
+      client,
+      `(() => {
+        const shell = document.querySelectorAll('.conversation-item-shell')[${generatingActiveIndex}];
+        const root = document.querySelector('.conversation-actions-menu') || shell;
         return {
-          clearDisabled,
-          importDisabled,
-          exportAllDisabled,
-          singleExportDisabled,
-          beforeCount: beforeTitles.length,
-          afterDeleteCount: afterDeleteTitles.length,
+          singleExportDisabled: root.querySelector('.conversation-action-btn[aria-label="导出 Markdown"]')?.matches(':disabled, [data-disabled], [aria-disabled="true"]') === true,
+          deleteDisabled: root.querySelector('.conversation-action-btn.danger')?.matches(':disabled, [data-disabled], [aria-disabled="true"]') === true,
+          renameEnabled: root.querySelector('.conversation-action-btn[aria-label="重命名"]')?.matches(':disabled, [data-disabled], [aria-disabled="true"]') === false,
         };
+      })()`,
+    )
+    await evaluate(
+      client,
+      `(() => {
+        const shell = document.querySelectorAll('.conversation-item-shell')[${generatingActiveIndex}];
+        const root = document.querySelector('.conversation-actions-menu') || shell;
+        root.querySelector('.conversation-action-btn[aria-label="重命名"]')?.click();
       })()`,
     )
     await waitForDialog(client, '重命名会话')
     await submitPromptDialog(client, '生成中重命名成功')
     await waitFor(client, `document.body.innerText.includes('生成中重命名成功')`)
     if (
-      !operationState.clearDisabled ||
-      !operationState.importDisabled ||
-      !operationState.exportAllDisabled ||
-      !operationState.singleExportDisabled ||
-      operationState.beforeCount !== operationState.afterDeleteCount
+      !userOperationState.clearDisabled ||
+      !userOperationState.importDisabled ||
+      !userOperationState.exportAllDisabled ||
+      !conversationOperationState.singleExportDisabled ||
+      !conversationOperationState.deleteDisabled ||
+      !conversationOperationState.renameEnabled ||
+      operationBeforeCount !== await evaluate(client, `document.querySelectorAll('.conversation-title').length`)
     ) {
-      throw new Error('Generating conversation operation state failed')
+      throw new Error(
+        `Generating conversation operation state failed: ${JSON.stringify({
+          userOperationState,
+          conversationOperationState,
+          operationBeforeCount,
+          operationAfterCount: await evaluate(client, `document.querySelectorAll('.conversation-title').length`),
+        })}`,
+      )
     }
     await clickText(client, 'button', '停止')
     await waitFor(client, `document.body.innerText.includes('已停止生成')`)
@@ -1713,15 +2065,20 @@ async function main() {
     const toggledTheme = await evaluate(client, `document.querySelector('.app-shell')?.dataset.theme`)
     await client.send('Page.reload')
     await waitFor(client, `document.querySelector('.app-shell')?.dataset.theme === ${JSON.stringify(toggledTheme)}`)
-    await waitFor(client, `document.querySelector('textarea') && document.querySelector('form')`)
+    await waitFor(client, `Boolean(document.querySelector('textarea') && document.querySelector('form'))`)
     const themePersistenceState = await evaluate(
       client,
       `(() => ({
         theme: document.querySelector('.app-shell')?.dataset.theme,
         storedTheme: localStorage.getItem('chatbot-theme'),
+        textareaBackground: getComputedStyle(document.querySelector('textarea')).backgroundColor,
       }))()`,
     )
-    if (themePersistenceState.theme !== toggledTheme || themePersistenceState.storedTheme !== toggledTheme) {
+    if (
+      themePersistenceState.theme !== toggledTheme ||
+      themePersistenceState.storedTheme !== toggledTheme ||
+      themePersistenceState.textareaBackground !== 'rgba(0, 0, 0, 0)'
+    ) {
       throw new Error(`Theme persistence failed: ${JSON.stringify(themePersistenceState)}`)
     }
     await setPlan(client, [{ kind: 'success', chunks: ['主题切换生成中保持。'], interval: 300, done: false }])
@@ -1733,9 +2090,14 @@ async function main() {
       `(() => ({
         stillGenerating: [...document.querySelectorAll('button')].some((button) => button.textContent.trim() === '停止'),
         theme: document.querySelector('.app-shell')?.dataset.theme,
+        textareaBackground: getComputedStyle(document.querySelector('textarea')).backgroundColor,
       }))()`,
     )
-    if (!themeStreamingState.stillGenerating || themeStreamingState.theme === toggledTheme) {
+    if (
+      !themeStreamingState.stillGenerating ||
+      themeStreamingState.theme === toggledTheme ||
+      themeStreamingState.textareaBackground !== 'rgba(0, 0, 0, 0)'
+    ) {
       throw new Error('Theme toggle during streaming failed')
     }
     await clickText(client, 'button', '停止')
@@ -1963,6 +2325,7 @@ async function main() {
       scrollBefore,
       bottomGapAtBottom,
       bottomGapFollow,
+      codeBlockFollowState,
       bottomGapBefore,
       scrollDuring,
       bottomGap,
@@ -1974,7 +2337,8 @@ async function main() {
       switchDraftValue,
       deleteDraftState,
       clearDraftState,
-      operationState,
+      userOperationState,
+      conversationOperationState,
       composerState,
       suggestionState,
       suggestionDuringGeneration,

@@ -154,11 +154,36 @@ async function clickButtonByText(client, text) {
     client,
     `(() => {
       const button = [...document.querySelectorAll('button')]
-        .find((item) => item.textContent.trim() === ${JSON.stringify(text)});
+        .find((item) =>
+          item.textContent.trim() === ${JSON.stringify(text)} ||
+          item.getAttribute('aria-label') === ${JSON.stringify(text)}
+        );
       if (!button) throw new Error('button not found: ${text}');
       button.click();
     })()`
   )
+}
+
+async function clickAppAction(client, text) {
+  const clickedDirectly = await evaluate(
+    client,
+    `(() => {
+      const button = [...document.querySelectorAll('button')]
+        .find((item) => item.textContent.trim() === ${JSON.stringify(text)});
+      if (!button) return false;
+      button.click();
+      return true;
+    })()`,
+  )
+  if (clickedDirectly) return
+
+  await clickButtonByText(client, '更多操作')
+  await waitForEval(
+    client,
+    `[...document.querySelectorAll('.app-actions-menu button')]
+      .some((item) => item.textContent.trim() === ${JSON.stringify(text)})`,
+  )
+  await clickButtonByText(client, text)
 }
 
 async function typeQuestion(client, question) {
@@ -167,7 +192,8 @@ async function typeQuestion(client, question) {
     `(() => {
       const input = document.querySelector('textarea');
       if (!input) throw new Error('textarea not found');
-      input.value = ${JSON.stringify(question)};
+      const valueSetter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set;
+      valueSetter.call(input, ${JSON.stringify(question)});
       input.dispatchEvent(new Event('input', { bubbles: true }));
     })()`
   )
@@ -188,6 +214,16 @@ async function readModalState(client) {
         hasDroppedOld: text.includes('OLD_DROPPED_CONTEXT_MESSAGE'),
         hasSecretToken: text.includes('context-debug-secret') || text.includes('DEEPSEEK_API_KEY'),
         hasToolDefinition: text.includes('getWeather'),
+        hasStandardLabels:
+          Boolean(modal?.querySelector('section[aria-label="Context Statistics"]')) &&
+          [
+            'Model Context', 'Model Parameters', 'Provider', 'Model', 'Streaming',
+            'Tool Choice', 'Reasoning', 'API Key', 'Storage', 'Temperature', 'Max Tokens',
+            'Messages', 'Tool Definitions'
+          ].every((label) => text.includes(label)),
+        hasStandardValues: [
+          'DeepSeek', 'Enabled', 'Auto', 'Max', 'Configured', 'File', 'Provider Default'
+        ].every((value) => text.includes(value)),
         requestCount: state.contextPreviewRequests.length,
         requestQuestion: state.contextPreviewRequests.at(-1)?.question,
         storedMessageCount: state.conversations[0]?.messages.length,
@@ -220,7 +256,7 @@ async function main() {
     await waitForEval(client, `document.readyState === 'complete' && Boolean(document.querySelector('textarea'))`)
 
     await typeQuestion(client, 'CURRENT_DEBUG_QUESTION')
-    await clickButtonByText(client, '上下文')
+    await clickAppAction(client, '上下文')
     await waitForEval(client, `Boolean(document.querySelector('.context-debug-modal'))`)
     screenshots.push(await screenshot(client, OUT_DIR, '01-context-debug-modal', CAPTURE_SCREENSHOTS))
 
@@ -232,11 +268,13 @@ async function main() {
     assert(!desktopState.hasDroppedOld, 'dropped old history leaked into context preview')
     assert(!desktopState.hasSecretToken, 'secret token leaked into context preview')
     assert(desktopState.hasToolDefinition, 'tool definition summary was not displayed')
+    assert(desktopState.hasStandardLabels, 'context debug labels exposed raw internal names')
+    assert(desktopState.hasStandardValues, 'context debug values exposed raw internal values')
     assert(desktopState.requestCount === 1, 'context preview endpoint should be called once')
     assert(desktopState.requestQuestion === 'CURRENT_DEBUG_QUESTION', 'preview endpoint did not receive current draft question')
     assert(desktopState.storedMessageCount === 3, 'context preview should not mutate stored conversation messages')
 
-    await clickButtonByText(client, '关闭')
+    await clickButtonByText(client, 'Close')
     await waitForEval(client, `!document.querySelector('.context-debug-modal')`)
     await client.send('Emulation.setDeviceMetricsOverride', {
       width: 390,
@@ -244,7 +282,7 @@ async function main() {
       deviceScaleFactor: 1,
       mobile: true
     })
-    await clickButtonByText(client, '上下文')
+    await clickAppAction(client, '上下文')
     await waitForEval(client, `Boolean(document.querySelector('.context-debug-modal'))`)
     screenshots.push(await screenshot(client, OUT_DIR, '02-context-debug-mobile', CAPTURE_SCREENSHOTS))
 

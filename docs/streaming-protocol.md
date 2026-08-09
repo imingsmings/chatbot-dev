@@ -105,12 +105,20 @@ X-Accel-Buffering: no
 
 ## Provider SSE 适配
 
-DeepSeek-compatible adapter 负责：
+DeepSeek adapter 负责：
 
 - 去掉 `data: ` 前缀并识别 `[DONE]`。
 - 提取 `delta.content`、`delta.reasoning_content` 和增量 `tool_calls`。
 - 合并分片工具参数。
 - 把请求选项映射为 `temperature`、`max_tokens`、`thinking` 和 `reasoning_effort`。
+
+OpenAI Responses adapter 负责：
+
+- 按语义事件解析 `response.output_text.delta`、`response.reasoning_summary_text.delta`、`response.function_call_arguments.delta` 和完成/错误事件。
+- 使用 `response.output_item.added` 保存 message phase 与 function `call_id`；使用 `response.output_item.done` 兜底补齐完整工具参数。
+- 完成时用 response output snapshot 校验/补齐正文和 reasoning summary，并把 output items 仅保留在当前请求内供工具 continuation 使用。
+- 将工具定义映射为 Responses API 的扁平 strict function schema；工具结果映射为 `function_call_output`。
+- `reasoning_delta` 表示 provider 提供的 reasoning summary，不代表隐藏的原始思维链。
 
 provider 字段不会直接透传到浏览器。更换 provider 时，只需保持内部 LLM event 和应用 NDJSON 协议稳定。
 

@@ -8,6 +8,7 @@ import { buildContextMessages } from '../../server/services/contextService.ts'
 import type { Conversation, PromptMessage, StoredMessage } from '../../server/types/conversation.ts'
 
 const originalFetch = globalThis.fetch
+const answerDataDir = await mkdtemp(path.join(tmpdir(), 'chatbot-context-answer-tests-'))
 const originalEnv = {
   CONTEXT_MAX_HISTORY_MESSAGES: process.env.CONTEXT_MAX_HISTORY_MESSAGES,
   CONTEXT_MAX_HISTORY_CHARS: process.env.CONTEXT_MAX_HISTORY_CHARS,
@@ -124,9 +125,10 @@ function createMockLlmFetch() {
   }
 }
 
-after(() => {
+after(async () => {
   restoreEnv()
   globalThis.fetch = originalFetch
+  await rm(answerDataDir, { recursive: true, force: true })
 })
 
 test('buildContextMessages keeps only the latest configured history messages', () => {
@@ -304,7 +306,9 @@ test('buildContextPreview exposes managed context details without leaking secret
     assistant('PREVIEW_KEEP_ASSISTANT'),
     user('PREVIEW_KEEP_USER')
   ])
-  const preview = buildContextPreview(conversation, 'PREVIEW_CURRENT_QUESTION')
+  const preview = buildContextPreview(conversation, 'PREVIEW_CURRENT_QUESTION', {
+    model: 'deepseek-v4-pro'
+  })
   const serializedPreview = JSON.stringify(preview)
   const content = promptContent(preview.messages)
 
@@ -314,7 +318,7 @@ test('buildContextPreview exposes managed context details without leaking secret
   assert.equal(preview.stats.selectedHistoryMessages, 2)
   assert.equal(preview.stats.droppedHistoryMessages, 1)
   assert.equal(preview.stats.maxHistoryMessages, 2)
-  assert.equal(preview.model.model, 'context-preview-model')
+  assert.equal(preview.model.model, 'deepseek-v4-pro')
   assert.equal(preview.model.apiKeyConfigured, true)
   assert.equal(preview.model.reasoningEffort, 'medium')
   assert.equal(preview.tools.count, 3)
@@ -327,11 +331,10 @@ test('buildContextPreview exposes managed context details without leaking secret
 
 test('generateConversationAnswer sends managed context to the model instead of full history', async () => {
   const mock = createMockLlmFetch()
-  const dataDir = await mkdtemp(path.join(tmpdir(), 'chatbot-context-test-data-'))
 
   process.env.CONTEXT_MAX_HISTORY_MESSAGES = '2'
   process.env.CONTEXT_MAX_HISTORY_CHARS = '1000'
-  process.env.CONVERSATION_DATA_DIR = dataDir
+  process.env.CONVERSATION_DATA_DIR = answerDataDir
   process.env.LLM_PROVIDER = 'deepseek'
   process.env.LLM_ENDPOINT = 'http://mock.local/chat/completions'
   process.env.LLM_MODEL = 'context-test-model'
@@ -340,12 +343,14 @@ test('generateConversationAnswer sends managed context to the model instead of f
 
   try {
     const { generateConversationAnswer } = await import('../../server/services/chatService.ts')
+    const { importConversation } = await import('../../server/utils/conversationStore.ts')
     const conversation = makeConversation([
       user('OLD_USER_SHOULD_NOT_REACH_MODEL'),
       assistant('OLD_ASSISTANT_SHOULD_NOT_REACH_MODEL'),
       user('KEEP_USER_REACHES_MODEL'),
       assistant('KEEP_ASSISTANT_REACHES_MODEL')
     ])
+    await importConversation(conversation, 'overwrite')
     const answer = await generateConversationAnswer({
       conversation,
       conversationId: conversation.id,
@@ -364,17 +369,15 @@ test('generateConversationAnswer sends managed context to the model instead of f
     assert(content.includes('CURRENT_REACHES_MODEL'))
   } finally {
     mock.restore()
-    await rm(dataDir, { recursive: true, force: true })
   }
 })
 
 test('generateConversationAnswer reuses managed context for the tool-result answer stage', async () => {
   const mock = createMockLlmFetch()
-  const dataDir = await mkdtemp(path.join(tmpdir(), 'chatbot-context-tool-test-data-'))
 
   process.env.CONTEXT_MAX_HISTORY_MESSAGES = '2'
   process.env.CONTEXT_MAX_HISTORY_CHARS = '1000'
-  process.env.CONVERSATION_DATA_DIR = dataDir
+  process.env.CONVERSATION_DATA_DIR = answerDataDir
   process.env.LLM_PROVIDER = 'deepseek'
   process.env.LLM_ENDPOINT = 'http://mock.local/chat/completions'
   process.env.LLM_MODEL = 'context-test-model'
@@ -383,12 +386,14 @@ test('generateConversationAnswer reuses managed context for the tool-result answ
 
   try {
     const { generateConversationAnswer } = await import('../../server/services/chatService.ts')
+    const { importConversation } = await import('../../server/utils/conversationStore.ts')
     const conversation = makeConversation([
       user('TOOL_OLD_USER_SHOULD_NOT_REACH_MODEL'),
       assistant('TOOL_OLD_ASSISTANT_SHOULD_NOT_REACH_MODEL'),
       user('TOOL_KEEP_USER_REACHES_MODEL'),
       assistant('TOOL_KEEP_ASSISTANT_REACHES_MODEL')
     ])
+    await importConversation(conversation, 'overwrite')
     const answer = await generateConversationAnswer({
       conversation,
       conversationId: conversation.id,
@@ -411,6 +416,5 @@ test('generateConversationAnswer reuses managed context for the tool-result answ
     assert(answerRequestBody.messages.some((message) => message.role === 'tool' && message.content === 'unknown tool'))
   } finally {
     mock.restore()
-    await rm(dataDir, { recursive: true, force: true })
   }
 })

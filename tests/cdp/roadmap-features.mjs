@@ -73,15 +73,88 @@ const mockScript = `
       return json({
         runtime: {
           provider: 'deepseek',
-          model: 'roadmap-test-model',
+          model: 'deepseek-v4-flash',
           storageBackend: 'sqlite',
           endpointConfigured: true,
           apiKeyConfigured: true,
+          providers: [
+            {
+              id: 'deepseek',
+              label: 'DeepSeek',
+              configured: true,
+              endpointConfigured: true,
+              apiKeyConfigured: true,
+              defaultModel: 'deepseek-v4-flash',
+              models: [
+                {
+                  provider: 'deepseek',
+                  id: 'deepseek-v4-flash',
+                  label: 'DeepSeek V4 Flash',
+                  capabilities: {
+                    tools: true,
+                    reasoning: true,
+                    reasoningSummary: false,
+                    reasoningEfforts: ['low', 'medium', 'high', 'max'],
+                    temperature: true,
+                    maxOutputTokens: 65536
+                  }
+                },
+                {
+                  provider: 'deepseek',
+                  id: 'deepseek-v4-pro',
+                  label: 'DeepSeek V4 Pro',
+                  disabled: true,
+                  capabilities: {
+                    tools: true,
+                    reasoning: true,
+                    reasoningSummary: false,
+                    reasoningEfforts: ['low', 'medium', 'high', 'max'],
+                    temperature: true,
+                    maxOutputTokens: 65536
+                  }
+                }
+              ]
+            },
+            {
+              id: 'openai',
+              label: 'OpenAI',
+              configured: true,
+              endpointConfigured: true,
+              apiKeyConfigured: true,
+              defaultModel: 'gpt-5.6-luna',
+              models: [{
+                provider: 'openai',
+                id: 'gpt-5.6-sol',
+                label: 'GPT-5.6 Sol',
+                disabled: true,
+                capabilities: {
+                  tools: true,
+                  reasoning: true,
+                  reasoningSummary: true,
+                  reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
+                  temperature: false,
+                  maxOutputTokens: 128000
+                }
+              }, {
+                provider: 'openai',
+                id: 'gpt-5.6-luna',
+                label: 'GPT-5.6 Luna',
+                capabilities: {
+                  tools: true,
+                  reasoning: true,
+                  reasoningSummary: true,
+                  reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
+                  temperature: false,
+                  maxOutputTokens: 128000
+                }
+              }]
+            }
+          ],
           defaults: {
             temperature: 0.7,
             maxTokens: 4096,
             reasoningEnabled: true,
-            reasoningEffort: 'max'
+            reasoningEffort: 'high'
           }
         }
       });
@@ -260,10 +333,32 @@ const mockScript = `
 async function clickButton(client, text) {
   await evaluate(client, `(() => {
     const button = [...document.querySelectorAll('button')]
-      .find((item) => item.textContent.trim() === ${JSON.stringify(text)});
+      .find((item) =>
+        item.textContent.trim() === ${JSON.stringify(text)} ||
+        item.getAttribute('aria-label') === ${JSON.stringify(text)}
+      );
     if (!button) throw new Error('button not found: ${text}');
     button.click();
   })()`)
+}
+
+async function clickAppAction(client, text) {
+  const clickedDirectly = await evaluate(client, `(() => {
+    const button = [...document.querySelectorAll('button')]
+      .find((item) => item.textContent.trim() === ${JSON.stringify(text)});
+    if (!button) return false;
+    button.click();
+    return true;
+  })()`)
+  if (clickedDirectly) return
+
+  await clickButton(client, '更多操作')
+  await waitForEval(
+    client,
+    `[...document.querySelectorAll('.app-actions-menu button')]
+      .some((item) => item.textContent.trim() === ${JSON.stringify(text)})`,
+  )
+  await clickButton(client, text)
 }
 
 async function main() {
@@ -291,14 +386,68 @@ async function main() {
     await client.send('Page.navigate', { url: APP_URL })
     await waitForEval(client, `document.body.innerText.includes('Roadmap 功能回归')`)
 
-    await clickButton(client, '参数')
-    await waitForEval(client, `document.querySelector('.settings-modal')`)
+    assertions.modelSwitch = await evaluate(client, `(() => ({
+      available: Boolean(document.querySelector('.model-menu-trigger')),
+      selected: !document.querySelector('.model-menu-trigger')
+    }))()`)
+    if (assertions.modelSwitch.available) {
+      await clickButton(client, 'Model and Effort: DeepSeek V4 Flash, High')
+      await waitForEval(client, `Boolean(document.querySelector('button[aria-label="Select Model"]'))`)
+      await clickButton(client, 'Select Model')
+      await waitForEval(client, `Boolean(document.querySelector('button[aria-label="Select GPT-5.6 Luna"]'))`)
+      assertions.disabledModels = await evaluate(client, `(() => {
+        const buttons = [...document.querySelectorAll('.model-submenu button')];
+        const headings = [...document.querySelectorAll('.model-submenu .submenu-heading')];
+        const groups = [...document.querySelectorAll('.model-submenu .model-provider-group')];
+        const state = (label) => {
+          const button = buttons.find((item) => item.textContent.includes(label));
+          return Boolean(button &&
+            (button.disabled || button.getAttribute('aria-disabled') === 'true' || button.hasAttribute('data-disabled')));
+        };
+        const option = buttons.find((item) => item.textContent.includes('DeepSeek V4 Flash'));
+        const disabledOption = buttons.find((item) => item.textContent.includes('DeepSeek V4 Pro'));
+        const headingStyle = headings[0] ? getComputedStyle(headings[0]) : null;
+        const optionStyle = option ? getComputedStyle(option) : null;
+        const disabledStyle = disabledOption ? getComputedStyle(disabledOption) : null;
+        return {
+          deepseekPro: state('DeepSeek V4 Pro'),
+          openaiSol: state('GPT-5.6 Sol'),
+          providerGroups: groups.length === 2,
+          providerLabels: headings.map((heading) => heading.textContent.trim()).join('|') === 'DeepSeek|OpenAI',
+          providerSeparator: document.querySelectorAll('.model-submenu .model-provider-separator').length === 1,
+          headingTypography: headingStyle?.fontSize === '12px' && Number(headingStyle.fontWeight) >= 500,
+          optionTypography: optionStyle?.fontSize === '14px',
+          optionIndented: Boolean(
+            headingStyle && optionStyle &&
+            parseFloat(optionStyle.paddingLeft) - parseFloat(headingStyle.paddingLeft) >= 8
+          ),
+          disabledContrast: Boolean(disabledStyle && parseFloat(disabledStyle.opacity) <= 0.4)
+        };
+      })()`)
+      await clickButton(client, 'Select GPT-5.6 Luna')
+      await waitForEval(
+        client,
+        `document.querySelector('.model-menu-trigger')?.getAttribute('aria-label')
+          ?.includes('GPT-5.6 Luna')`,
+      )
+      assertions.modelSwitch.selected = true
+    }
+
+    const expectedSettingsProvider = assertions.modelSwitch.available ? 'OpenAI' : 'DeepSeek'
+    const expectedSettingsModelLabel = assertions.modelSwitch.available
+      ? 'GPT-5.6 Luna'
+      : 'DeepSeek V4 Flash'
+    const expectedSettingsModelId = assertions.modelSwitch.available
+      ? 'gpt-5.6-luna'
+      : 'deepseek-v4-flash'
+    await clickAppAction(client, '参数')
+    await waitForEval(client, `Boolean(document.querySelector('.settings-modal'))`)
     assertions.runtime = await evaluate(client, `(() => {
       const text = document.querySelector('.settings-modal').innerText;
       return {
-        provider: text.includes('deepseek'),
-        model: text.includes('roadmap-test-model'),
-        storage: text.includes('sqlite')
+        provider: text.includes(${JSON.stringify(expectedSettingsProvider)}),
+        model: text.includes(${JSON.stringify(expectedSettingsModelLabel)}),
+        storage: text.includes('SQLite')
       };
     })()`)
     await evaluate(client, `(() => {
@@ -307,23 +456,25 @@ async function main() {
         const field = fields.find((item) => item.querySelector('span')?.textContent.trim() === label);
         const input = field?.querySelector('input, select');
         if (!input) throw new Error('settings field not found: ' + label);
-        input.value = value;
+        const prototype = input instanceof HTMLSelectElement
+          ? HTMLSelectElement.prototype
+          : HTMLInputElement.prototype;
+        Object.getOwnPropertyDescriptor(prototype, 'value').set.call(input, value);
         input.dispatchEvent(new Event('input', { bubbles: true }));
         input.dispatchEvent(new Event('change', { bubbles: true }));
       };
-      setValue('temperature', '0.3');
-      setValue('max tokens', '2048');
-      setValue('reasoning effort', 'high');
+      setValue('Max Tokens', '2048');
+      setValue(${JSON.stringify(`${expectedSettingsProvider} Effort`)}, 'high');
     })()`)
-    await clickButton(client, '应用')
+    await clickButton(client, 'Apply')
 
-    await clickButton(client, '模板')
-    await waitForEval(client, `document.querySelector('.template-modal')`)
+    await clickAppAction(client, '模板')
+    await waitForEval(client, `Boolean(document.querySelector('.template-modal'))`)
     await clickButton(client, '学习计划')
     await evaluate(client, `(() => {
       const values = {
         '主题': '流式渲染',
-        '当前基础': 'Vue 3',
+        '当前基础': 'React 19',
         '可用时间': '每周 5 小时',
         '目标': '掌握 NDJSON'
       };
@@ -331,7 +482,10 @@ async function main() {
         const label = field.querySelector('span')?.textContent.trim();
         const input = field.querySelector('input, textarea');
         if (input && values[label] !== undefined) {
-          input.value = values[label];
+          const prototype = input instanceof HTMLTextAreaElement
+            ? HTMLTextAreaElement.prototype
+            : HTMLInputElement.prototype;
+          Object.getOwnPropertyDescriptor(prototype, 'value').set.call(input, values[label]);
           input.dispatchEvent(new Event('input', { bubbles: true }));
         }
       }
@@ -340,7 +494,7 @@ async function main() {
     assertions.template = await evaluate(client, `document.querySelector('.composer textarea').value.includes('流式渲染') &&
       document.querySelector('.composer textarea').value.includes('掌握 NDJSON')`)
 
-    await clickButton(client, '摘要')
+    await clickAppAction(client, '摘要')
     await clickButton(client, '生成摘要')
     await waitForEval(client, `document.querySelector('.summary-content')?.innerText.includes('roadmap')`)
     assertions.summary = await evaluate(client, `(() => {
@@ -357,7 +511,8 @@ async function main() {
 
     await evaluate(client, `(() => {
       const input = document.querySelector('.composer textarea');
-      input.value = 'ROADMAP_TOOL_STREAM';
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')
+        .set.call(input, 'ROADMAP_TOOL_STREAM');
       input.dispatchEvent(new Event('input', { bubbles: true }));
       document.querySelector('.composer').dispatchEvent(new Event('submit', {
         bubbles: true,
@@ -365,7 +520,7 @@ async function main() {
       }));
     })()`)
 
-    await waitForEval(client, `document.querySelector('.tool-activity.running')`)
+    await waitForEval(client, `Boolean(document.querySelector('.tool-activity.running'))`)
     assertions.toolRunning = await evaluate(client, `document.querySelector('.tool-activity.running')?.innerText.includes('calculate')`)
     const toolShot = await screenshot(client, OUT_DIR, '02-tool-running', CAPTURE_SCREENSHOTS)
     if (toolShot) screenshots.push(toolShot)
@@ -461,7 +616,8 @@ async function main() {
 
     await evaluate(client, `(() => {
       const input = document.querySelector('.composer textarea');
-      input.value = 'ROADMAP_TOOL_STOP';
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')
+        .set.call(input, 'ROADMAP_TOOL_STOP');
       input.dispatchEvent(new Event('input', { bubbles: true }));
       document.querySelector('.composer').dispatchEvent(new Event('submit', {
         bubbles: true,
@@ -511,10 +667,13 @@ async function main() {
     await waitForEval(
       client,
       `(() => {
-        const button = [...document.querySelectorAll('button')]
+        const userTrigger = document.querySelector('.user-menu-trigger');
+        const importButton = [...document.querySelectorAll('.export-all-btn')]
           .find((item) => item.textContent.trim() === '导入中...');
-        return button?.disabled === true &&
-          button.getAttribute('aria-busy') === 'true' &&
+        const loading = (userTrigger?.getAttribute('aria-label') === '导入中...' &&
+          userTrigger.getAttribute('aria-busy') === 'true') ||
+          (importButton?.disabled === true && importButton.getAttribute('aria-busy') === 'true');
+        return loading &&
           window.__roadmapState().importRequests.length === 1;
       })()`
     )
@@ -526,15 +685,23 @@ async function main() {
         strategy: state.importRequests[0]?.conflictStrategy,
         listed: document.body.innerText.includes('导入的 Roadmap 会话'),
         requestCount: state.importRequests.length,
-        loadingVisible: [...document.querySelectorAll('button')]
-          .some((item) => item.textContent.trim() === '导入中...' && item.disabled)
+        loadingVisible: document.querySelector('.user-menu-trigger')
+          ?.getAttribute('aria-label') === '导入中...' ||
+          [...document.querySelectorAll('.export-all-btn')]
+            .some((item) => item.textContent.trim() === '导入中...' && item.disabled)
       };
     })()`)
     await clickButton(client, '知道了')
     await waitForEval(
       client,
-      `[...document.querySelectorAll('button')]
-        .some((item) => item.textContent.trim() === '导入 JSON' && item.disabled === false)`
+      `(() => {
+        const userTrigger = document.querySelector('.user-menu-trigger');
+        const importButton = [...document.querySelectorAll('.export-all-btn')]
+          .find((item) => item.textContent.trim() === '导入 JSON');
+        return (userTrigger?.getAttribute('aria-label') === '用户设置' &&
+          !userTrigger.matches(':disabled, [data-disabled], [aria-disabled="true"]')) ||
+          importButton?.disabled === false;
+      })()`
     )
 
     await client.send('Emulation.setDeviceMetricsOverride', {
@@ -557,9 +724,16 @@ async function main() {
     if (mobileShot) screenshots.push(mobileShot)
 
     assert(Object.values(assertions.runtime).every(Boolean), 'runtime information was not fully displayed')
+    assert(assertions.modelSwitch.selected, 'OpenAI model selection failed')
+    assert(Object.values(assertions.disabledModels || {}).every(Boolean), 'disabled model state missing')
     assert(assertions.template, 'prompt template variables were not applied')
     assert(assertions.summary.visible && assertions.summary.requestCount === 1, 'summary flow failed')
-    assert(assertions.summary.options.temperature === 0.3, 'summary did not receive request options')
+    assert(assertions.summary.options.temperature === undefined, 'OpenAI summary sent unsupported temperature')
+    assert(assertions.summary.options.provider === 'openai', 'summary request provider missing')
+    assert(
+      assertions.summary.options.model === expectedSettingsModelId,
+      'summary request model missing',
+    )
     assert(assertions.toolRunning, 'tool running status was not rendered')
     assert(assertions.streamingMid.mode === 'streaming-lite' && assertions.streamingMid.generating, 'streaming-lite state missing')
     assert(assertions.completed.toolSuccess, 'tool result status was not rendered')
@@ -572,9 +746,11 @@ async function main() {
     assert(assertions.completed.linkTarget === '_blank', 'link target policy missing')
     assert(assertions.completed.linkRel.includes('noopener'), 'link rel policy missing')
     assert(assertions.completed.table && assertions.completed.noPageOverflow, 'Markdown layout failed')
-    assert(assertions.completed.askOptions.temperature === 0.3, 'ask request temperature missing')
+    assert(assertions.completed.askOptions.temperature === undefined, 'OpenAI ask sent unsupported temperature')
+    assert(assertions.completed.askOptions.provider === 'openai', 'ask request provider missing')
     assert(assertions.completed.askOptions.maxTokens === 2048, 'ask request maxTokens missing')
     assert(assertions.completed.askOptions.reasoningEffort === 'high', 'ask request reasoning effort missing')
+    assert(assertions.completed.askOptions.model === expectedSettingsModelId, 'ask request model missing')
     assert(
       assertions.import.resultVisible &&
         assertions.import.strategy === 'skip' &&
