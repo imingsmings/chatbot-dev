@@ -1,0 +1,48 @@
+services:
+  chatbot:
+    image: chatbot:local
+    build:
+      context: .
+      dockerfile: Dockerfile
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 15s
+    env_file:
+      - ${CHATBOT_ENV_FILE:-./server/.env}
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: 7001
+      SERVE_CLIENT_BUILD: "true"
+      CLIENT_DIST_DIR: /app/client/dist
+      HTTPS_ENABLED: "true"
+      HTTPS_CERT_PATH: /tmp/chatbot-tls/server-cert.pem
+      HTTPS_KEY_PATH: /tmp/chatbot-tls/server-key.pem
+      CONVERSATION_DATA_DIR: /app/data
+      CONVERSATION_STORE: sqlite
+    ports:
+      - "${CHATBOT_HTTPS_PORT:-7001}:7001"
+    volumes:
+      - chatbot-data:/app/data
+      - type: bind
+        source: ${HOME}/devhttps/dev-cert.pem
+        target: /run/tls/server-cert.pem
+        read_only: true
+      - type: bind
+        source: ${HOME}/devhttps/dev-key.pem
+        target: /run/tls/server-key.pem
+        read_only: true
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - >-
+          require('node:https').get({hostname:'127.0.0.1',port:7001,path:'/api/runtime-config',rejectUnauthorized:false},response=>{response.resume();process.exit(response.statusCode===200?0:1)}).on('error',()=>process.exit(1))
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  chatbot-data:

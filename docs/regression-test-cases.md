@@ -13,7 +13,10 @@
 | 生产构建 | `pnpm run build:client` | Vite 8 bundle、chunk 拆分、无 Vue runtime |
 | 生产托管 | `tests/server/clientHosting.test.ts` | 构建 fail-fast、SPA、API 隔离、缓存和安全头 |
 | HTTPS 配置 | `tests/server/deploymentConfig.test.ts` | production defaults、路径、布尔/端口和证书异常 |
+| Docker 容器 | `pnpm run test:docker` | Compose、镜像、HTTPS、SPA、API 404、SQLite 重启持久性和 SIGTERM |
+| Docker 页面 | `pnpm run test:cdp:docker-ui` | 容器 HTTPS 页面、侧栏、输入区、模型控件和横向溢出；截图可选 |
 | 浏览器回归 | `pnpm run test:cdp:all-mock` | 完整 React UI/API mock 矩阵 |
+| 真实接口全量 | `pnpm run test:cdp:all-real` | 隔离端口/临时 file store；真实 UI、上下文、Markdown、OpenAI reasoning/工具/停止恢复；需明确确认 |
 | 生产依赖审计 | `pnpm run audit:production` | 根 workspace 全部生产依赖，要求 0 已知漏洞 |
 
 ## React 单元边界
@@ -26,7 +29,7 @@
 | stream protocol | v2 六类事件；拆包；未知/损坏 JSON；负耗时；空 tool/error 字段 |
 | model catalog | provider/model 能力；disabled；空/损坏运行目录 fallback |
 | Markdown | HTML/图片禁用；外链安全；代码语言与净化；stream/complete 模式 |
-| UI components | 模型设置能力约束、对话框/主题等生命周期 |
+| UI components | 模型设置能力约束、摘要可用性、有效消息操作、对话框/主题等生命周期 |
 
 ## 后端单元边界
 
@@ -34,10 +37,12 @@
 | --- | --- |
 | context | 消息数/字符预算、完整边界消息、空历史、当前问题不裁剪、摘要参与 |
 | file store | CRUD、搜索、导入导出、摘要；40 路同会话写不丢失；原子写无临时残留；payload ID/时间损坏恢复 |
-| SQLite | CRUD、搜索、导入导出、摘要、临时 DB、JSON migration |
+| SQLite | CRUD、搜索、导入导出、摘要、临时 DB、损坏 JSON 跳过和 migration 后重开 |
 | chat persistence | 会话在回答完成前删除时拒绝假成功 |
-| summary | 空/不存在、持久化、清空；生成期间内容变化拒绝陈旧写入 |
-| request registry | requestId 校验、同会话单活动请求、取消和完成清理 |
+| summary | 空/不存在、持久化、清空；完整消息快照竞态；shutdown 取消上游 |
+| request registry | requestId 校验、同会话单活动请求、全部取消和完成清理 |
+| NDJSON | backpressure 不误判关闭；destroyed/writableEnded 不再写入 |
+| test process lifecycle | child exit 等待、脚本超时、进程组终止与临时目录清理 |
 | model options | 范围、能力、禁用模型、启动配置一致性 |
 | provider config | OpenAI URL normalization、非 HTTP/HTTPS 拒绝、凭据不公开 |
 | adapters | DeepSeek/OpenAI SSE、reasoning summary、tool arguments 聚合、call_id continuation |
@@ -82,12 +87,14 @@
 | Provider/Function Calling | adapter/tool tests + P0；真实 provider 需另行确认 |
 | 构建/依赖/入口 | `check` + `build:client` + `all-mock` |
 | 托管/HTTPS | deployment/clientHosting tests + 生产 HTTPS 本机冒烟 |
+| Dockerfile/Compose | `test:docker`；涉及页面托管时再运行 `test:cdp:docker-ui` |
 
 ## 数据与进程清理
 
 - 自动化会话使用明确测试前缀或捕获 ID，结束时只删除本轮创建的数据。
 - file/SQLite 测试必须使用 `mkdtemp` 隔离目录。
 - runner 启动的 Vite、后端和浏览器 profile 必须在 `finally` 中清理。
+- CDP 总 runner 为脚本设置有界超时；超时时终止独立进程组，避免遗留脚本的子服务。
 - 测试前检查端口；不停止用户已有进程。
 - `.tmp/cdp-results/*.json` 是机器可读结果，不作为源码提交。
 
@@ -103,4 +110,4 @@ pnpm run test:cdp:real-openai
 
 真实测试必须说明模型、场景、可能费用、截图与否，并清理全部测试会话。未明确要求截图时保持 `CDP_SCREENSHOTS=0`。
 
-2026-08-09 的本阶段最终执行结果见 [阶段交付审查](release-readiness-2026-08-09.md)。
+2026-08-10 的最新 Mock、Docker 与审查结果见 [全面 Code Review 与回归记录](code-review-2026-08-10.md)。

@@ -6,6 +6,8 @@ import https from 'node:https'
 import type { AddressInfo } from 'node:net'
 import createApp from '../app.ts'
 import { getDeploymentConfig, loadTlsServerOptions } from '../config/deploymentConfig.ts'
+import { closeConversationStore } from '../utils/conversationStore.ts'
+import { cancelAllRequests } from '../utils/requestRegistry.ts'
 
 const debug = debugLib('server:server')
 const deployment = getDeploymentConfig()
@@ -17,6 +19,8 @@ const server = deployment.https.enabled
 app.set('port', deployment.port)
 server.on('error', onError)
 server.on('listening', onListening)
+process.once('SIGINT', () => shutdown('SIGINT'))
+process.once('SIGTERM', () => shutdown('SIGTERM'))
 
 if (typeof deployment.port === 'number') {
   server.listen(deployment.port, deployment.host)
@@ -64,4 +68,41 @@ function onListening(): void {
   const displayHost = deployment.host === '0.0.0.0' ? 'localhost' : deployment.host
   console.log(`服务器已启动：${protocol}://${displayHost}:${address.port}`)
   console.log(`前端构建托管：${deployment.client.enabled ? '已启用' : '未启用'}`)
+}
+
+let shuttingDown = false
+
+function shutdown(signal: NodeJS.Signals): void {
+  if (shuttingDown) {
+    return
+  }
+  shuttingDown = true
+  console.log(`收到 ${signal}，正在停止服务`)
+  const cancelledRequests = cancelAllRequests('server_shutdown')
+  if (cancelledRequests > 0) {
+    console.log(`已取消 ${cancelledRequests} 个活动请求`)
+  }
+
+  const forceExitTimer = setTimeout(() => {
+    console.error('服务未能在 10 秒内停止，强制关闭连接')
+    server.closeAllConnections()
+    process.exit(1)
+  }, 10_000)
+  forceExitTimer.unref()
+
+  server.close((error) => {
+    clearTimeout(forceExitTimer)
+    if (error) {
+      console.error('停止服务失败：', error)
+      process.exit(1)
+    }
+    try {
+      closeConversationStore()
+    } catch (storeError) {
+      console.error('关闭会话存储失败：', storeError)
+      process.exit(1)
+    }
+    console.log('服务已停止')
+    process.exit(0)
+  })
 }

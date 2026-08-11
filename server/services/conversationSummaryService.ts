@@ -30,6 +30,7 @@ async function generateConversationSummary(
   if (conversation.messages.length === 0) {
     return { error: 'empty' }
   }
+  const sourceMessagesSnapshot = JSON.stringify(conversation.messages)
 
   const content = (await callLLM(buildConversationSummaryPrompt(conversation.messages), {
     signal,
@@ -50,7 +51,7 @@ async function generateConversationSummary(
   }
   if (
     latestConversation.updatedAt !== conversation.updatedAt ||
-    latestConversation.messages.length !== conversation.messages.length
+    JSON.stringify(latestConversation.messages) !== sourceMessagesSnapshot
   ) {
     return { error: 'conversation_changed' }
   }

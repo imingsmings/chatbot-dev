@@ -1,3 +1,4 @@
+import { EventEmitter } from 'node:events'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -36,12 +37,15 @@ after(async () => {
 })
 
 const { generateConversationSummary } = await import('../../server/services/conversationSummaryService.ts')
+const { summarizeConversation } = await import('../../server/controllers/conversationController.ts')
 const { buildContextMessages } = await import('../../server/services/contextService.ts')
+const { cancelAllRequests } = await import('../../server/utils/requestRegistry.ts')
 const {
   appendMessages,
   clearConversation,
   createConversation,
-  getConversation
+  getConversation,
+  importConversation
 } = await import('../../server/utils/conversationStore.ts')
 
 test('manual summary generation persists and participates in managed context', async () => {
@@ -110,6 +114,99 @@ test('summary generation does not overwrite a conversation changed during the mo
     const stored = await getConversation(conversation.id)
     assert.equal(stored?.summary, undefined)
     assert.equal(stored?.messages.length, 2)
+  } finally {
+    globalThis.fetch = currentFetch
+  }
+})
+
+test('summary generation detects same-length message replacement with an unchanged timestamp', async () => {
+  const conversation = await createConversation('Summary replacement race')
+  const initial = await appendMessages(conversation.id, [
+    { role: 'user', content: 'original message' },
+  ])
+  assert(initial)
+
+  const currentFetch = globalThis.fetch
+  globalThis.fetch = async () => {
+    await importConversation({
+      ...initial,
+      messages: [{ role: 'user', content: 'replaced message' }],
+    }, 'overwrite')
+    return Response.json({
+      choices: [{ message: { content: 'stale replacement summary' } }]
+    })
+  }
+
+  try {
+    assert.deepEqual(
+      await generateConversationSummary(conversation.id),
+      { error: 'conversation_changed' }
+    )
+    const stored = await getConversation(conversation.id)
+    assert.equal(stored?.summary, undefined)
+    assert.equal(stored?.messages[0]?.content, 'replaced message')
+  } finally {
+    globalThis.fetch = currentFetch
+  }
+})
+
+test('summary generation is cancelled through the shared request registry during shutdown', async () => {
+  const conversation = await createConversation('Summary shutdown')
+  await appendMessages(conversation.id, [{ role: 'user', content: 'cancel this summary' }])
+
+  const currentFetch = globalThis.fetch
+  let upstreamSignal: AbortSignal | undefined
+  let markFetchStarted: (() => void) | undefined
+  const fetchStarted = new Promise<void>((resolve) => {
+    markFetchStarted = resolve
+  })
+  globalThis.fetch = async (_url, options = {}) => {
+    upstreamSignal = options.signal ?? undefined
+    markFetchStarted?.()
+    return new Promise<Response>((_resolve, reject) => {
+      upstreamSignal?.addEventListener('abort', () => {
+        reject(new DOMException('aborted', 'AbortError'))
+      }, { once: true })
+    })
+  }
+
+  const request = Object.assign(new EventEmitter(), {
+    body: { options: {} },
+    params: { id: conversation.id },
+  })
+  let responseStatus = 200
+  let responseBody: unknown
+  const response = Object.assign(new EventEmitter(), {
+    destroyed: false,
+    writableEnded: false,
+    status(code: number) {
+      responseStatus = code
+      return response
+    },
+    json(payload: unknown) {
+      responseBody = payload
+      response.writableEnded = true
+      return response
+    },
+  })
+  const next = ((error?: unknown) => {
+    if (error) throw error
+  }) as never
+
+  try {
+    const requestPromise = summarizeConversation(
+      request as Parameters<typeof summarizeConversation>[0],
+      response as Parameters<typeof summarizeConversation>[1],
+      next,
+    )
+    await fetchStarted
+
+    assert.equal(cancelAllRequests('server_shutdown'), 1)
+    await requestPromise
+    assert.equal(upstreamSignal?.aborted, true)
+    assert.equal(responseStatus, 200)
+    assert.equal(responseBody, undefined)
+    assert.equal(cancelAllRequests(), 0)
   } finally {
     globalThis.fetch = currentFetch
   }

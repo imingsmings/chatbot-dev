@@ -59,6 +59,14 @@ function cancelRequest(requestId: string, reason = 'explicit_cancel'): boolean {
   return true
 }
 
+function cancelAllRequests(reason = 'server_shutdown'): number {
+  const requestIds = [...activeRequests.keys()]
+  for (const requestId of requestIds) {
+    cancelRequest(requestId, reason)
+  }
+  return requestIds.length
+}
+
 function completeRequest(requestId: string, controller: AbortController): void {
   const activeRequest = activeRequests.get(requestId)
 
@@ -68,6 +76,7 @@ function completeRequest(requestId: string, controller: AbortController): void {
 }
 
 export {
+  cancelAllRequests,
   cancelRequest,
   completeRequest,
   parseRequestId,

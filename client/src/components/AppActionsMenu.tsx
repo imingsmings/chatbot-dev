@@ -50,7 +50,6 @@ export function AppActionsMenu(props: AppActionsMenuProps) {
           <DropdownMenuContent className="dropdown-menu app-actions-menu">
             <DropdownMenuItem
               className="dropdown-menu-item"
-              disabled={!props.canGenerateSummary}
               nativeButton
               onClick={props.onOpenSettings}
               render={<button aria-label="参数" type="button" />}
@@ -69,6 +68,7 @@ export function AppActionsMenu(props: AppActionsMenuProps) {
             </DropdownMenuItem>
             <DropdownMenuItem
               className="dropdown-menu-item"
+              disabled={!props.canGenerateSummary}
               nativeButton
               onClick={props.onOpenSummary}
               render={<button aria-label="摘要" type="button" />}

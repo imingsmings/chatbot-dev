@@ -78,4 +78,14 @@
 - Parameters：`reasoningEffort=high/medium`、`reasoning.summary=detailed`、`store=false`，不发送 temperature。
 - Evidence：浏览器观察到流式中间态；reasoning summary 进入独立思考区；calculator 通过 `call_id` continuation 返回正确结果；停止触发 fetch abort，后续请求恢复成功。
 - Conclusion：真实 provider 的文本、reasoning summary、工具两阶段和取消恢复已与应用协议连通。Mock 回归继续承担异常、上游释放和边界条件的稳定验证。
-- Reproduction：`pnpm run test:cdp:react:real-openai`；该命令会调用真实模型并自动清理 `CDPOPENAIREAL-` 测试会话。
+- Reproduction：`pnpm run test:cdp:real-openai`；该命令会调用真实模型并自动清理 `CDPOPENAIREAL-` 测试会话。
+
+## 2026-08-10 OpenAI reasoning summary 与 tools 组合
+
+- Goal：复核真实 OpenAI Responses 请求在始终携带 Function Calling tools 时的 reasoning summary 行为。
+- Provider/model：已配置的 OpenAI-compatible Responses endpoint / `gpt-5.6-luna`；不记录 endpoint 和凭据。
+- Parameters：`reasoning.effort=high`、`reasoning.summary=detailed`、`reasoning.context=current_turn`、`store=false`。
+- Test mode：真实接口；`pnpm run test:cdp:all-real` 加定向原始 SSE 结构诊断。
+- Evidence：不带 tools 的请求返回 `response.reasoning_summary_text.delta`，完成事件中 `reasoning.summary` 有内容；携带 tools 且无需调用工具的请求返回空 `reasoning.summary`，正文仍正常完成。重复 UI 请求均观察到该差异。
+- Conclusion：当前上游在 tools 组合下不保证 reasoning summary。前端和 NDJSON 解析没有丢失事件；UI 只在 provider 实际返回摘要时展示 thinking 内容。
+- Follow-up：真实门禁继续断言 reasoning 参数、正文、工具、取消和恢复；`uiReasoningSummaryPresent` 作为证据记录，不作为上游输出内容的强制断言。若 provider 行为变化，再恢复摘要存在性门禁。

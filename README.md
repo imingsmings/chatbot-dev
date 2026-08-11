@@ -75,7 +75,7 @@ pnpm run dev:client
 | `HEFENG_API_HOST` / `HEFENG_API_KEY` | 天气工具配置，仅调用时需要 |
 | `CONTEXT_MAX_HISTORY_MESSAGES` | 历史消息上限，默认 `20` |
 | `CONTEXT_MAX_HISTORY_CHARS` | 历史字符预算，默认 `12000` |
-| `CONVERSATION_STORE` | `file`/`json`/`fs` 或 `sqlite`/`sqlite3` |
+| `CONVERSATION_STORE` | `file`/`json`/`fs` 或 `sqlite`/`sqlite3`，默认 `sqlite` |
 | `CONVERSATION_DATA_DIR` | 数据根目录覆盖 |
 | `CONVERSATION_FILE_DATA_DIR` | file store 目录覆盖 |
 | `CONVERSATION_DB_PATH` | SQLite 文件覆盖 |
@@ -93,6 +93,19 @@ pnpm run start:production
 ```
 
 本机默认读取 `~/devhttps/dev-cert.pem` 和 `~/devhttps/dev-key.pem`。完整配置、证书适用范围、上线检查和回滚见 [生产部署说明](docs/production-deployment.md)。
+
+## Docker 局域网部署
+
+Docker 采用单容器拓扑：Node/Express 直接终止 HTTPS，同时提供 React 构建和 `/api/*`，不引入 Nginx。`server/.env` 只在启动时注入，TLS 文件以只读 bind mount 提供，会话数据保存在独立 Docker volume。
+
+```bash
+pnpm run docker:config
+pnpm run docker:build
+pnpm run docker:up
+pnpm run docker:status
+```
+
+默认从宿主机 `~/devhttps` 读取证书，映射 `7001:7001`。局域网设备通过 `https://<宿主机局域网 IP>:7001` 访问，并需要信任 mkcert 根 CA。镜像设计、环境变量、数据迁移、验证和回滚见 [Docker 部署说明](docs/docker-deployment.md)，本轮实际结果见 [Docker 验证记录（2026-08-10）](docs/docker-validation-2026-08-10.md)。
 
 ## 目录
 
@@ -145,6 +158,8 @@ pnpm run test:unit             # 全部后端 Node tests + React Vitest
 pnpm run build                 # 全部静态检查 + React 生产构建
 pnpm run audit:production      # 整个 workspace 生产依赖审计
 pnpm run test:cdp:all-mock     # React-only 全量 mock 浏览器回归
+pnpm run test:cdp:all-real     # 当前真实 provider 的 UI、上下文、Markdown、reasoning 与工具回归
+pnpm run test:docker           # Docker HTTPS、API、SQLite 持久性与 SIGTERM 冒烟
 ```
 
 专项入口仍保留在根 `package.json`。自动化默认使用 mock、fixture 和临时存储；真实模型只在明确确认后执行。
@@ -156,6 +171,9 @@ pnpm run test:cdp:all-mock     # React-only 全量 mock 浏览器回归
 - [流式协议 v2](docs/streaming-protocol.md)
 - [回归测试矩阵](docs/regression-test-cases.md)
 - [生产部署说明](docs/production-deployment.md)
+- [Docker 部署说明](docs/docker-deployment.md)
+- [Docker 验证记录（2026-08-10）](docs/docker-validation-2026-08-10.md)
+- [全面 Code Review 与回归记录（2026-08-10）](docs/code-review-2026-08-10.md)
 - [TypeScript 7 / Express 5 工具链升级记录](docs/toolchain-upgrade-2026-08-09.md)
 - [阶段交付审查（2026-08-09）](docs/release-readiness-2026-08-09.md)
 - [Roadmap](docs/roadmap.md)

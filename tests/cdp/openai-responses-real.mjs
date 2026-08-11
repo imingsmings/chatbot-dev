@@ -280,7 +280,7 @@ async function main() {
       uiStreamingObserved: streamingMid,
       uiNoError: !uiState.error,
       uiMarker: uiState.answer.includes(marker),
-      uiReasoningSummary: uiState.reasoning.length > 0,
+      reasoningRequested: uiState.options?.reasoningEnabled === true,
       requestProvider: uiState.options?.provider === 'openai',
       requestModel: uiState.options?.model === MODEL,
       requestEffort: uiState.options?.reasoningEffort === 'high',
@@ -305,6 +305,7 @@ async function main() {
       evidence: {
         uiAnswerLength: uiState.answer.length,
         uiReasoningLength: uiState.reasoning.length,
+        uiReasoningSummaryPresent: uiState.reasoning.length > 0,
         toolEventTypes: toolEvents.map((event) => event.type),
         abortCount: stoppedState.abortCount,
       },

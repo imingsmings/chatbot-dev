@@ -10,6 +10,7 @@
 - R8.8：Express 同源托管 React 构建、统一 `/api`、HTTPS fail-fast 与部署文档已完成并通过最终门禁。
 - R8.9：TypeScript 7 前后端统一、根 workspace/catalog、共享 tsconfig 与 Express 5 升级已完成。
 - R9：DeepSeek Chat Completions 与 OpenAI Responses provider adapters 已完成。
+- R10：单 Node Docker 局域网部署、TLS/数据挂载和容器验收已完成并验证。
 
 当前阶段不增加功能，只接受缺陷、边界测试、维护性和文档修复。
 
@@ -41,6 +42,7 @@
 | R8.8 | React 构建托管、SPA 回退、HTTPS、缓存和部署边界 | 完成并验证 |
 | R8.9 | TypeScript 7 统一、pnpm catalog/单 lockfile、共享 tsconfig、Express 5.2 | 完成并验证 |
 | R9 | OpenAI Responses adapter、reasoning summary、Function Calling continuation | 完成 |
+| R10 | 多阶段镜像、Compose、Node HTTPS、持久卷和容器回归 | 完成并验证 |
 
 ## R8.7 交付边界
 
@@ -69,6 +71,15 @@
 - 依赖安装和 lockfile 收口到仓库根 workspace。
 - Express 升级到 5.2.1，同步升级 Express 5 类型及 debug/http-errors 等配套依赖。
 - 生产依赖以根 `pnpm run audit:production` 为单一审计入口。
+
+## R10 交付边界
+
+- 单个 Node/Express 容器直接终止 HTTPS，并同源提供 React 构建和 `/api/*`，不引入反向代理。
+- 多阶段镜像只包含运行所需 server、生产依赖和 `client/dist`；环境变量、TLS 私钥和会话数据不进入镜像。
+- Compose 只运行一个应用实例，TLS 只读挂载，完整 `/app/data` 使用独立 named volume 持久化。
+- entrypoint 只以 root 复制受限权限的证书和私钥，应用主进程降权为 `node` 用户运行。
+- 自动化容器回归覆盖 HTTPS、运行配置、API 404、SQLite 跨重启持久化和 SIGTERM 优雅停机。
+- 已验证局域网地址可访问，Docker Desktop 中的容器、镜像和应用页面均保留验收截图。
 
 ## 维护规则
 

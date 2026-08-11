@@ -2,6 +2,8 @@
 
 本文覆盖本阶段的单机/局域网正式运行方式：Node HTTPS 直接终止 TLS，Express 同源托管 React 构建和 `/api/*`。项目没有登录、多用户隔离和公网防护，因此不应直接作为匿名公网服务暴露。
 
+直接在宿主机运行 Node 的流程见本文；使用单 Node 容器时见 [Docker 部署说明](docker-deployment.md)。两种方式使用相同的 Express、HTTPS、API 和存储协议，不能同时写入同一份会话数据。
+
 ## 启动拓扑
 
 ```mermaid

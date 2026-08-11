@@ -616,7 +616,7 @@ function getSqliteDatabaseSync(): new (location: string) => DatabaseSync {
     return sqliteDatabaseSync
   } catch (err: unknown) {
     throw new Error(
-      'SQLite 存储需要当前 Node.js 支持 node:sqlite；请升级 Node.js，或改用默认 CONVERSATION_STORE=file',
+      'SQLite 存储需要当前 Node.js 支持 node:sqlite；请升级 Node.js，或显式设置 CONVERSATION_STORE=file',
       { cause: err }
     )
   }
@@ -711,18 +711,28 @@ async function readJsonConversationFilesForSqliteMigration(sourceDir: string): P
   }
 
   const entries = await fs.readdir(sourceDir, { withFileTypes: true })
-  return Promise.all(
+  const conversations = await Promise.all(
     entries
       .filter((entry) => entry.isFile() && entry.name.endsWith('.json'))
       .map(async (entry) => {
         const filePath = path.join(sourceDir, entry.name)
-        const raw = await fs.readFile(filePath, 'utf8')
-        const fileId = entry.name.slice(0, -'.json'.length)
-        return getConversationFilePath(fileId)
-          ? normalizeConversation(JSON.parse(raw), fileId)
-          : normalizeConversation(JSON.parse(raw))
+        try {
+          const raw = await fs.readFile(filePath, 'utf8')
+          const fileId = entry.name.slice(0, -'.json'.length)
+          return getConversationFilePath(fileId)
+            ? normalizeConversation(JSON.parse(raw), fileId)
+            : normalizeConversation(JSON.parse(raw))
+        } catch (error) {
+          if (error instanceof SyntaxError) {
+            console.error(`Skipping malformed SQLite migration source: ${entry.name}`)
+            return null
+          }
+          throw error
+        }
       })
   )
+
+  return conversations.filter((conversation): conversation is Conversation => conversation !== null)
 }
 
 async function readLegacyJsonConversations(filePath: string): Promise<Conversation[]> {
@@ -734,6 +744,10 @@ async function readLegacyJsonConversations(filePath: string): Promise<Conversati
       : []
   } catch (err: unknown) {
     if (isNodeError(err) && err.code === 'ENOENT') return []
+    if (err instanceof SyntaxError) {
+      console.error(`Skipping malformed SQLite migration source: ${path.basename(filePath)}`)
+      return []
+    }
     throw err
   }
 }
@@ -970,6 +984,19 @@ function getStore(): ConversationStore {
   }
 }
 
+function closeConversationStore(): void {
+  if (!sqliteDb) {
+    return
+  }
+
+  try {
+    sqliteDb.close()
+  } finally {
+    sqliteDb = null
+    sqliteMigrationPromise = null
+  }
+}
+
 async function listConversations(): Promise<ConversationSummary[]> {
   return getStore().listConversations()
 }
@@ -1016,6 +1043,7 @@ export {
   DEFAULT_TITLE,
   appendMessages,
   clearConversation,
+  closeConversationStore,
   createConversation,
   deleteConversation,
   getConversation,

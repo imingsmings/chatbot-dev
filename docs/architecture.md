@@ -112,6 +112,25 @@ flowchart TD
 - Node 直接终止 TLS；若改由反向代理终止 TLS，应显式设置 `HTTPS_ENABLED=false`，并只在受控网络内暴露 Node 端口。
 - 当前项目没有登录或多用户隔离，不能仅因启用 HTTPS 就视为适合公开互联网访问。
 
+### Docker 单容器拓扑
+
+```mermaid
+flowchart LR
+  LAN["LAN browser"] -->|"HTTPS :7001"| Port["Docker published port"]
+  Port --> Node["Node / Express container"]
+  Node --> Dist["client/dist"]
+  Node --> API["/api/*"]
+  Node --> Data["/app/data volume"]
+  Cert["host TLS cert + key"] -->|"read-only mounts"| Node
+  Env["host server/.env"] -->|"runtime injection"| Node
+```
+
+- Docker 不改变应用模块边界：镜像只负责封装 Node、server 生产依赖和 `client/dist`。
+- Node 仍是唯一 HTTPS 与应用进程，不增加反向代理或第二套前端服务。
+- `server/.env`、TLS 文件和会话数据均不进入镜像层；容器可替换，运行配置和数据独立保留。
+- Compose 只运行一个实例。file store 的队列和 SQLite 写入边界都是单进程语义，不支持横向扩容。
+- 完整镜像分层和生命周期见 [Docker 部署说明](docker-deployment.md)。
+
 ## 普通问答时序
 
 ```mermaid
@@ -189,6 +208,7 @@ flowchart LR
 
 ### SQLite
 
+- 默认会话存储；可显式设置 `CONVERSATION_STORE=file` 回退到单会话 JSON 文件。
 - WAL 模式；同步事务保证 migration 和批量写边界。
 - messages/summary 以 JSON 保存，对外保持与 file store 相同语义。
 - 旧 JSON 迁移通过 metadata 标记实现幂等。

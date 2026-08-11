@@ -55,7 +55,7 @@
 
 - 侧栏姓名和头像由 `/api/runtime-config` 下发，通过 `APP_PROFILE_NAME`、`APP_PROFILE_AVATAR_URL` 配置。
 - API key 仅在服务端环境变量中；运行时接口只返回配置状态。
-- file 或 SQLite 存储可配置，默认 local-first。
+- file 或 SQLite 存储可配置，默认使用本地 SQLite WAL。
 
 ## 生产运行
 
@@ -65,6 +65,7 @@
 - 缺少前端构建或 TLS 配置非法时 fail-fast。
 - `index.html` 禁止缓存，hash assets 使用长期 immutable cache。
 - 基础安全响应头：禁用框架标识、`nosniff`、禁止 frame、同源 referrer；HTTPS 响应包含 HSTS。
+- Docker 单容器部署：Node 直接提供 HTTPS、React 和 `/api/*`，环境变量运行时注入、TLS 只读挂载、会话数据卷持久化。
 
 ## 明确不包含
 

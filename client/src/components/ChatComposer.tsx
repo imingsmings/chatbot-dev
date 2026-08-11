@@ -38,6 +38,7 @@ export type ChatComposerHandle = {
 }
 
 type ChatComposerProps = {
+  canGenerateSummary: boolean
   canPreviewContext: boolean
   canSubmit: boolean
   disabled: boolean
@@ -150,6 +151,7 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
                       </DropdownMenuItem>
                       <DropdownMenuItem
                         className="dropdown-menu-item composer-tool-btn"
+                        disabled={!props.canGenerateSummary}
                         nativeButton
                         onClick={props.onOpenSummary}
                         render={<button aria-label="摘要" type="button" />}

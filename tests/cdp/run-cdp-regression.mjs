@@ -1,6 +1,6 @@
 import path from 'node:path'
 import { extractLastJsonObject, writeSuiteResult } from './helpers/results.mjs'
-import { spawnProcess, stopProcess, waitForHttp } from './helpers/services.mjs'
+import { spawnProcess, stopProcess, waitForHttp, waitForProcessExit } from './helpers/services.mjs'
 
 const REPO_ROOT = process.cwd()
 const APP_URL = process.env.APP_URL || 'http://127.0.0.1:5173/'
@@ -13,6 +13,11 @@ const ABORT_APP_URL = process.env.CDP_ABORT_APP_URL || 'http://localhost:5184/'
 function readNonNegativeInteger(name, fallback) {
   const value = Number(process.env[name])
   return Number.isInteger(value) && value >= 0 ? value : fallback
+}
+
+function readPositiveInteger(name, fallback) {
+  const value = Number(process.env[name])
+  return Number.isInteger(value) && value > 0 ? value : fallback
 }
 
 const SUITES = {
@@ -62,6 +67,9 @@ const SUITES = {
       needsVite: true,
     },
   ],
+  'docker-ui': [
+    { name: 'Docker-hosted UI validation', script: 'tests/cdp/docker-ui.mjs' },
+  ],
   real: [
     { name: 'Real UI scenarios', script: 'tests/cdp/real-scenarios.mjs', needsVite: true, needsBackend: true },
     { name: 'Real conversation context scenarios', script: 'tests/cdp/conversation-context-real.mjs', needsVite: true, needsBackend: true },
@@ -92,6 +100,11 @@ SUITES['all-mock'] = [
   ...SUITES['conversation-export'],
   ...SUITES.roadmap,
   ...SUITES['sidebar-state'],
+]
+
+SUITES['all-real'] = [
+  ...SUITES.real,
+  ...SUITES['real-openai'],
 ]
 
 async function ensureVite() {
@@ -145,12 +158,16 @@ async function runScript(item) {
     ? readNonNegativeInteger('CDP_REAL_SCRIPT_RETRIES', readNonNegativeInteger('CDP_SCRIPT_RETRIES', 0))
     : readNonNegativeInteger('CDP_SCRIPT_RETRIES', 0)
   const attempts = []
+  const timeoutMs = item.needsBackend
+    ? readPositiveInteger('CDP_REAL_SCRIPT_TIMEOUT_MS', 600_000)
+    : readPositiveInteger('CDP_SCRIPT_TIMEOUT_MS', 300_000)
 
   for (let attempt = 1; attempt <= maxRetries + 1; attempt += 1) {
     console.log(`\n==> ${item.name}${maxRetries ? ` (attempt ${attempt}/${maxRetries + 1})` : ''}`)
 
     const processHandle = spawnProcess('node', [item.script], {
       cwd: REPO_ROOT,
+      killGroup: true,
       env: {
         ...process.env,
         CDP_SCREENSHOTS: CAPTURE_SCREENSHOTS,
@@ -158,12 +175,17 @@ async function runScript(item) {
       },
     })
 
-    const code = await new Promise((resolve) => processHandle.child.once('exit', resolve))
+    const exited = await waitForProcessExit(processHandle.child, timeoutMs)
+    if (!exited) {
+      await stopProcess(processHandle)
+    }
+    const code = exited ? processHandle.child.exitCode : null
     const output = processHandle.getOutput()
     const result = extractLastJsonObject(output)
     attempts.push({
       attempt,
       exitCode: code,
+      timedOut: !exited,
       result,
     })
 
@@ -177,11 +199,14 @@ async function runScript(item) {
     }
 
     if (attempt <= maxRetries) {
-      console.warn(`${item.name} failed with exit code ${code}; retrying`)
+      console.warn(`${item.name} ${exited ? `failed with exit code ${code}` : `timed out after ${timeoutMs}ms`}; retrying`)
     }
   }
 
-  throw new Error(`${item.name} failed with exit code ${attempts[attempts.length - 1]?.exitCode}`)
+  const lastAttempt = attempts[attempts.length - 1]
+  throw new Error(lastAttempt?.timedOut
+    ? `${item.name} timed out after ${timeoutMs}ms`
+    : `${item.name} failed with exit code ${lastAttempt?.exitCode}`)
 }
 
 async function main() {

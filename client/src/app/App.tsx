@@ -133,6 +133,7 @@ export function App() {
         </section>
 
         <ChatComposer
+          canGenerateSummary={controller.canGenerateSummary}
           canPreviewContext={controller.canPreviewContext}
           canSubmit={controller.canSubmit}
           disabled={composerDisabled}

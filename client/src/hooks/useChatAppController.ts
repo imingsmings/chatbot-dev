@@ -164,7 +164,8 @@ export function useChatAppController() {
     !isResponding &&
     !isStopping &&
     !isConversationTransitioning
-  const canGenerateSummary = canPreviewContext && !isSummaryLoading
+  const canGenerateSummary =
+    canPreviewContext && messages.length > 0 && !isSummaryLoading
 
   const setOperation = useCallback((operation: SidebarOperation | null) => {
     sidebarOperationRef.current = operation

@@ -736,6 +736,7 @@ async function main() {
       DEEPSEEK_API_KEY: 'cdp-test-key',
       HEFENG_API_HOST: 'mock.weather.local',
       HEFENG_API_KEY: 'mock-weather-key',
+      CONVERSATION_STORE: 'file',
       CONVERSATION_DATA_DIR: dataDir,
       NODE_OPTIONS: `${process.env.NODE_OPTIONS || ''} --require=${WEATHER_MOCK}`.trim(),
     },
@@ -962,6 +963,7 @@ async function main() {
       env: {
         ...process.env,
         PORT: '7703',
+        CONVERSATION_STORE: 'file',
         CONVERSATION_DATA_DIR: legacyDataDir,
         LLM_PROVIDER: 'deepseek',
         LLM_ENDPOINT: MOCK_URL,
@@ -1015,6 +1017,7 @@ async function main() {
       env: {
         ...process.env,
         PORT: '7704',
+        CONVERSATION_STORE: 'file',
         CONVERSATION_DATA_DIR: corruptDataDir,
         LLM_PROVIDER: 'deepseek',
         LLM_ENDPOINT: MOCK_URL,

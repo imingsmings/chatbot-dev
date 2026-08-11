@@ -1,3 +1,4 @@
+import crypto from 'node:crypto'
 import {
   clearConversationMessages,
   createNewConversation,
@@ -15,6 +16,10 @@ import {
 import { importConversationBackup } from '../services/conversationImportService.ts'
 import { generateConversationSummary } from '../services/conversationSummaryService.ts'
 import { parseModelRequestOptions } from '../utils/modelOptions.ts'
+import {
+  completeRequest,
+  registerRequest,
+} from '../utils/requestRegistry.ts'
 import {
   MAX_CONVERSATION_TITLE_LENGTH,
   MAX_QUESTION_LENGTH,
@@ -238,6 +243,7 @@ const summarizeConversation: RequestHandler<ConversationParams, unknown, Generat
   next
 ) => {
   const controller = new AbortController()
+  const requestId = `summary_${crypto.randomUUID()}`
   const abortOnClientClose = (): void => {
     if (!res.writableEnded && !controller.signal.aborted) {
       controller.abort()
@@ -250,6 +256,18 @@ const summarizeConversation: RequestHandler<ConversationParams, unknown, Generat
   } catch (err) {
     res.status(400).json({
       message: err instanceof Error ? err.message : '模型参数不合法'
+    })
+    return
+  }
+
+  if (!registerRequest({
+    requestId,
+    conversationId: req.params.id,
+    controller,
+    cancel: () => controller.abort(),
+  })) {
+    res.status(409).json({
+      message: '当前会话正在处理中'
     })
     return
   }
@@ -290,6 +308,7 @@ const summarizeConversation: RequestHandler<ConversationParams, unknown, Generat
   } finally {
     req.off('aborted', abortOnClientClose)
     res.off('close', abortOnClientClose)
+    completeRequest(requestId, controller)
   }
 }
 

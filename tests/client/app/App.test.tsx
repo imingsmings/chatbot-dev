@@ -122,6 +122,12 @@ describe('React chat app shell', () => {
       }),
     ).toBeEnabled()
     expect(screen.getByRole('button', { name: '发送消息' })).toBeDisabled()
+
+    fireEvent.click(screen.getByRole('button', { name: '添加和工具' }))
+    expect(await screen.findByRole('menuitem', { name: '摘要' })).toHaveAttribute(
+      'aria-disabled',
+      'true',
+    )
   })
 
   it('reuses the current default empty conversation when new chat is clicked repeatedly', async () => {

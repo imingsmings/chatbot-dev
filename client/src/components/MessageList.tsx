@@ -1,4 +1,4 @@
-import { CheckIcon, CopyIcon, RefreshCwIcon, ThumbsDownIcon, ThumbsUpIcon } from 'lucide-react'
+import { CheckIcon, CopyIcon, RefreshCwIcon } from 'lucide-react'
 
 import { MarkdownMessage } from '#components/MarkdownMessage'
 import { ReasoningDisclosure } from '#components/ReasoningDisclosure'
@@ -122,16 +122,6 @@ export function MessageList({
                     )}
                     <span>{copiedMessageId === message.id ? '已复制' : '复制'}</span>
                   </Button>
-                ) : null}
-                {message.status === 'done' ? (
-                  <>
-                    <Button aria-label="赞同回答" className="message-action-btn icon-only size-7 text-[var(--text-tertiary)] hover:bg-[var(--surface-muted)] hover:text-[var(--text-primary)]" size="icon-sm" type="button" variant="ghost">
-                      <ThumbsUpIcon aria-hidden="true" size={15} />
-                    </Button>
-                    <Button aria-label="不赞同回答" className="message-action-btn icon-only size-7 text-[var(--text-tertiary)] hover:bg-[var(--surface-muted)] hover:text-[var(--text-primary)]" size="icon-sm" type="button" variant="ghost">
-                      <ThumbsDownIcon aria-hidden="true" size={15} />
-                    </Button>
-                  </>
                 ) : null}
                 {message.status === 'error' ? (
                   <Button

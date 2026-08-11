@@ -24,10 +24,13 @@ async function waitForHttp(url, timeoutMs = 15000, options = {}) {
 }
 
 function spawnProcess(command, args, options = {}) {
+  const { killGroup = false, ...spawnOptions } = options
+  const usesProcessGroup = killGroup && process.platform !== 'win32'
   const outputChunks = []
   const child = spawn(command, args, {
     stdio: ['ignore', 'pipe', 'pipe'],
-    ...options,
+    ...spawnOptions,
+    detached: usesProcessGroup || spawnOptions.detached,
   })
 
   child.stdout.on('data', (chunk) => {
@@ -42,7 +45,24 @@ function spawnProcess(command, args, options = {}) {
   return {
     child,
     getOutput: () => Buffer.concat(outputChunks).toString('utf8'),
+    killGroup: usesProcessGroup,
   }
+}
+
+function signalProcess(processHandle, signal) {
+  const child = processHandle?.child || processHandle
+  if (!child) return false
+
+  if (processHandle?.killGroup && child.pid) {
+    try {
+      process.kill(-child.pid, signal)
+      return true
+    } catch {
+      // Fall back to the direct child when its process group already exited.
+    }
+  }
+
+  return child.kill(signal)
 }
 
 async function stopProcess(processHandle) {
@@ -52,12 +72,15 @@ async function stopProcess(processHandle) {
     : []
 
   try {
-    if (child && child.exitCode === null) {
-      child.kill('SIGTERM')
-      await Promise.race([
-        new Promise((resolve) => child.once('exit', resolve)),
-        delay(3000).then(() => child.kill('SIGKILL')),
-      ])
+    if (child && child.exitCode === null && child.signalCode === null) {
+      signalProcess(processHandle, 'SIGTERM')
+      const exitedAfterTerm = await waitForProcessExit(child, 3000)
+      if (!exitedAfterTerm || processHandle?.killGroup) {
+        signalProcess(processHandle, 'SIGKILL')
+      }
+      if (!exitedAfterTerm && child.exitCode === null && child.signalCode === null) {
+        await waitForProcessExit(child, 2000)
+      }
     }
   } finally {
     await Promise.all(
@@ -66,9 +89,30 @@ async function stopProcess(processHandle) {
   }
 }
 
+function waitForProcessExit(child, timeoutMs) {
+  if (child.exitCode !== null || child.signalCode !== null) {
+    return Promise.resolve(true)
+  }
+
+  return new Promise((resolve) => {
+    const finish = (exited) => {
+      clearTimeout(timer)
+      child.off('exit', handleExit)
+      resolve(exited)
+    }
+    const handleExit = () => finish(true)
+    const timer = setTimeout(() => finish(false), timeoutMs)
+    child.once('exit', handleExit)
+    if (child.exitCode !== null || child.signalCode !== null) {
+      finish(true)
+    }
+  })
+}
+
 export {
   delay,
   spawnProcess,
   stopProcess,
+  waitForProcessExit,
   waitForHttp,
 }
