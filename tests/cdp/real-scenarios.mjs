@@ -313,6 +313,16 @@ async function main() {
     await newChat(client)
     await ask(client, '真实接口测试三：请写一段至少 500 字的中文内容，方便我中断后继续发送。')
     await waitStop(client)
+    await waitFor(
+      client,
+      `(() => {
+        const row = [...document.querySelectorAll('.message-row.assistant')].at(-1);
+        const markdown = row?.querySelector('.markdown-message[data-render-mode="streaming-lite"]');
+        return Boolean(markdown?.textContent.trim()) &&
+          [...document.querySelectorAll('button')]
+            .some((button) => button.textContent.trim() === '停止');
+      })()`,
+    )
     await clickText(client, 'button', '停止')
     await waitFor(client, `document.body.innerText.includes('已停止生成') || document.body.innerText.includes('响应中断')`)
     await waitIdle(client)
@@ -328,7 +338,13 @@ async function main() {
         abortCount: window.__realAbortCount,
       }))()`,
     )
-    if (stoppedState.hasRetry || !stoppedState.hasStoppedText) {
+    if (
+      stoppedState.userRows !== 1 ||
+      stoppedState.assistantRows !== 1 ||
+      stoppedState.partialTextLength <= 0 ||
+      stoppedState.hasRetry ||
+      !stoppedState.hasStoppedText
+    ) {
       throw new Error(`Stopped message state failed: ${JSON.stringify(stoppedState)}`)
     }
     await screenshot(client, '03-real-stopped-no-retry')

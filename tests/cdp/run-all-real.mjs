@@ -4,6 +4,15 @@ import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
 
+const REAL_SUITES = new Set([
+  'all-real',
+  'real-ui',
+  'real-context',
+  'real-markdown',
+  'real-model-options',
+  'real-openai',
+])
+
 function allocatePort() {
   return new Promise((resolve, reject) => {
     const server = net.createServer()
@@ -21,6 +30,11 @@ function allocatePort() {
 }
 
 async function main() {
+  const suite = process.env.CDP_REAL_SUITE || 'all-real'
+  if (!REAL_SUITES.has(suite)) {
+    throw new Error(`Unsupported isolated real suite: ${suite}`)
+  }
+
   const dataDir = await mkdtemp(path.join(os.tmpdir(), 'chatbot-cdp-all-real-'))
   const [backendPort, vitePort] = await Promise.all([allocatePort(), allocatePort()])
   const backendUrl = `http://127.0.0.1:${backendPort}/`
@@ -46,7 +60,7 @@ async function main() {
   process.once('SIGTERM', handleSigterm)
 
   try {
-    child = spawn('node', ['tests/cdp/run-cdp-regression.mjs', 'all-real'], {
+    child = spawn('node', ['tests/cdp/run-cdp-regression.mjs', suite], {
       cwd: process.cwd(),
       env: {
         ...process.env,
