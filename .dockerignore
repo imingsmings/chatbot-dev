@@ -18,6 +18,9 @@ logs
 !server/.env.example
 server/.env
 server/data
+backups
+*.tar
+*.manifest.json
 
 .tmp
 tests/*

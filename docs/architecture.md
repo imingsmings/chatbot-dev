@@ -85,6 +85,7 @@ flowchart LR
 | `server/services/contextService.ts` | 摘要覆盖边界、安全截断、消息数和字符预算 |
 | `server/services/conversationSummaryService.ts` | 摘要生成及会话变化检测 |
 | `server/services/toolService.ts` | 工具参数校验、失败隔离、耗时和生命周期事件 |
+| `server/services/healthService.ts` | 启动级配置校验、会话存储读取和数据根目录读写探针；仅输出稳定状态 |
 | `server/tools/*` | 单工具 schema、validator 和 handler |
 | `server/utils/llm/providerConfig.ts` | HTTP/HTTPS endpoint、凭据和默认模型 |
 | `server/utils/llm/modelCatalog.ts` | 公共模型能力与禁用状态 |
@@ -138,7 +139,24 @@ flowchart LR
 - Node 仍是唯一 HTTPS 与应用进程，不增加反向代理或第二套前端服务。
 - `server/.env`、TLS 文件和会话数据均不进入镜像层；容器可替换，运行配置和数据独立保留。
 - Compose 只运行一个实例。file store 的队列和 SQLite 写入边界都是单进程语义，不支持横向扩容。
+- Compose healthcheck 使用独立 `/api/health`，将配置或存储不可用映射为 503，不返回路径、endpoint、凭据或底层异常。
+- `docker:backup` 只读挂载已停止的完整 `/app/data` volume，tar 与 manifest 分别提供 archive 和数据树 SHA-256；`docker:restore` 只创建新 volume，校验后通过独立 Compose override 切换。
 - 完整镜像分层和生命周期见 [Docker 部署说明](docker-deployment.md)。
+
+### Docker 数据恢复边界
+
+```mermaid
+flowchart LR
+  Stop["stop single Node writer"] --> Source["source /app/data volume"]
+  Source -->|"read-only tar + file hashes"| Backup["tar + manifest"]
+  Backup -->|"archive sha256 verified"| NewVolume["new restored volume"]
+  NewVolume -->|"tree sha256 verified"| Switch["Compose external-volume override"]
+  Switch --> Health["/api/health + conversation parity"]
+  Health -->|"pass"| Keep["keep restored service and retain source"]
+  Health -->|"fail"| Rollback["switch back to untouched source"]
+```
+
+备份与恢复工具不读取或复制 `server/.env`、API key、宿主机 TLS 文件或 CA 私钥。数据 volume 的选择是显式运维状态；它不被写入应用持久化 schema，也不改变 file/SQLite 对外契约。
 
 ## 普通问答时序
 

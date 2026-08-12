@@ -23,6 +23,7 @@
 | 模型 endpoint、API key、业务参数 | 宿主机 `server/.env` | 否 |
 | HTTPS 证书和私钥 | 宿主机 `~/devhttps` | 否，只读挂载 |
 | file/SQLite 会话数据 | Compose `chatbot-data` volume | 否 |
+| 备份 tar 与 manifest | 操作者指定的宿主机目录 | 否 |
 
 容器可以重建，volume 不应随普通回滚删除。只运行一个 `chatbot` 实例，避免 file store 队列和 SQLite 的单进程写入语义失效。
 
@@ -35,7 +36,7 @@
 3. `runtime` 只安装 server 生产依赖，复制 server 源码和 `client/dist`。
 4. entrypoint 以 root 读取宿主机 `0600` 私钥并复制到容器临时目录，随后使用 `setpriv` 降权为官方 `node` 用户运行应用。
 5. `/app/data` 预设为 `node:node`，命名卷首次创建后可由非 root 应用进程写入。
-6. `.dockerignore` 阻止 `.env`、证书、`server/data`、无关测试和 Git 元数据进入 build context；`tests/client` 仅作为 TypeScript 构建输入，不进入运行镜像。
+6. `.dockerignore` 阻止 `.env`、证书、`server/data`、备份 tar/manifest、无关测试和 Git 元数据进入 build context；`tests/client` 仅作为 TypeScript 构建输入，不进入运行镜像。
 
 运行镜像默认配置：
 
@@ -80,6 +81,16 @@ Compose 将以下宿主机文件分别只读挂载：
 ~/devhttps/dev-cert.pem -> /run/tls/server-cert.pem
 ~/devhttps/dev-key.pem  -> /run/tls/server-key.pem
 ```
+
+默认路径保持不变；证书不在默认目录时可覆盖两个宿主机源路径：
+
+```bash
+CHATBOT_TLS_CERT_SOURCE=/absolute/path/lan-cert.pem \
+CHATBOT_TLS_KEY_SOURCE=/absolute/path/lan-key.pem \
+pnpm run docker:up
+```
+
+这两个变量只改变宿主机 bind source。容器内目标路径、entrypoint 的权限收敛和 Node 读取路径不变。
 
 私钥不会进入镜像，证书更新也不需要重新构建。Node 启动前仍会校验证书格式、有效期和密钥匹配。
 
@@ -129,6 +140,7 @@ pnpm run docker:status
 ```bash
 pnpm run docker:logs
 docker compose restart chatbot
+pnpm run docker:stop
 pnpm run docker:down
 ```
 
@@ -144,13 +156,16 @@ pnpm run test:docker
 
 它使用临时 env、随机宿主机端口、独立 Compose project 和独立 SQLite volume，验证：
 
-- Compose 可解析，镜像可构建，容器进入 healthy；
+- 默认和覆盖后的证书源路径均可解析，镜像可构建，容器进入 healthy；
 - 应用主进程以非 root `node` 用户运行；
 - React 页面通过 Node HTTPS 返回；
-- runtime config 正确，未知 API 返回 JSON 404；
+- runtime config 正确，`/api/health` 正常为 200、数据目录不可写为 503，未知 API 返回 JSON 404；
 - 测试会话跨容器 restart 持久化；
 - Docker stop 触发 SIGTERM，Node 在宽限期内以 0 退出；
-- `finally` 只删除测试 project、测试 volume 和临时 env。
+- 停止后的完整 volume 可生成 tar 和带 SHA-256 的 manifest；
+- 损坏校验或已存在目标卷会在覆盖前失败；
+- 恢复到新 volume 后，会话数量、消息、reasoning、summary、generation 和 tool trace 与恢复前完全一致；
+- `finally` 只删除测试 project、测试 volume、临时证书和临时 env。
 
 容器页面与截图验收需要先启动容器，然后运行：
 
@@ -175,15 +190,67 @@ localhost,127.0.0.1,host.docker.internal,*.local,192.168.0.0/16
 
 自动化测试使用临时 Docker CLI 配置规避桌面 credential helper 阻塞，但不会修改或持久化 Docker Hub 凭据。
 
-## 备份与回滚
+## 健康检查
 
-原始文件级备份前先停止容器，保证 SQLite/WAL 状态稳定：
+Compose healthcheck 请求 `GET /api/health`。该接口同时检查：
 
-```bash
-docker compose stop chatbot
+- 当前模型与存储运行配置可以通过启动级校验；
+- 当前存储实现可读取会话；
+- `/app/data` 可以创建、读回并删除唯一探针文件。
+
+正常返回 200：
+
+```json
+{"status":"ok","checks":{"configuration":"ok","storage":"ok"}}
 ```
 
-备份应覆盖完整 volume，而不是只复制 SQLite 主文件。恢复时优先写入新 volume 并验证，再切换服务，避免直接清空唯一数据副本。
+任一检查失败返回 503，并只将对应检查标为 `error`。响应不包含 endpoint、API key、证书路径、数据路径或底层错误文本。健康探针不调用模型或其他外部服务。
+
+## 备份、恢复与切换
+
+备份必须覆盖整个 `/app/data` volume，不能只复制 SQLite 主文件；这样当 `conversations.sqlite3-wal`、`conversations.sqlite3-shm` 存在时也会与 file store、migration metadata 一并进入 tar。先停止服务，保证 SQLite 主文件和 sidecar 不再变化：
+
+```bash
+pnpm run docker:stop
+pnpm run docker:backup -- --output /absolute/safe/chatbot-backups
+```
+
+`docker:backup` 默认从已停止但仍存在的 Compose `chatbot` 容器发现 `/app/data` 的实际 volume 名；也可显式传入 `--volume <name>`。脚本会：
+
+1. 拒绝不存在或仍被运行中容器挂载的源 volume；
+2. 只读挂载源 volume，记录每个文件的大小和 SHA-256；
+3. 生成完整 tar，再次校验源数据树在打包期间未变化；
+4. 写出同目录 `*.manifest.json`，记录 archive SHA-256 和数据树 SHA-256。
+
+默认输出目录是已被 Git ignore 的仓库根 `backups/`。正式备份建议写到仓库外并保留 tar 和 manifest 两个文件。
+
+恢复时必须使用一个从未存在过的新 volume 名：
+
+```bash
+pnpm run docker:restore -- \
+  --manifest /absolute/safe/chatbot-backups/chatbot-data-时间.tar.manifest.json \
+  --volume chatbot-data-restored-20260812
+```
+
+恢复脚本先验证 tar SHA-256，再创建目标 volume、解包并比较恢复后的数据树 SHA-256。目标 volume 已存在时直接拒绝；恢复或校验失败时只尝试删除本次刚创建的新 volume，不修改源 volume。
+
+验证通过后显式切换 Compose：
+
+```bash
+export CHATBOT_DATA_VOLUME=chatbot-data-restored-20260812
+pnpm run docker:up:volume
+curl -sk https://127.0.0.1:7001/api/health
+```
+
+`compose.data-volume.yaml` 只把 `/app/data` 替换为指定 external volume。切换后继续启动或重建时必须保留同一个 `CHATBOT_DATA_VOLUME` 并使用 `docker:up:volume`；不要误用普通 `docker:up` 切回默认 volume。确认会话列表和重点会话内容后，仍建议保留原 volume 至少一个观察周期。
+
+若恢复后的服务验收失败，停止当前容器，重新选择原 volume，而不是清空或覆盖恢复卷：
+
+```bash
+pnpm run docker:stop
+export CHATBOT_DATA_VOLUME=切换前记录的原始_volume_名称
+pnpm run docker:up:volume
+```
 
 应用回滚只切换镜像并保留当前 volume：
 
@@ -193,3 +260,34 @@ docker compose up -d
 ```
 
 如果新镜像启动失败，检查 `docker compose logs chatbot`，恢复上一镜像标签后重新启动。不要执行 `down -v`。
+
+## 迁移到另一台局域网电脑
+
+迁移按“运行配置、TLS、镜像、数据”四条独立链路处理，脚本不会自动打包 `.env`、API key、TLS 私钥或 mkcert 根 CA 私钥。
+
+### 1. 源电脑冻结并取证
+
+1. 记录当前 Git revision、Node/pnpm/Docker 版本和实际数据 volume 名。
+2. 通过 `/api/conversations/export.json` 保存一份仅用于比对的导出，至少记录会话数量并抽查包含 reasoning、summary 和 generation 的会话。
+3. 执行 `pnpm run docker:stop` 和 `docker:backup`，把 tar 与 manifest 安全传到目标电脑。
+4. 不删除源 volume，不执行 `docker compose down -v`。
+
+### 2. 目标电脑重建运行配置与 TLS
+
+1. 拉取同一代码 revision，安装仓库声明的 Node 22 和 pnpm 11.16，启动 Docker Desktop。
+2. 手工创建 `server/.env`，只填写目标机需要的 provider endpoint、API key 和业务参数；不要把源 `.env` 放进备份 tar 或 Git。
+3. 为目标机局域网 IP/DNS 名重新签发服务器证书，或通过 `CHATBOT_TLS_CERT_SOURCE` / `CHATBOT_TLS_KEY_SOURCE` 指向安全传入的服务器证书与私钥。
+4. 客户端只安装并信任签发者的根 CA **证书**；绝不分发 mkcert 根 CA 私钥。证书 SAN 必须包含实际访问的 IP 或 DNS 名。
+5. 执行 `pnpm install --frozen-lockfile` 和 `pnpm run docker:build`，不复制旧机器的 Docker volume 内部目录。
+
+### 3. 恢复并验收
+
+1. 使用 `docker:restore` 恢复到目标机的新 volume。
+2. 设置 `CHATBOT_DATA_VOLUME` 并运行 `docker:up:volume`。
+3. 确认容器 healthy、`/api/health` 为 200、Node 主进程为非 root。
+4. 对比源/目标会话数量，并逐项抽查消息、reasoning、summary、stopped/completed、generation usage 和 tool trace。
+5. 从另一台局域网客户端通过证书覆盖的 IP/DNS 访问，验证页面、会话切换和一次不调用真实模型的读取流程。
+
+### 4. 回滚
+
+目标机验收失败时停止目标容器并保留恢复卷和日志；源电脑继续使用未修改的原 volume。若目标机只是镜像问题，修复或切回镜像后复用恢复卷；若数据校验失败，丢弃该**新恢复卷**并从原 tar + manifest 恢复到另一个新名字。任何回滚路径都禁止用 `docker compose down -v` 代替精确卷操作。

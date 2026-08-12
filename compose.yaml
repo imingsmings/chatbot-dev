@@ -25,11 +25,11 @@ services:
     volumes:
       - chatbot-data:/app/data
       - type: bind
-        source: ${HOME}/devhttps/dev-cert.pem
+        source: ${CHATBOT_TLS_CERT_SOURCE:-${HOME}/devhttps/dev-cert.pem}
         target: /run/tls/server-cert.pem
         read_only: true
       - type: bind
-        source: ${HOME}/devhttps/dev-key.pem
+        source: ${CHATBOT_TLS_KEY_SOURCE:-${HOME}/devhttps/dev-key.pem}
         target: /run/tls/server-key.pem
         read_only: true
     healthcheck:
@@ -38,7 +38,7 @@ services:
         - node
         - -e
         - >-
-          require('node:https').get({hostname:'127.0.0.1',port:7001,path:'/api/runtime-config',rejectUnauthorized:false},response=>{response.resume();process.exit(response.statusCode===200?0:1)}).on('error',()=>process.exit(1))
+          require('node:https').get({hostname:'127.0.0.1',port:7001,path:'/api/health',rejectUnauthorized:false},response=>{response.resume();process.exit(response.statusCode===200?0:1)}).on('error',()=>process.exit(1))
       interval: 15s
       timeout: 5s
       retries: 3

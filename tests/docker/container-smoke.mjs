@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises'
 import https from 'node:https'
 import net from 'node:net'
 import { tmpdir } from 'node:os'
@@ -105,6 +105,11 @@ function request(port, pathname, options = {}) {
   })
 }
 
+async function normalizeDockerDesktopBindSource(source) {
+  const hostPath = source.startsWith('/host_mnt/') ? source.slice('/host_mnt'.length) : source
+  return realpath(hostPath)
+}
+
 async function waitForHealthy(containerId) {
   const startedAt = Date.now()
   while (Date.now() - startedAt < TIMEOUT_MS) {
@@ -128,6 +133,10 @@ async function main() {
   const tempDir = await mkdtemp(path.join(tmpdir(), 'chatbot-docker-smoke-'))
   const dockerConfigDir = path.join(tempDir, 'docker-config')
   const envFile = path.join(tempDir, 'server.env')
+  const certificatePath = path.join(tempDir, 'server-cert.pem')
+  const privateKeyPath = path.join(tempDir, 'server-key.pem')
+  const opensslConfigPath = path.join(tempDir, 'openssl.cnf')
+  const backupDir = path.join(tempDir, 'backup')
   const port = await findAvailablePort()
   await mkdir(dockerConfigDir)
   await writeFile(path.join(dockerConfigDir, 'config.json'), JSON.stringify({
@@ -138,11 +147,33 @@ async function main() {
     ...process.env,
     CHATBOT_ENV_FILE: envFile,
     CHATBOT_HTTPS_PORT: String(port),
+    CHATBOT_TLS_CERT_SOURCE: certificatePath,
+    CHATBOT_TLS_KEY_SOURCE: privateKeyPath,
     DOCKER_CONFIG: dockerConfigDir,
   }
-  const compose = (...args) => run('docker', ['compose', '-p', PROJECT_NAME, ...args], { env: composeEnv })
+  const compose = (...args) => run('docker', ['compose', '-p', PROJECT_NAME, ...args], {
+    env: composeEnv,
+  })
+  const composeWithRestoredVolume = (volumeName, ...args) => run('docker', [
+    'compose',
+    '-p',
+    PROJECT_NAME,
+    '-f',
+    'compose.yaml',
+    '-f',
+    'compose.data-volume.yaml',
+    ...args,
+  ], {
+    env: {
+      ...composeEnv,
+      CHATBOT_DATA_VOLUME: volumeName,
+    },
+  })
   let containerId = ''
   let conversationId = ''
+  let sourceVolume = ''
+  const restoredVolume = `${PROJECT_NAME}-restored`
+  const rejectedVolume = `${PROJECT_NAME}-rejected`
 
   await writeFile(envFile, [
     'LLM_PROVIDER=deepseek',
@@ -154,8 +185,40 @@ async function main() {
     'APP_PROFILE_NAME=Docker Smoke Test',
     '',
   ].join('\n'))
+  await writeFile(opensslConfigPath, [
+    '[req]',
+    'distinguished_name=dn',
+    'x509_extensions=v3',
+    'prompt=no',
+    '[dn]',
+    'CN=localhost',
+    '[v3]',
+    'subjectAltName=DNS:localhost,IP:127.0.0.1',
+    '',
+  ].join('\n'))
+  await run('openssl', [
+    'req',
+    '-x509',
+    '-nodes',
+    '-newkey',
+    'rsa:2048',
+    '-days',
+    '1',
+    '-keyout',
+    privateKeyPath,
+    '-out',
+    certificatePath,
+    '-config',
+    opensslConfigPath,
+  ])
 
   try {
+    const defaultComposeEnv = { ...composeEnv }
+    delete defaultComposeEnv.CHATBOT_TLS_CERT_SOURCE
+    delete defaultComposeEnv.CHATBOT_TLS_KEY_SOURCE
+    await run('docker', ['compose', '-p', `${PROJECT_NAME}-default-config`, 'config', '--quiet'], {
+      env: defaultComposeEnv,
+    })
     await compose('config', '--quiet')
     await compose('up', '-d', '--build')
     containerId = (await compose('ps', '-q', 'chatbot')).stdout.trim()
@@ -169,6 +232,21 @@ async function main() {
     ])).stdout.trim()
     assert.match(processList, /^\s*\d+\s+(?:1000|node)\s+node server\/bin\/www\.ts$/m)
 
+    const containerMounts = JSON.parse((await run('docker', [
+      'inspect',
+      '--format',
+      '{{json .Mounts}}',
+      containerId,
+    ])).stdout)
+    assert.equal(await normalizeDockerDesktopBindSource(
+      containerMounts.find((mount) => mount.Destination === '/run/tls/server-cert.pem')?.Source ?? '',
+    ), await realpath(certificatePath))
+    assert.equal(await normalizeDockerDesktopBindSource(
+      containerMounts.find((mount) => mount.Destination === '/run/tls/server-key.pem')?.Source ?? '',
+    ), await realpath(privateKeyPath))
+    sourceVolume = containerMounts.find((mount) => mount.Destination === '/app/data')?.Name ?? ''
+    assert(sourceVolume, 'Container did not mount a named volume at /app/data')
+
     const home = await request(port, '/', { accept: 'text/html' })
     assert.equal(home.status, 200)
     assert.match(home.text, /<div id="root"><\/div>/)
@@ -181,6 +259,24 @@ async function main() {
     assert.equal(runtimePayload.runtime.model, 'deepseek-v4-flash')
     assert.equal(runtimePayload.runtime.storageBackend, 'sqlite')
 
+    const health = await request(port, '/api/health')
+    assert.equal(health.status, 200)
+    assert.deepEqual(JSON.parse(health.text), {
+      status: 'ok',
+      checks: { configuration: 'ok', storage: 'ok' },
+    })
+
+    await run('docker', ['exec', '--user', 'root', containerId, 'chmod', '0555', '/app/data'])
+    const unwritableHealth = await request(port, '/api/health')
+    assert.equal(unwritableHealth.status, 503)
+    assert.deepEqual(JSON.parse(unwritableHealth.text), {
+      status: 'unhealthy',
+      checks: { configuration: 'ok', storage: 'error' },
+    })
+    await run('docker', ['exec', '--user', 'root', containerId, 'chmod', '0755', '/app/data'])
+    const recoveredHealth = await request(port, '/api/health')
+    assert.equal(recoveredHealth.status, 200)
+
     const missingApi = await request(port, '/api/not-a-route', { accept: 'text/html' })
     assert.equal(missingApi.status, 404)
     assert.deepEqual(JSON.parse(missingApi.text), { message: 'Not Found' })
@@ -192,6 +288,71 @@ async function main() {
     assert.equal(created.status, 201)
     conversationId = JSON.parse(created.text).conversation.id
     assert.match(conversationId, /^conv_/)
+
+    const semanticConversationId = `conv_docker_backup_${Date.now()}`
+    const semanticBackup = {
+      schemaVersion: 1,
+      source: 'chatbot-local',
+      exportedAt: '2026-08-12T00:00:00.000Z',
+      conversations: [{
+        id: semanticConversationId,
+        title: 'Docker backup semantic fixture',
+        createdAt: '2026-08-12T00:00:00.000Z',
+        updatedAt: '2026-08-12T00:01:00.000Z',
+        titleManuallyEdited: true,
+        summary: {
+          content: 'preserved summary',
+          sourceMessageCount: 2,
+          updatedAt: '2026-08-12T00:01:00.000Z',
+        },
+        messages: [
+          { role: 'user', content: 'preserve this request' },
+          {
+            role: 'assistant',
+            content: 'preserved answer',
+            reasoningContent: 'preserved reasoning',
+            reasoningDurationMs: 27,
+            status: 'completed',
+            generation: {
+              provider: 'deepseek',
+              model: 'deepseek-v4-flash',
+              finishReason: 'stop',
+              firstTokenLatencyMs: 12,
+              totalDurationMs: 42,
+              usage: { inputTokens: 5, outputTokens: 7, totalTokens: 12 },
+            },
+            toolTrace: [{
+              name: 'calculate',
+              success: true,
+              durationMs: 3,
+              summary: '计算结果：42',
+            }],
+          },
+        ],
+      }],
+    }
+    const imported = await request(port, '/api/conversations/import', {
+      method: 'POST',
+      body: { backup: semanticBackup },
+    })
+    assert.equal(imported.status, 201)
+
+    const beforeList = JSON.parse((await request(port, '/api/conversations')).text).conversations
+    const beforeDetails = Object.fromEntries(await Promise.all(beforeList.map(async (conversation) => {
+      const detail = await request(port, `/api/conversations/${conversation.id}`)
+      assert.equal(detail.status, 200)
+      return [conversation.id, JSON.parse(detail.text).conversation]
+    })))
+
+    const runningBackupAttempt = await run('node', [
+      'scripts/docker-volume-backup.mjs',
+      '--volume',
+      sourceVolume,
+      '--output',
+      path.join(tempDir, 'running-backup-rejected'),
+    ], { env: composeEnv, allowFailure: true })
+    assert.notEqual(runningBackupAttempt.code, 0)
+    assert.match(runningBackupAttempt.stderr, /mounted by a running container/)
 
     await compose('restart', 'chatbot')
     await waitForHealthy(containerId)
@@ -211,6 +372,79 @@ async function main() {
     assert.match(logs, /收到 SIGTERM，正在停止服务/)
     assert.match(logs, /服务已停止/)
 
+    await run('node', [
+      'scripts/docker-volume-backup.mjs',
+      '--volume',
+      sourceVolume,
+      '--output',
+      backupDir,
+    ], { env: composeEnv })
+    const backupFiles = await readdir(backupDir)
+    const manifestFile = backupFiles.find((file) => file.endsWith('.manifest.json'))
+    assert(manifestFile, 'Backup manifest was not created')
+    const manifestPath = path.join(backupDir, manifestFile)
+    const manifest = JSON.parse(await readFile(manifestPath, 'utf8'))
+    assert.match(manifest.archive.sha256, /^[a-f0-9]{64}$/)
+    assert.match(manifest.data.treeSha256, /^[a-f0-9]{64}$/)
+    assert(manifest.data.entries.some((entry) => entry.path === 'sqlite/conversations.sqlite3'))
+
+    const rejectedManifestPath = path.join(backupDir, 'rejected.manifest.json')
+    await writeFile(rejectedManifestPath, JSON.stringify({
+      ...manifest,
+      archive: { ...manifest.archive, sha256: '0'.repeat(64) },
+    }))
+    const rejectedRestore = await run('node', [
+      'scripts/docker-volume-restore.mjs',
+      '--manifest',
+      rejectedManifestPath,
+      '--volume',
+      rejectedVolume,
+    ], { env: composeEnv, allowFailure: true })
+    assert.notEqual(rejectedRestore.code, 0)
+    const rejectedInspect = await run('docker', ['volume', 'inspect', rejectedVolume], {
+      env: composeEnv,
+      allowFailure: true,
+    })
+    assert.notEqual(rejectedInspect.code, 0)
+
+    await run('node', [
+      'scripts/docker-volume-restore.mjs',
+      '--manifest',
+      manifestPath,
+      '--volume',
+      restoredVolume,
+    ], { env: composeEnv })
+    const overwriteAttempt = await run('node', [
+      'scripts/docker-volume-restore.mjs',
+      '--manifest',
+      manifestPath,
+      '--volume',
+      restoredVolume,
+    ], { env: composeEnv, allowFailure: true })
+    assert.notEqual(overwriteAttempt.code, 0)
+    assert.match(overwriteAttempt.stderr, /Refusing to overwrite existing Docker volume/)
+
+    await composeWithRestoredVolume(restoredVolume, 'config', '--quiet')
+    await composeWithRestoredVolume(restoredVolume, 'up', '-d')
+    containerId = (await composeWithRestoredVolume(restoredVolume, 'ps', '-q', 'chatbot')).stdout.trim()
+    assert(containerId, 'Compose did not return the restored-volume container id')
+    await waitForHealthy(containerId)
+
+    const afterList = JSON.parse((await request(port, '/api/conversations')).text).conversations
+    const afterDetails = Object.fromEntries(await Promise.all(afterList.map(async (conversation) => {
+      const detail = await request(port, `/api/conversations/${conversation.id}`)
+      assert.equal(detail.status, 200)
+      return [conversation.id, JSON.parse(detail.text).conversation]
+    })))
+    assert.deepEqual(afterList, beforeList)
+    assert.deepEqual(afterDetails, beforeDetails)
+
+    const sourceInspect = await run('docker', ['volume', 'inspect', sourceVolume], {
+      env: composeEnv,
+      allowFailure: true,
+    })
+    assert.equal(sourceInspect.code, 0)
+
     console.log(JSON.stringify({
       ok: true,
       project: PROJECT_NAME,
@@ -218,12 +452,19 @@ async function main() {
       httpsPort: port,
       assertions: [
         'compose config valid',
+        'default and overridden TLS source paths valid',
         'image built and container healthy',
         'application process runs as non-root node user',
         'React build served over HTTPS',
-        'runtime config and JSON 404 valid',
+        'runtime config, storage-aware health, and JSON 404 valid',
+        'unwritable storage reports 503 and recovers',
         'SQLite conversation persisted across restart',
         'SIGTERM shutdown exited with code 0',
+        'backup refuses a volume mounted by a running container',
+        'stopped-volume backup includes checksums and SQLite data directory',
+        'checksum mismatch and existing restore target fail safely',
+        'new-volume restore preserves conversations and R12 message metadata exactly',
+        'source volume remains intact after restored-volume switch',
       ],
     }, null, 2))
   } finally {
@@ -232,6 +473,14 @@ async function main() {
       allowFailure: true,
       timeoutMs: CLEANUP_TIMEOUT_MS,
     }).catch(() => undefined)
+    for (const volumeName of [restoredVolume, rejectedVolume, sourceVolume]) {
+      if (!volumeName) continue
+      await run('docker', ['volume', 'rm', volumeName], {
+        env: composeEnv,
+        allowFailure: true,
+        timeoutMs: CLEANUP_TIMEOUT_MS,
+      }).catch(() => undefined)
+    }
     await rm(tempDir, { recursive: true, force: true })
   }
 }

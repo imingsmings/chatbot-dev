@@ -1,0 +1,11 @@
+services:
+  chatbot:
+    volumes:
+      - type: volume
+        source: selected-chatbot-data
+        target: /app/data
+
+volumes:
+  selected-chatbot-data:
+    external: true
+    name: ${CHATBOT_DATA_VOLUME:?set CHATBOT_DATA_VOLUME to an existing restored volume}

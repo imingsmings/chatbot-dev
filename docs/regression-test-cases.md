@@ -13,7 +13,7 @@
 | 生产构建 | `pnpm run build:client` | Vite 8 bundle、chunk 拆分、无 Vue runtime |
 | 生产托管 | `tests/server/clientHosting.test.ts` | 构建 fail-fast、SPA、API 隔离、缓存和安全头 |
 | HTTPS 配置 | `tests/server/deploymentConfig.test.ts` | production defaults、路径、布尔/端口和证书异常 |
-| Docker 容器 | `pnpm run test:docker` | Compose、镜像、HTTPS、SPA、API 404、SQLite 重启持久性和 SIGTERM |
+| Docker 容器 | `pnpm run test:docker` | Compose、证书覆盖、HTTPS、health、SQLite、停止备份、新卷恢复、语义一致性和 SIGTERM |
 | Docker 页面 | `pnpm run test:cdp:docker-ui` | 容器 HTTPS 页面、侧栏、输入区、模型控件和横向溢出；截图可选 |
 | 浏览器回归 | `pnpm run test:cdp:all-mock` | 完整 React UI/API mock 矩阵 |
 | 真实接口全量 | `pnpm run test:cdp:all-real` | 隔离端口/临时 file store；真实 UI、上下文、Markdown、OpenAI reasoning/工具/停止恢复；需明确确认 |
@@ -49,6 +49,7 @@
 | tools | 安全计算器、IANA 时间、天气本地日期、网络/HTTP 失败隔离 |
 | production hosting | 缺失 build、SPA deep link、静态缓存、`/api` JSON 404、非 GET 不回退 |
 | TLS configuration | 生产默认值、`~/` 展开、非法布尔/端口、缺失或损坏证书 fail-fast |
+| health | 正常 200；数据目录不可写和运行配置异常 503；响应不泄漏路径、endpoint 或凭据 |
 
 ## CDP suites
 
@@ -90,7 +91,7 @@ UI 四个入口位于 `tests/cdp/scenarios/ui/`。它们通过 `CDP_UI_GROUP` �
 | Provider/Function Calling | adapter/tool tests + P0；真实 provider 需另行确认 |
 | 构建/依赖/入口 | `check` + `build:client` + `all-mock` |
 | 托管/HTTPS | deployment/clientHosting tests + 生产 HTTPS 本机冒烟 |
-| Dockerfile/Compose | `test:docker`；涉及页面托管时再运行 `test:cdp:docker-ui` |
+| Dockerfile/Compose/卷运维 | `test:docker`，覆盖临时证书、隔离 volume、校验失败、恢复语义和清理；涉及页面托管时再运行 `test:cdp:docker-ui` |
 
 ## 数据与进程清理
 

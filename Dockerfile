@@ -42,6 +42,11 @@ RUN pnpm run build:client
 # 从公共基础阶段创建最终运行镜像，不继承 build 阶段的开发依赖。
 FROM base AS runtime
 
+# 显式安装卷备份和恢复脚本依赖的 tar，避免依赖基础镜像的隐式工具集合。
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends tar \
+    && rm -rf /var/lib/apt/lists/*
+
 # 让 Express、依赖和错误处理按生产模式运行。
 ENV NODE_ENV=production
 # 监听全部容器网络接口，使 Docker 端口映射和局域网访问生效。
@@ -86,6 +91,8 @@ COPY shared shared
 COPY --from=build /app/client/dist client/dist
 # 安装容器启动脚本，用于复制 TLS 文件并将应用进程降权到 node 用户。
 COPY docker/entrypoint.sh /usr/local/bin/chatbot-entrypoint
+# 复制只读卷清单工具，供宿主机备份和恢复脚本校验数据树。
+COPY docker/volume-manifest.mjs /app/docker/volume-manifest.mjs
 
 # 创建 volume 挂载点，确保 node 用户拥有数据目录，并赋予 entrypoint 可执行权限。
 RUN mkdir -p /app/data \
