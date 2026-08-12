@@ -206,7 +206,7 @@ async function main() {
       client,
       `(() => {
         const row = [...document.querySelectorAll('.message-row.assistant')].at(-1);
-        return Boolean(row?.querySelector('.message-text')?.textContent.trim()) &&
+        return Boolean(row?.querySelector('.markdown-message[data-render-mode="streaming-lite"]')?.textContent.trim()) &&
           Boolean(document.querySelector('button[aria-label="停止生成"]'));
       })()`,
       WAIT_TIMEOUT_MS,
@@ -253,17 +253,43 @@ async function main() {
       client,
       '请连续写 100 个编号段落，每段至少 30 个汉字，用于真实中断测试。',
     )
-    await waitForEval(client, `Boolean(document.querySelector('button[aria-label="停止生成"]'))`, WAIT_TIMEOUT_MS)
-    await delay(500)
+    await waitForEval(
+      client,
+      `(() => {
+        const row = [...document.querySelectorAll('.message-row.assistant')].at(-1);
+        const markdown = row?.querySelector('.markdown-message[data-render-mode="streaming-lite"]');
+        return Boolean(markdown?.textContent.trim()) &&
+          Boolean(document.querySelector('button[aria-label="停止生成"]'));
+      })()`,
+      WAIT_TIMEOUT_MS,
+    )
+    await delay(100)
     await clickAria(client, '停止生成')
-    await waitForEval(client, `document.body.innerText.includes('已停止生成')`, WAIT_TIMEOUT_MS)
-    await waitForEval(client, `Boolean(document.querySelector('button[aria-label="发送消息"]'))`, WAIT_TIMEOUT_MS)
+    await waitForEval(
+      client,
+      `(() => {
+        const row = [...document.querySelectorAll('.message-row.assistant')].at(-1);
+        return row?.querySelector('.message-status-text')?.textContent.includes('已停止生成') &&
+          Boolean(document.querySelector('button[aria-label="发送消息"]'));
+      })()`,
+      WAIT_TIMEOUT_MS,
+    )
     const stoppedState = await evaluate(
       client,
-      `({
-        abortCount: window.__openAiAbortCount,
-        hasStopped: document.body.innerText.includes('已停止生成'),
-      })`,
+      `(() => {
+        const userRows = [...document.querySelectorAll('.message-row.user')];
+        const assistantRows = [...document.querySelectorAll('.message-row.assistant')];
+        const row = assistantRows.at(-1);
+        return {
+          abortCount: window.__openAiAbortCount,
+          userRows: userRows.length,
+          assistantRows: assistantRows.length,
+          partialTextLength: row?.querySelector('.markdown-message')?.textContent.trim().length || 0,
+          hasStopped: row?.querySelector('.message-status-text')?.textContent.includes('已停止生成') || false,
+          hasRetry: [...(row?.querySelectorAll('button') || [])]
+            .some((button) => button.textContent.trim() === '重试'),
+        };
+      })()`,
     )
 
     const recoveryMarker = `OPENAI-RECOVERY-${STAMP}`
@@ -292,6 +318,9 @@ async function main() {
       toolDone: toolEvents.at(-1)?.type === 'done',
       stopAbortedFetch: stoppedState.abortCount > 0,
       stopStateVisible: stoppedState.hasStopped,
+      stopPartialPersisted: stoppedState.userRows === 1 &&
+        stoppedState.assistantRows === 1 && stoppedState.partialTextLength > 0,
+      stopHasNoRetry: !stoppedState.hasRetry,
       recoverySucceeded: true,
     }
     const failures = Object.entries(checks)
@@ -307,7 +336,7 @@ async function main() {
         uiReasoningLength: uiState.reasoning.length,
         uiReasoningSummaryPresent: uiState.reasoning.length > 0,
         toolEventTypes: toolEvents.map((event) => event.type),
-        abortCount: stoppedState.abortCount,
+        stoppedState,
       },
     }, null, 2))
 
