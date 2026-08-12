@@ -43,6 +43,22 @@ async function ensureConversationDir(): Promise<void> {
   await fs.mkdir(CONVERSATIONS_DIR, { recursive: true })
 }
 
+async function checkHealth(): Promise<void> {
+  await listConversations()
+  const nonce = crypto.randomUUID()
+  const probePath = path.join(CONVERSATIONS_DIR, `.health-${process.pid}-${nonce}`)
+
+  try {
+    await fs.writeFile(probePath, nonce, { encoding: 'utf8', flag: 'wx' })
+    const storedNonce = await fs.readFile(probePath, 'utf8')
+    if (storedNonce !== nonce) {
+      throw new Error('文件存储健康检查内容不一致')
+    }
+  } finally {
+    await fs.rm(probePath, { force: true }).catch(() => undefined)
+  }
+}
+
 async function withConversationMutation<T>(
   id: string,
   mutation: () => Promise<T>
@@ -328,6 +344,7 @@ async function deleteConversation(id: string): Promise<boolean> {
 
 export function createFileConversationStore(): ConversationStore {
   return {
+    checkHealth,
     listConversations,
     getConversation,
     createConversation,

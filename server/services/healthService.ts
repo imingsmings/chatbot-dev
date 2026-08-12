@@ -1,8 +1,4 @@
-import { randomUUID } from 'node:crypto'
-import { readFile, unlink, writeFile } from 'node:fs/promises'
-import path from 'node:path'
-import { listConversations } from '../utils/conversationStore.ts'
-import { DATA_DIR } from '../utils/conversationStore/paths.ts'
+import { checkConversationStoreHealth } from '../utils/conversationStore.ts'
 import { validateStartupConfig } from '../utils/runtimeConfig.ts'
 
 type HealthCheckStatus = 'ok' | 'error'
@@ -25,18 +21,11 @@ async function checkConfiguration(): Promise<HealthCheckStatus> {
 }
 
 async function checkStorage(): Promise<HealthCheckStatus> {
-  const nonce = randomUUID()
-  const probePath = path.join(DATA_DIR, `.health-${process.pid}-${nonce}`)
-
   try {
-    await listConversations()
-    await writeFile(probePath, nonce, { encoding: 'utf8', flag: 'wx' })
-    const storedNonce = await readFile(probePath, 'utf8')
-    return storedNonce === nonce ? 'ok' : 'error'
+    await checkConversationStoreHealth()
+    return 'ok'
   } catch {
     return 'error'
-  } finally {
-    await unlink(probePath).catch(() => undefined)
   }
 }
 

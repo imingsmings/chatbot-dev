@@ -10,6 +10,7 @@ import type {
 export const DEFAULT_TITLE = '新的聊天'
 
 export type ConversationStore = {
+  checkHealth: () => Promise<void>
   listConversations: () => Promise<ConversationSummary[]>
   getConversation: (id: string) => Promise<Conversation | null>
   createConversation: (title?: unknown) => Promise<Conversation>

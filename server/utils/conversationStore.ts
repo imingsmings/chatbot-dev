@@ -22,6 +22,10 @@ function closeConversationStore(): void {
   sqliteStore.close?.()
 }
 
+async function checkConversationStoreHealth(): Promise<void> {
+  await getStore().checkHealth()
+}
+
 async function listConversations(): Promise<ConversationSummary[]> {
   return getStore().listConversations()
 }
@@ -70,6 +74,7 @@ async function deleteConversation(id: string): Promise<boolean> {
 export {
   DEFAULT_TITLE,
   appendMessages,
+  checkConversationStoreHealth,
   clearConversation,
   closeConversationStore,
   createConversation,

@@ -266,14 +266,22 @@ async function main() {
       checks: { configuration: 'ok', storage: 'ok' },
     })
 
-    await run('docker', ['exec', '--user', 'root', containerId, 'chmod', '0555', '/app/data'])
+    await run('docker', ['exec', '--user', 'root', containerId, 'chmod', '0555', '/app/data/sqlite'])
+    await run('docker', [
+      'exec', '--user', 'root', containerId,
+      'chmod', '0444', '/app/data/sqlite/conversations.sqlite3',
+    ])
     const unwritableHealth = await request(port, '/api/health')
     assert.equal(unwritableHealth.status, 503)
     assert.deepEqual(JSON.parse(unwritableHealth.text), {
       status: 'unhealthy',
       checks: { configuration: 'ok', storage: 'error' },
     })
-    await run('docker', ['exec', '--user', 'root', containerId, 'chmod', '0755', '/app/data'])
+    await run('docker', [
+      'exec', '--user', 'root', containerId,
+      'chmod', '0644', '/app/data/sqlite/conversations.sqlite3',
+    ])
+    await run('docker', ['exec', '--user', 'root', containerId, 'chmod', '0755', '/app/data/sqlite'])
     const recoveredHealth = await request(port, '/api/health')
     assert.equal(recoveredHealth.status, 200)
 

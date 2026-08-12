@@ -1,4 +1,6 @@
-import { mkdirSync } from 'node:fs'
+import { randomUUID } from 'node:crypto'
+import { constants, mkdirSync } from 'node:fs'
+import { access } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
@@ -34,6 +36,7 @@ import {
 
 const requireNodeModule = createRequire(import.meta.url)
 const SQLITE_JSON_MIGRATION_KEY = 'json_migration_completed'
+const SQLITE_HEALTH_KEY_PREFIX = 'health_probe_'
 
 type SqliteConversationRow = {
   id: string
@@ -244,6 +247,32 @@ async function listConversations() {
   return rows.map((row) => summarizeConversation(conversationFromSqliteRow(row)))
 }
 
+async function checkHealth(): Promise<void> {
+  await migrateJsonStore()
+  await access(path.dirname(SQLITE_DB_PATH), constants.W_OK)
+  await access(SQLITE_DB_PATH, constants.R_OK | constants.W_OK)
+
+  const db = getSqliteDb()
+  const key = `${SQLITE_HEALTH_KEY_PREFIX}${process.pid}_${randomUUID()}`
+  const value = now()
+
+  db.exec('BEGIN IMMEDIATE')
+  try {
+    db.prepare(`
+      INSERT INTO storage_meta (key, value, updated_at)
+      VALUES (?, ?, ?)
+    `).run(key, value, value)
+    const row = db.prepare('SELECT value FROM storage_meta WHERE key = ?').get(key) as
+      | { value: string }
+      | undefined
+    if (row?.value !== value) {
+      throw new Error('SQLite 存储健康检查内容不一致')
+    }
+  } finally {
+    db.exec('ROLLBACK')
+  }
+}
+
 async function getConversation(id: string): Promise<Conversation | null> {
   await migrateJsonStore()
   const conversation = getConversationSync(id)
@@ -370,6 +399,7 @@ function close(): void {
 
 export function createSqliteConversationStore(): ConversationStore {
   return {
+    checkHealth,
     listConversations,
     getConversation,
     createConversation,
