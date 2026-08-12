@@ -1,4 +1,8 @@
-import { cancelRequest, parseRequestId } from '../utils/requestRegistry.ts'
+import {
+  cancelRequest,
+  parseRequestId,
+  waitForRequestCompletion
+} from '../utils/requestRegistry.ts'
 import type { RequestHandler } from 'express'
 
 type CancelRequestParams = {
@@ -16,7 +20,7 @@ const CANCEL_REASONS = {
   unmount: 'client_unmount'
 } as const
 
-const cancelActiveRequest: RequestHandler<CancelRequestParams, unknown, CancelRequestBody> = (req, res) => {
+const cancelActiveRequest: RequestHandler<CancelRequestParams, unknown, CancelRequestBody> = async (req, res) => {
   const requestId = parseRequestId(req.params.requestId)
 
   if (!requestId) {
@@ -29,8 +33,14 @@ const cancelActiveRequest: RequestHandler<CancelRequestParams, unknown, CancelRe
   const clientReason = typeof req.body?.reason === 'string' ? req.body.reason : 'manual'
   const reason = CANCEL_REASONS[clientReason as keyof typeof CANCEL_REASONS] ?? 'explicit_cancel'
 
+  const cancelled = cancelRequest(requestId, reason)
+  if (cancelled) {
+    await waitForRequestCompletion(requestId)
+  }
+
   res.json({
-    cancelled: cancelRequest(requestId, reason)
+    cancelled,
+    completed: cancelled
   })
 }
 

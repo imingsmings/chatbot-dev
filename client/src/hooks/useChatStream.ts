@@ -108,6 +108,7 @@ export function useChatStream(options: UseChatStreamOptions) {
   const currentRequestIdRef = useRef<string | null>(null)
   const abortReasonRef = useRef<AbortReason>(null)
   const activeStreamStateRef = useRef<ChatStreamState | null>(null)
+  const cancellationCompletionRef = useRef<Promise<boolean> | null>(null)
   const idleTimerRef = useRef<number | null>(null)
   const copiedTimerRef = useRef<number | null>(null)
   const cancelledRequestIdsRef = useRef(new Set<string>())
@@ -142,29 +143,30 @@ export function useChatStream(options: UseChatStreamOptions) {
   }, [])
 
   const cancelActiveRequest = useCallback(
-    async (requestId: string, reason: RequestCancellationReason) => {
+    async (requestId: string, reason: RequestCancellationReason): Promise<boolean> => {
       if (cancelledRequestIdsRef.current.has(requestId)) {
-        return
+        return false
       }
 
       cancelledRequestIdsRef.current.add(requestId)
       try {
-        await (optionsRef.current.cancelRequest ?? cancelRequestApi)(requestId, reason)
+        return await (optionsRef.current.cancelRequest ?? cancelRequestApi)(requestId, reason)
       } catch (error) {
         logError('Failed to cancel active request:', error)
+        return false
       }
     },
     [logError],
   )
 
   const cancelWithDeadline = useCallback(
-    async (requestId: string, reason: RequestCancellationReason) => {
+    async (requestId: string, reason: RequestCancellationReason): Promise<boolean> => {
       let timerId: number | null = null
       try {
-        await Promise.race([
+        return await Promise.race([
           cancelActiveRequest(requestId, reason),
-          new Promise<void>((resolve) => {
-            timerId = window.setTimeout(resolve, 500)
+          new Promise<boolean>((resolve) => {
+            timerId = window.setTimeout(() => resolve(false), 500)
           }),
         ])
       } finally {
@@ -361,11 +363,11 @@ export function useChatStream(options: UseChatStreamOptions) {
         }
 
         const aborted = isAbortError(error)
-        const manualAbort = aborted && abortReason === 'manual'
-        const message = aborted
-          ? manualAbort
-            ? '已停止生成'
-            : '响应超时或连接中断'
+        const manualAbort = abortReason === 'manual'
+        const message = manualAbort
+          ? '已停止生成'
+          : aborted
+            ? '响应超时或连接中断'
           : toErrorMessage(error)
         const interruptedState = interruptChatStreamState(
           streamState,
@@ -378,10 +380,15 @@ export function useChatStream(options: UseChatStreamOptions) {
         if (!manualAbort) {
           logError('Failed to request model:', error)
         } else {
+          const cancellationCompleted = await cancellationCompletionRef.current
           try {
-            await optionsRef.current.refreshConversationList()
-          } catch (refreshError) {
-            logError('Failed to refresh conversations after stopping:', refreshError)
+            if (cancellationCompleted && conversationId) {
+              await optionsRef.current.reconcileConversation(conversationId)
+            } else {
+              await optionsRef.current.refreshConversationList()
+            }
+          } catch (reconcileError) {
+            logError('Failed to reconcile conversation after stopping:', reconcileError)
           }
         }
       } finally {
@@ -398,6 +405,7 @@ export function useChatStream(options: UseChatStreamOptions) {
         }
 
         activeStreamStateRef.current = null
+        cancellationCompletionRef.current = null
         requestInFlightRef.current = false
 
         if (mountedRef.current) {
@@ -430,9 +438,11 @@ export function useChatStream(options: UseChatStreamOptions) {
     try {
       abortReasonRef.current = reason
 
-      if (requestId) {
-        await cancelWithDeadline(requestId, reason)
-      }
+      const cancellationCompletion = requestId
+        ? cancelWithDeadline(requestId, reason)
+        : Promise.resolve(false)
+      cancellationCompletionRef.current = cancellationCompletion
+      await cancellationCompletion
       controller?.abort()
     } finally {
       isStoppingRef.current = false

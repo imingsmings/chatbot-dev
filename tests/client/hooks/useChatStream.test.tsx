@@ -65,6 +65,9 @@ function createControlledResponse() {
       const payload = `${events.map((event) => JSON.stringify(event)).join('\n')}\n`
       controller.enqueue(new TextEncoder().encode(payload))
     },
+    close() {
+      controller.close()
+    },
   }
 }
 
@@ -109,7 +112,7 @@ function createHarnessOptions(overrides: Partial<HarnessOptions> = {}): HarnessO
     )
 
   return {
-    cancelRequest: vi.fn<CancelRequest>().mockResolvedValue(undefined),
+    cancelRequest: vi.fn<CancelRequest>().mockResolvedValue(true),
     conversationId: 'conversation-1',
     createConversation:
       vi.fn<UseChatStreamOptions['createConversation']>().mockResolvedValue(
@@ -271,10 +274,9 @@ describe('useChatStream', () => {
         abortable = createAbortableResponse(signal)
         return abortable.response
       })
-    const cancelRequest = vi.fn<CancelRequest>().mockResolvedValue(undefined)
-    const { result } = renderStreamHook(
-      createHarnessOptions({ cancelRequest, requestConversationAnswer }),
-    )
+    const cancelRequest = vi.fn<CancelRequest>().mockResolvedValue(true)
+    const options = createHarnessOptions({ cancelRequest, requestConversationAnswer })
+    const { result } = renderStreamHook(options)
 
     let submission!: Promise<void>
     await act(async () => {
@@ -305,6 +307,7 @@ describe('useChatStream', () => {
     expect(capturedSignal.aborted).toBe(true)
     expect(cancelRequest).toHaveBeenCalledTimes(1)
     expect(cancelRequest).toHaveBeenCalledWith('request-1', 'manual')
+    expect(options.reconcileConversation).toHaveBeenCalledWith('conversation-1')
     expect(result.current.messages[1]).toMatchObject({
       status: 'stopped',
       error: '已停止生成',
@@ -320,6 +323,79 @@ describe('useChatStream', () => {
     expect(result.current.isResponding).toBe(false)
   })
 
+  it('classifies a server-closed stream as manually stopped after cleanup completes', async () => {
+    const controlled = createControlledResponse()
+    const requestConversationAnswer = vi
+      .fn<RequestAnswer>()
+      .mockResolvedValue(controlled.response)
+    const cancelRequest = vi.fn<CancelRequest>().mockImplementation(async () => {
+      controlled.close()
+      return true
+    })
+    const options = createHarnessOptions({ cancelRequest, requestConversationAnswer })
+    const { result } = renderStreamHook(options)
+
+    let submission!: Promise<void>
+    await act(async () => {
+      submission = result.current.submitQuestion('服务端先关闭', {
+        appendUser: true,
+        clearComposer: true,
+      })
+      await Promise.resolve()
+    })
+    await waitFor(() => expect(requestConversationAnswer).toHaveBeenCalledOnce())
+
+    await act(async () => {
+      controlled.emit([{ type: 'delta', content: '部分回答' }])
+      await result.current.stopGenerating()
+      await submission
+    })
+
+    expect(result.current.messages[1]).toMatchObject({
+      error: '已停止生成',
+      status: 'stopped',
+      text: '部分回答',
+    })
+    expect(options.reconcileConversation).toHaveBeenCalledWith('conversation-1')
+    expect(options.refreshConversationList).not.toHaveBeenCalled()
+  })
+
+  it('keeps the local stopped state when cancellation cleanup is not confirmed', async () => {
+    let abortable!: ReturnType<typeof createAbortableResponse>
+    const requestConversationAnswer = vi
+      .fn<RequestAnswer>()
+      .mockImplementation(async ({ signal }) => {
+        abortable = createAbortableResponse(signal)
+        return abortable.response
+      })
+    const cancelRequest = vi.fn<CancelRequest>().mockResolvedValue(false)
+    const options = createHarnessOptions({ cancelRequest, requestConversationAnswer })
+    const { result } = renderStreamHook(options)
+
+    let submission!: Promise<void>
+    await act(async () => {
+      submission = result.current.submitQuestion('取消未确认', {
+        appendUser: true,
+        clearComposer: true,
+      })
+      await Promise.resolve()
+    })
+    await waitFor(() => expect(requestConversationAnswer).toHaveBeenCalledOnce())
+
+    await act(async () => {
+      abortable.emit([{ type: 'delta', content: '本地部分回答' }])
+      await result.current.stopGenerating()
+      await submission
+    })
+
+    expect(result.current.messages[1]).toMatchObject({
+      status: 'stopped',
+      text: '本地部分回答',
+    })
+    expect(options.reconcileConversation).not.toHaveBeenCalled()
+    expect(options.refreshConversationList).toHaveBeenCalledOnce()
+  })
+
   it('times out an idle stream, cancels upstream and returns to a recoverable state', async () => {
     let capturedSignal!: AbortSignal
     const requestConversationAnswer = vi
@@ -328,7 +404,7 @@ describe('useChatStream', () => {
         capturedSignal = signal
         return createAbortableResponse(signal).response
       })
-    const cancelRequest = vi.fn<CancelRequest>().mockResolvedValue(undefined)
+    const cancelRequest = vi.fn<CancelRequest>().mockResolvedValue(true)
     const { result } = renderStreamHook(
       createHarnessOptions({
         cancelRequest,
@@ -376,7 +452,7 @@ describe('useChatStream', () => {
           )
         })
       })
-    const cancelRequest = vi.fn<CancelRequest>().mockResolvedValue(undefined)
+    const cancelRequest = vi.fn<CancelRequest>().mockResolvedValue(true)
     const { result } = renderStreamHook(
       createHarnessOptions({
         cancelRequest,
@@ -484,7 +560,7 @@ describe('useChatStream', () => {
         capturedSignal = signal
         return createAbortableResponse(signal).response
       })
-    const cancelRequest = vi.fn<CancelRequest>().mockResolvedValue(undefined)
+    const cancelRequest = vi.fn<CancelRequest>().mockResolvedValue(true)
     const { result, unmount } = renderStreamHook(
       createHarnessOptions({
         cancelRequest,

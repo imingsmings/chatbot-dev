@@ -5,6 +5,9 @@ type ActiveRequest = {
   controller: AbortController
   startedAt: number
   cancel: (reason?: string) => void
+  cancellationRequested: boolean
+  completion: Promise<void>
+  resolveCompletion: () => void
 }
 
 const activeRequests = new Map<string, ActiveRequest>()
@@ -36,11 +39,19 @@ function registerRequest({
     return false
   }
 
+  let resolveCompletion!: () => void
+  const completion = new Promise<void>((resolve) => {
+    resolveCompletion = resolve
+  })
+
   activeRequests.set(requestId, {
     conversationId,
     controller,
     startedAt: Date.now(),
-    cancel
+    cancel,
+    cancellationRequested: false,
+    completion,
+    resolveCompletion
   })
 
   return true
@@ -53,18 +64,26 @@ function cancelRequest(requestId: string, reason = 'explicit_cancel'): boolean {
     return false
   }
 
-  activeRequest.cancel(reason)
-  activeRequests.delete(requestId)
+  if (!activeRequest.cancellationRequested) {
+    activeRequest.cancellationRequested = true
+    activeRequest.cancel(reason)
+  }
 
   return true
 }
 
+async function waitForRequestCompletion(requestId: string): Promise<void> {
+  await activeRequests.get(requestId)?.completion
+}
+
 function cancelAllRequests(reason = 'server_shutdown'): number {
-  const requestIds = [...activeRequests.keys()]
-  for (const requestId of requestIds) {
-    cancelRequest(requestId, reason)
+  let cancelledCount = 0
+  for (const [requestId, request] of activeRequests) {
+    if (!request.cancellationRequested && cancelRequest(requestId, reason)) {
+      cancelledCount += 1
+    }
   }
-  return requestIds.length
+  return cancelledCount
 }
 
 function completeRequest(requestId: string, controller: AbortController): void {
@@ -72,6 +91,7 @@ function completeRequest(requestId: string, controller: AbortController): void {
 
   if (activeRequest?.controller === controller) {
     activeRequests.delete(requestId)
+    activeRequest.resolveCompletion()
   }
 }
 
@@ -80,5 +100,6 @@ export {
   cancelRequest,
   completeRequest,
   parseRequestId,
-  registerRequest
+  registerRequest,
+  waitForRequestCompletion
 }

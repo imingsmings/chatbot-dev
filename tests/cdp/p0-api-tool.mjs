@@ -523,7 +523,7 @@ async function askAndAbort(client, conversationId, question) {
     `(() => {
       const controller = new AbortController();
       const requestId = ${JSON.stringify(requestId)};
-      const task = fetch(${JSON.stringify(askUrl)}, {
+      const askTask = fetch(${JSON.stringify(askUrl)}, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ question: ${JSON.stringify(question)}, requestId }),
@@ -536,14 +536,17 @@ async function askAndAbort(client, conversationId, question) {
         }
         return { completed: true, status: response.status };
       }).catch((error) => ({ completed: false, errorName: error.name }));
-      setTimeout(() => {
-        fetch(${JSON.stringify(cancelUrl)}, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ reason: 'manual' })
-        }).catch(() => {}).finally(() => controller.abort());
-      }, 100);
-      return task;
+      return new Promise((resolve) => {
+        setTimeout(async () => {
+          const cancel = await fetch(${JSON.stringify(cancelUrl)}, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ reason: 'manual' })
+          }).then((response) => response.json());
+          controller.abort();
+          resolve({ ...(await askTask), cancel });
+        }, 100);
+      });
     })()`,
   )
 }
@@ -935,9 +938,8 @@ async function main() {
     const stopId = stopConv.data.conversation.id
     createdIds.push(stopId)
     const stopped = await askAndAbort(client, stopId, 'P0_TOOL_STOP 查询慢城明天天气')
-    await delay(500)
     const stoppedDetail = await api(client, `/conversations/${stopId}`)
-    assert(stopped.completed === false || stopped.errorName === 'AbortError', 'P0-17 browser fetch was not aborted')
+    assert(stopped.cancel?.cancelled === true && stopped.cancel?.completed === true, 'P0-17 cancellation did not await request cleanup')
     assert(stoppedDetail.data.conversation.messages.length === 0, 'P0-17 aborted tool request was persisted')
 
     await screenshot(client, '03-tool-json-state')
@@ -950,11 +952,10 @@ async function main() {
     const answerStopId = answerStopConv.data.conversation.id
     createdIds.push(answerStopId)
     const answerStopped = await askAndAbort(client, answerStopId, 'P0_TOOL_ANSWER_STOP 查询北京明天天气')
-    await delay(500)
     const answerStopDetail = await api(client, `/conversations/${answerStopId}`)
     const answerStreamRecord = mock.requests.findLast?.((request) => request.stream && request.content.includes('P0_TOOL_ANSWER_STOP')) ||
       [...mock.requests].reverse().find((request) => request.stream && request.content.includes('P0_TOOL_ANSWER_STOP'))
-    assert(answerStopped.completed === false || answerStopped.errorName === 'AbortError', 'P0-24 answer-stage fetch was not aborted')
+    assert(answerStopped.cancel?.cancelled === true && answerStopped.cancel?.completed === true, 'P0-24 cancellation did not await stopped persistence')
     assert(answerStreamRecord?.closeBeforeEnd === true, 'P0-24 answer-stage upstream stream was not closed early')
     assert(answerStopDetail.data.conversation.messages.length === 2, 'P0-24 stopped answer-stage body was not persisted')
     assert(

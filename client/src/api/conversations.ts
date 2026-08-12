@@ -227,4 +227,10 @@ export async function cancelRequest(
     const data = (await response.json().catch(() => null)) as { message?: string } | null
     throw new Error(data?.message || `请求失败：${response.status}`)
   }
+
+  const data = (await response.json().catch(() => null)) as {
+    cancelled?: boolean
+    completed?: boolean
+  } | null
+  return data?.cancelled === true && data.completed === true
 }

@@ -117,9 +117,9 @@ describe('conversation API client', () => {
   })
 
   it('sends the cancellation reason so only manual stops are persisted', async () => {
-    const fetchMock = stubFetch(new Response(null, { status: 200 }))
+    const fetchMock = stubFetch(Response.json({ cancelled: true, completed: true }))
 
-    await cancelRequest('request/1', 'transition')
+    await expect(cancelRequest('request/1', 'transition')).resolves.toBe(true)
 
     expect(fetchMock).toHaveBeenCalledWith('/api/requests/request%2F1/cancel', {
       method: 'POST',
