@@ -512,6 +512,7 @@ export default defineConfig({
         (() => {
           const originalFetch = window.fetch.bind(window);
           window.__abortTest = {
+            cancelResponses: [],
             createdIds: [],
             frontendAbortCount: 0
           };
@@ -527,6 +528,14 @@ export default defineConfig({
               response.clone().json().then((data) => {
                 if (data?.conversation?.id) window.__abortTest.createdIds.push(data.conversation.id);
               }).catch(() => {});
+            }
+            if (url.includes('/api/requests/') && url.endsWith('/cancel')) {
+              const body = await response.clone().json().catch(() => null);
+              window.__abortTest.cancelResponses.push({
+                url,
+                status: response.status,
+                body
+              });
             }
             return response;
           };
@@ -547,6 +556,7 @@ export default defineConfig({
     )
     await waitAssistantStreamingText(client)
     screenshots.push(await screenshot(client, '01-tc01-streaming-before-stop'))
+    const tc01CancelIndex = await evaluate(client, `window.__abortTest.cancelResponses.length`)
     await clickText(client, 'button', '停止')
     await waitFor(client, `document.body.innerText.includes('已停止生成')`)
     await waitIdle(client)
@@ -556,6 +566,10 @@ export default defineConfig({
     const tc01StoredMessages = await getConversationMessages(tc01Id)
     const tc01Messages = tc01StoredMessages?.length ?? null
     const tc01Stopped = tc01StoredMessages?.[1]
+    const tc01CancelResponse = await evaluate(
+      client,
+      `window.__abortTest.cancelResponses[${tc01CancelIndex}] ?? null`,
+    )
     await client.send('Page.reload', { ignoreCache: true })
     await waitFor(client, `Boolean(document.querySelector('textarea'))`)
     await waitFor(client, `document.body.innerText.includes('已停止生成')`)
@@ -563,13 +577,24 @@ export default defineConfig({
       client,
       `Boolean(document.querySelector('.generation-details'))`,
     )
-    const tc01Canceled = [...askRequests.values()].some((item) => item.failed && (item.canceled || item.errorText.includes('ERR_ABORTED')))
+    const tc01NetworkRequest = [...askRequests.values()].find((item) =>
+      item.url.includes(`/api/conversations/${encodeURIComponent(tc01Id)}/ask`)
+    )
+    const tc01NetworkTerminated = Boolean(
+      tc01NetworkRequest?.failed || tc01NetworkRequest?.finished
+    )
+    const tc01CancelCompleted = Boolean(
+      tc01CancelResponse?.status === 200 &&
+      tc01CancelResponse?.body?.cancelled === true &&
+      tc01CancelResponse?.body?.completed === true
+    )
     results.push({
       id: 'TC-01',
       name: '流式回复中停止',
       pass: Boolean(
         tc01Stream?.closeBeforeEnd &&
-        tc01Canceled &&
+        tc01NetworkTerminated &&
+        tc01CancelCompleted &&
         tc01Messages === 2 &&
         tc01Stopped?.status === 'stopped' &&
         tc01Stopped?.generation?.provider === 'deepseek' &&
@@ -577,7 +602,9 @@ export default defineConfig({
       ),
       upstreamCloseBeforeEnd: Boolean(tc01Stream?.closeBeforeEnd),
       chunksBeforeAbort: tc01Stream?.chunksSent ?? 0,
-      cdpRequestCanceled: tc01Canceled,
+      networkRequest: tc01NetworkRequest,
+      networkRequestTerminated: tc01NetworkTerminated,
+      cancelCompleted: tc01CancelCompleted,
       persistedMessageCount: tc01Messages,
       persistedStatus: tc01Stopped?.status,
       diagnosticsAfterReload: tc01ReloadedDiagnostics,
@@ -586,7 +613,8 @@ export default defineConfig({
       `PASS: ${results.at(-1).pass}`,
       `upstream close before end: ${Boolean(tc01Stream?.closeBeforeEnd)}`,
       `chunks before abort: ${tc01Stream?.chunksSent ?? 0}`,
-      `CDP /ask canceled: ${tc01Canceled}`,
+      `CDP /ask terminal: ${tc01NetworkTerminated}`,
+      `cancel completed: ${tc01CancelCompleted}`,
       `persisted messages: ${tc01Messages}`,
       `persisted status: ${tc01Stopped?.status}`,
       `diagnostics after reload: ${tc01ReloadedDiagnostics}`,
@@ -598,6 +626,7 @@ export default defineConfig({
     await waitStop(client)
     await delay(250)
     screenshots.push(await screenshot(client, '03-tc02-before-first-token-stop-ready'))
+    const tc02CancelIndex = await evaluate(client, `window.__abortTest.cancelResponses.length`)
     await clickText(client, 'button', '停止')
     await waitFor(client, `document.body.innerText.includes('已停止生成')`)
     await waitIdle(client)
@@ -606,19 +635,33 @@ export default defineConfig({
     const tc02ToolDecision = tc02Records.find((item) => item.stream && item.stage === 'tool-decision')
     const tc02AnswerStarted = tc02Records.some((item) => item.stream && item.stage === 'answer')
     const tc02Messages = await getMessageCounts(tc02Id)
+    const tc02CancelCompleted = await evaluate(
+      client,
+      `(() => {
+        const response = window.__abortTest.cancelResponses[${tc02CancelIndex}];
+        return response?.status === 200 && response.body?.cancelled === true && response.body?.completed === true;
+      })()`,
+    )
     results.push({
       id: 'TC-02',
       name: '首 token 前停止',
-      pass: Boolean(tc02ToolDecision?.closeBeforeEnd && !tc02AnswerStarted && tc02Messages === 0),
+      pass: Boolean(
+        tc02ToolDecision?.closeBeforeEnd &&
+        !tc02AnswerStarted &&
+        tc02Messages === 0 &&
+        tc02CancelCompleted
+      ),
       upstreamToolDecisionClosedBeforeEnd: Boolean(tc02ToolDecision?.closeBeforeEnd),
       answerStreamRequestStarted: tc02AnswerStarted,
       persistedMessageCount: tc02Messages,
+      cancelCompleted: tc02CancelCompleted,
     })
     await showOverlay(client, 'TC-02 首 token 前停止', [
       `PASS: ${results.at(-1).pass}`,
       `tool-decision upstream close before end: ${Boolean(tc02ToolDecision?.closeBeforeEnd)}`,
       `answer stream request started: ${tc02AnswerStarted}`,
       `persisted messages: ${tc02Messages}`,
+      `cancel completed: ${tc02CancelCompleted}`,
     ])
     screenshots.push(await screenshot(client, '04-tc02-stopped-before-first-token'))
 
@@ -631,6 +674,7 @@ export default defineConfig({
       'TC04 stream request start',
     )
     screenshots.push(await screenshot(client, '05-tc04-generating-before-new-chat'))
+    const tc04CancelIndex = await evaluate(client, `window.__abortTest.cancelResponses.length`)
     await clickText(client, 'button', '新建')
     await waitFor(client, `Boolean(document.querySelector('.empty-state') && document.querySelector('textarea'))`)
     await delay(700)
@@ -638,14 +682,24 @@ export default defineConfig({
     const tc04ClosedRecord = tc04Records.find((item) => item.stage === 'answer' && item.closeBeforeEnd)
     const tc04Messages = await getMessageCounts(tc04Id)
     const activeEmpty = await evaluate(client, `Boolean(document.querySelector('.empty-state'))`)
+    const tc04CancelCompleted = await evaluate(
+      client,
+      `(() => {
+        const response = window.__abortTest.cancelResponses[${tc04CancelIndex}];
+        return response?.status === 200 && response.body?.cancelled === true && response.body?.completed === true;
+      })()`,
+    )
     results.push({
       id: 'TC-04',
       name: '新建聊天时自动中断',
-      pass: Boolean(tc04ClosedRecord && tc04Messages === 0 && activeEmpty),
+      pass: Boolean(
+        tc04ClosedRecord && tc04Messages === 0 && activeEmpty && tc04CancelCompleted
+      ),
       upstreamCloseBeforeEnd: Boolean(tc04ClosedRecord),
       canceledStage: tc04ClosedRecord?.stream ? 'stream' : 'function-call',
       persistedOldConversationMessages: tc04Messages,
       activeConversationEmpty: activeEmpty,
+      cancelCompleted: tc04CancelCompleted,
     })
     await showOverlay(client, 'TC-04 新建聊天时自动中断', [
       `PASS: ${results.at(-1).pass}`,
@@ -653,6 +707,7 @@ export default defineConfig({
       `canceled stage: ${tc04ClosedRecord?.stream ? 'stream' : 'function-call'}`,
       `old persisted messages: ${tc04Messages}`,
       `new chat empty: ${activeEmpty}`,
+      `cancel completed: ${tc04CancelCompleted}`,
     ])
     screenshots.push(await screenshot(client, '06-tc04-new-chat-aborted-upstream'))
 
@@ -665,6 +720,7 @@ export default defineConfig({
       'TC08 stream request start',
     )
     screenshots.push(await screenshot(client, '07-tc08-slow-upstream-before-stop'))
+    const tc08CancelIndex = await evaluate(client, `window.__abortTest.cancelResponses.length`)
     await clickText(client, 'button', '停止')
     await waitFor(client, `document.body.innerText.includes('已停止生成')`)
     await waitIdle(client)
@@ -673,19 +729,33 @@ export default defineConfig({
       .filter((item) => item.marker === '[TC08]')
       .find((item) => item.stream && item.stage === 'answer')
     const tc08Messages = await getMessageCounts(tc08Id)
+    const tc08CancelCompleted = await evaluate(
+      client,
+      `(() => {
+        const response = window.__abortTest.cancelResponses[${tc08CancelIndex}];
+        return response?.status === 200 && response.body?.cancelled === true && response.body?.completed === true;
+      })()`,
+    )
     results.push({
       id: 'TC-08',
       name: '上游慢响应中断',
-      pass: Boolean(tc08Stream?.closeBeforeEnd && tc08Stream?.chunksSent === 0 && tc08Messages === 0),
+      pass: Boolean(
+        tc08Stream?.closeBeforeEnd &&
+        tc08Stream?.chunksSent === 0 &&
+        tc08Messages === 0 &&
+        tc08CancelCompleted
+      ),
       upstreamCloseBeforeEnd: Boolean(tc08Stream?.closeBeforeEnd),
       chunksBeforeAbort: tc08Stream?.chunksSent ?? 0,
       persistedMessageCount: tc08Messages,
+      cancelCompleted: tc08CancelCompleted,
     })
     await showOverlay(client, 'TC-08 上游慢响应中断', [
       `PASS: ${results.at(-1).pass}`,
       `stream upstream close before first token: ${Boolean(tc08Stream?.closeBeforeEnd)}`,
       `chunks before abort: ${tc08Stream?.chunksSent ?? 0}`,
       `persisted messages: ${tc08Messages}`,
+      `cancel completed: ${tc08CancelCompleted}`,
     ])
     screenshots.push(await screenshot(client, '08-tc08-slow-upstream-aborted'))
 
@@ -716,6 +786,9 @@ export default defineConfig({
     }
 
     console.log(JSON.stringify(summary, null, 2))
+    if (!summary.allPassed) {
+      throw new Error('Upstream abort scenarios failed')
+    }
   } finally {
     client?.close()
     await stopProcess(chrome)
