@@ -88,6 +88,11 @@ export function useChatAppController() {
     await refreshActiveConversationSearch()
   }, [refreshActiveConversationSearch, refreshConversationList])
 
+  const reconcileConversationAndSearch = useCallback(async (conversationId: string) => {
+    await loadConversation(conversationId)
+    await refreshActiveConversationSearch()
+  }, [loadConversation, refreshActiveConversationSearch])
+
   const settleConversationView = useCallback(
     async (options: { focus?: boolean; scroll?: boolean } = {}) => {
       await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()))
@@ -114,6 +119,7 @@ export function useChatAppController() {
     followNewContent,
     getModelOptions: () => ({ ...modelOptions }),
     messages,
+    reconcileConversation: reconcileConversationAndSearch,
     refreshConversationList: refreshConversationListAndSearch,
     resizeComposer,
     shouldFollowNewContent,

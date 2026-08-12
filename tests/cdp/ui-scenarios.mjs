@@ -2448,10 +2448,18 @@ async function main() {
       client,
       `(() => ({
         hasTimeout: document.body.innerText.includes('响应超时或连接中断'),
+        hasTimedOutQuestion: document.body.innerText.includes('等待超时'),
         hasRecovery: document.body.innerText.includes('超时后恢复成功。'),
+        userRows: document.querySelectorAll('.message-row.user').length,
+        editableUserRows: document.querySelectorAll('.message-row.user button[aria-label="编辑消息"]').length,
       }))()`,
     )
-    if (!timeoutRecoveryState.hasTimeout || !timeoutRecoveryState.hasRecovery) {
+    if (
+      timeoutRecoveryState.hasTimeout ||
+      timeoutRecoveryState.hasTimedOutQuestion ||
+      !timeoutRecoveryState.hasRecovery ||
+      timeoutRecoveryState.editableUserRows !== timeoutRecoveryState.userRows
+    ) {
       throw new Error(`Timeout recovery failed: ${JSON.stringify(timeoutRecoveryState)}`)
     }
 

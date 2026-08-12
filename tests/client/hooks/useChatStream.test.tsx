@@ -119,6 +119,8 @@ function createHarnessOptions(overrides: Partial<HarnessOptions> = {}): HarnessO
     createRequestId: () => 'request-1',
     getModelOptions: () => ({ reasoningEnabled: true }),
     logError: vi.fn<(message: string, error: unknown) => void>(),
+    reconcileConversation:
+      vi.fn<(conversationId: string) => Promise<void>>().mockResolvedValue(undefined),
     refreshConversationList: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
     requestConversationAnswer,
     ...overrides,
@@ -150,11 +152,11 @@ describe('useChatStream', () => {
     const requestConversationAnswer = vi
       .fn<RequestAnswer>()
       .mockResolvedValue(controlled.response)
-    const refreshConversationList = vi
-      .fn<() => Promise<void>>()
+    const reconcileConversation = vi
+      .fn<(conversationId: string) => Promise<void>>()
       .mockResolvedValue(undefined)
     const { result } = renderStreamHook(
-      createHarnessOptions({ requestConversationAnswer, refreshConversationList }),
+      createHarnessOptions({ requestConversationAnswer, reconcileConversation }),
     )
 
     let submission!: Promise<void>
@@ -207,7 +209,7 @@ describe('useChatStream', () => {
         status: 'streaming',
       })
     })
-    expect(refreshConversationList).not.toHaveBeenCalled()
+    expect(reconcileConversation).not.toHaveBeenCalled()
 
     await act(async () => {
       controlled.emit([{ type: 'done', reasoningDurationMs: 240 }])
@@ -219,7 +221,7 @@ describe('useChatStream', () => {
       reasoningDurationMs: 240,
       status: 'done',
     })
-    expect(refreshConversationList).toHaveBeenCalledTimes(1)
+    expect(reconcileConversation).toHaveBeenCalledWith('conversation-1')
     expect(requestConversationAnswer).toHaveBeenCalledTimes(1)
   })
 
@@ -412,11 +414,11 @@ describe('useChatStream', () => {
           { type: 'done' },
         ]),
       )
-    const refreshConversationList = vi
-      .fn<() => Promise<void>>()
+    const reconcileConversation = vi
+      .fn<(conversationId: string) => Promise<void>>()
       .mockResolvedValue(undefined)
     const { result } = renderStreamHook(
-      createHarnessOptions({ requestConversationAnswer, refreshConversationList }),
+      createHarnessOptions({ requestConversationAnswer, reconcileConversation }),
     )
 
     await act(async () => {
@@ -442,18 +444,18 @@ describe('useChatStream', () => {
       status: 'done',
     })
     expect(requestConversationAnswer).toHaveBeenCalledTimes(2)
-    expect(refreshConversationList).toHaveBeenCalledTimes(1)
+    expect(reconcileConversation).toHaveBeenCalledWith('conversation-1')
     expect(result.current.isResponding).toBe(false)
   })
 
   it('keeps a completed answer done when conversation-list refresh fails', async () => {
     const refreshError = new Error('refresh failed')
-    const refreshConversationList = vi
-      .fn<() => Promise<void>>()
+    const reconcileConversation = vi
+      .fn<(conversationId: string) => Promise<void>>()
       .mockRejectedValue(refreshError)
     const logError = vi.fn<(message: string, error: unknown) => void>()
     const { result } = renderStreamHook(
-      createHarnessOptions({ refreshConversationList, logError }),
+      createHarnessOptions({ reconcileConversation, logError }),
     )
 
     await act(async () => {
@@ -468,7 +470,7 @@ describe('useChatStream', () => {
       status: 'done',
     })
     expect(logError).toHaveBeenCalledWith(
-      'Failed to refresh conversations after streaming:',
+      'Failed to reconcile conversation after streaming:',
       refreshError,
     )
     expect(result.current.isResponding).toBe(false)

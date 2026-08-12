@@ -76,6 +76,7 @@ export type StoredToolTrace = {
 
 export type ChatMessage = {
   id: string
+  persistedIndex?: number
   role: 'user' | 'assistant'
   text: string
   reasoningText?: string

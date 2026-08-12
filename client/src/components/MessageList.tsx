@@ -75,14 +75,12 @@ export function MessageList({
       {messages.map((message, index) => {
         const isUser = message.role === 'user'
         const hasReasoning = Boolean(message.reasoningText)
-        const hasPreviousUserMessage = messages
+        const hasPreviousPersistedUserMessage = messages
           .slice(0, index)
-          .some((candidate) => candidate.role === 'user')
-        const nextMessage = messages[index + 1]
-        const isUnpersistedFailedQuestion =
-          nextMessage?.role === 'assistant' &&
-          (nextMessage.status === 'error' ||
-            (nextMessage.status === 'stopped' && !nextMessage.text))
+          .some(
+            (candidate) =>
+              candidate.role === 'user' && candidate.persistedIndex !== undefined,
+          )
 
         return (
           <article
@@ -156,7 +154,7 @@ export function MessageList({
 
             {message.role === 'assistant' ? <GenerationDetails message={message} /> : null}
 
-            {isUser && !isUnpersistedFailedQuestion ? (
+            {isUser && message.persistedIndex !== undefined ? (
               <div className="message-actions flex items-center justify-end gap-0.5 opacity-100 transition-opacity">
                 <Button
                   aria-label="编辑消息"
@@ -193,7 +191,8 @@ export function MessageList({
                   </Button>
                 ) : null}
                 {message.text &&
-                hasPreviousUserMessage &&
+                message.persistedIndex !== undefined &&
+                hasPreviousPersistedUserMessage &&
                 ['done', 'stopped'].includes(message.status) ? (
                   <Button
                     aria-label="重新生成回答"

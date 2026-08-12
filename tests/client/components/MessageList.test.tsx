@@ -75,8 +75,8 @@ describe('MessageList', () => {
         copiedMessageId={null}
         isResponding={false}
         messages={[
-          { id: 'user-1', role: 'user', status: 'done', text: '原问题' },
-          { id: 'assistant-1', role: 'assistant', status: 'done', text: '原回答' },
+          { id: 'user-1', persistedIndex: 0, role: 'user', status: 'done', text: '原问题' },
+          { id: 'assistant-1', persistedIndex: 1, role: 'assistant', status: 'done', text: '原回答' },
         ]}
         onCopyMessage={vi.fn()}
         onEditMessage={onEditMessage}

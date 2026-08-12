@@ -72,6 +72,7 @@ export function useMessageBranching(options: MessageBranchingOptions) {
     if (
       !sourceConversationId ||
       message?.role !== 'user' ||
+      message.persistedIndex === undefined ||
       options.isResponding ||
       options.isStopping ||
       !options.beginSidebarOperation('branch', sourceConversationId)
@@ -92,7 +93,7 @@ export function useMessageBranching(options: MessageBranchingOptions) {
         return
       }
 
-      await createBranchAndSubmit(sourceConversationId, messageIndex, question)
+      await createBranchAndSubmit(sourceConversationId, message.persistedIndex, question)
     } catch (error) {
       console.error('Failed to edit conversation message:', error)
       options.setOperation(null)
@@ -106,6 +107,7 @@ export function useMessageBranching(options: MessageBranchingOptions) {
     if (
       !sourceConversationId ||
       message?.role !== 'assistant' ||
+      message.persistedIndex === undefined ||
       !['done', 'stopped'].includes(message.status) ||
       options.isResponding ||
       options.isStopping
@@ -114,19 +116,25 @@ export function useMessageBranching(options: MessageBranchingOptions) {
     }
 
     let userMessageIndex = messageIndex - 1
-    while (userMessageIndex >= 0 && options.messages[userMessageIndex]?.role !== 'user') {
+    while (
+      userMessageIndex >= 0 &&
+      (options.messages[userMessageIndex]?.role !== 'user' ||
+        options.messages[userMessageIndex]?.persistedIndex === undefined)
+    ) {
       userMessageIndex -= 1
     }
-    const question = options.messages[userMessageIndex]?.text.trim()
+    const userMessage = options.messages[userMessageIndex]
+    const question = userMessage?.text.trim()
     if (
       userMessageIndex < 0 ||
+      userMessage?.persistedIndex === undefined ||
       !question ||
       !options.beginSidebarOperation('branch', sourceConversationId)
     ) {
       return
     }
 
-    await createBranchAndSubmit(sourceConversationId, userMessageIndex, question)
+    await createBranchAndSubmit(sourceConversationId, userMessage.persistedIndex, question)
   }, [createBranchAndSubmit, options])
 
   return {

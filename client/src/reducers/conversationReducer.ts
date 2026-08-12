@@ -52,6 +52,7 @@ export function conversationToSummary(
 export function mapStoredMessages(conversation: ConversationDetail): ChatMessage[] {
   return conversation.messages.map((message, index) => ({
     id: `${conversation.id}-${index}-${message.role}`,
+    persistedIndex: index,
     role: message.role,
     text: message.content,
     reasoningText: message.reasoningContent,

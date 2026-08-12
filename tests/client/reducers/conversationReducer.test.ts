@@ -72,6 +72,7 @@ describe('conversation reducer', () => {
     expect(next.messages).toEqual(mapStoredMessages(conversation))
     expect(next.messages[1]).toMatchObject({
       id: 'selected-1-assistant',
+      persistedIndex: 1,
       reasoningText: '分析',
       reasoningDurationMs: 320,
       status: 'done',

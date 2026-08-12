@@ -31,10 +31,10 @@ function createOptions(
     isResponding: false,
     isStopping: false,
     messages: [
-      { id: 'user-1', role: 'user', status: 'done', text: '第一问' },
-      { id: 'assistant-1', role: 'assistant', status: 'done', text: '第一答' },
-      { id: 'user-2', role: 'user', status: 'done', text: '原问题' },
-      { id: 'assistant-2', role: 'assistant', status: 'done', text: '原回答' },
+      { id: 'user-1', persistedIndex: 0, role: 'user', status: 'done', text: '第一问' },
+      { id: 'assistant-1', persistedIndex: 1, role: 'assistant', status: 'done', text: '第一答' },
+      { id: 'user-2', persistedIndex: 2, role: 'user', status: 'done', text: '原问题' },
+      { id: 'assistant-2', persistedIndex: 3, role: 'assistant', status: 'done', text: '原回答' },
     ],
     promptText: vi.fn().mockResolvedValue('编辑后的问题'),
     resetInput: vi.fn(),
@@ -128,5 +128,36 @@ describe('useMessageBranching', () => {
     expect(options.clearSearch).not.toHaveBeenCalled()
     expect(options.showError).toHaveBeenCalledWith('branch failed', '创建分支失败')
     expect(options.setOperation).toHaveBeenLastCalledWith(null)
+  })
+
+  it('uses persisted indices when optimistic failures precede stored messages', async () => {
+    const options = createOptions({
+      messages: [
+        { id: 'failed-user', role: 'user', status: 'done', text: '未保存问题' },
+        { id: 'failed-answer', role: 'assistant', status: 'error', text: '' },
+        { id: 'stored-user', persistedIndex: 0, role: 'user', status: 'done', text: '已保存问题' },
+        { id: 'stored-answer', persistedIndex: 1, role: 'assistant', status: 'done', text: '已保存回答' },
+      ],
+    })
+    const { result } = renderHook(() => useMessageBranching(options))
+
+    await act(async () => {
+      await result.current.handleEditMessage(2)
+    })
+    expect(options.createBranchConversation).toHaveBeenCalledWith(
+      'source-1',
+      0,
+      '编辑后的问题',
+    )
+
+    vi.mocked(options.createBranchConversation).mockClear()
+    await act(async () => {
+      await result.current.handleRegenerateMessage(3)
+    })
+    expect(options.createBranchConversation).toHaveBeenCalledWith(
+      'source-1',
+      0,
+      '已保存问题',
+    )
   })
 })

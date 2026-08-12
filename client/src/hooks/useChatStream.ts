@@ -41,6 +41,7 @@ export type UseChatStreamOptions = {
   logError?: (message: string, error: unknown) => void
   messages: ChatMessage[]
   now?: () => number
+  reconcileConversation: (conversationId: string) => Promise<void>
   refreshConversationList: () => Promise<void>
   requestConversationAnswer?: typeof requestConversationAnswerApi
   resizeComposer?: () => void
@@ -234,10 +235,10 @@ export function useChatStream(options: UseChatStreamOptions) {
       let assistantId: string | null = null
       let controller: AbortController | null = null
       let requestId: string | null = null
+      let conversationId = submitOptions.conversationId ?? optionsRef.current.conversationId
 
       try {
         const currentOptions = optionsRef.current
-        let conversationId = submitOptions.conversationId ?? currentOptions.conversationId
 
         if (!conversationId) {
           const conversation = await currentOptions.createConversation()
@@ -341,9 +342,9 @@ export function useChatStream(options: UseChatStreamOptions) {
         activeStreamStateRef.current = finalState
         replaceAssistantMessage(assistantId, finalState)
         try {
-          await optionsRef.current.refreshConversationList()
-        } catch (refreshError) {
-          logError('Failed to refresh conversations after streaming:', refreshError)
+          await optionsRef.current.reconcileConversation(conversationId)
+        } catch (reconcileError) {
+          logError('Failed to reconcile conversation after streaming:', reconcileError)
         }
       } catch (error) {
         const abortReason = abortReasonRef.current
