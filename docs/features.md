@@ -14,12 +14,13 @@
 
 ## 模型与生成
 
-- DeepSeek V4 Flash / Pro。
+- DeepSeek V4 Flash；V4 Pro 当前在运行时目录中禁用。
 - OpenAI Responses 模型目录。
 - 按模型能力显示和发送 temperature、max tokens、reasoning enabled/effort。
 - 运行时目录异常或为空时使用安全的 DeepSeek fallback，不崩溃。
 - 流式正文、reasoning、耗时、停止、错误和后续恢复；DeepSeek/OpenAI 完成事件缺失时不发送成功 `done` 且不落库。
 - 同一会话禁止并发 ask；客户端快速连续提交只发出一次。
+- 成功或确认停止后回拉服务端详情；只有已保存消息可编辑或重新生成。
 
 ## 工具
 
@@ -35,6 +36,7 @@
 - 手动生成/重新生成会话摘要。
 - 摘要生成期间会话发生变化时拒绝写入陈旧摘要。
 - 摘要参与上下文后只发送其覆盖边界之后的原始消息；导入和存储中的越界计数会安全截断。
+- 摘要只增量处理覆盖边界后的新增消息，单次输入受字符预算限制；没有新增消息时不调用模型。
 - 上下文预览显示实际 prompt、摘要覆盖数、摘要后消息数、最终选择范围、模型能力和工具数量，不泄漏凭据。
 
 ## 导入导出
@@ -69,6 +71,7 @@
 - `index.html` 禁止缓存，hash assets 使用长期 immutable cache。
 - 基础安全响应头：禁用框架标识、`nosniff`、禁止 frame、同源 referrer；HTTPS 响应包含 HSTS。
 - Docker 单容器部署：Node 直接提供 HTTPS、React 和 `/api/*`，环境变量运行时注入、TLS 只读挂载、会话数据卷持久化。
+- `/api/health` 探测当前 file conversations 目录或 SQLite 数据库的真实读写能力。
 
 ## 明确不包含
 

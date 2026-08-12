@@ -16,16 +16,16 @@
 | Docker 容器 | `pnpm run test:docker` | Compose、证书覆盖、HTTPS、health、SQLite、停止备份、新卷恢复、语义一致性和 SIGTERM |
 | Docker 页面 | `pnpm run test:cdp:docker-ui` | 容器 HTTPS 页面、侧栏、输入区、模型控件和横向溢出；截图可选 |
 | 浏览器回归 | `pnpm run test:cdp:all-mock` | 完整 React UI/API mock 矩阵 |
-| 真实接口全量 | `pnpm run test:cdp:all-real` | 隔离端口/临时 file store；真实 UI、上下文、Markdown、OpenAI reasoning/工具/停止恢复；需明确确认 |
+| 真实接口全量 | `pnpm run test:cdp:all-real` | 两批隔离端口/临时 file store；OpenAI UI/上下文/Markdown/reasoning/工具/停止恢复 + DeepSeek Flash 四档 reasoning；需明确确认 |
 | 生产依赖审计 | `pnpm run audit:production` | 根 workspace 全部生产依赖，要求 0 已知漏洞 |
 
 ## React 单元边界
 
 | 范围 | 关键断言 |
 | --- | --- |
-| conversation reducer | 不可变 upsert/sort；删除 active 立即清空 ID、summary、messages |
+| conversation reducer | 不可变 upsert/sort；删除 active 立即清空 ID、summary、messages；服务端详情映射真实 `persistedIndex` 和生成元数据 |
 | useConversations | Strict Mode 初始化去重；选择乱序；删除后继加载失败不保留已删除详情；创建分支后选中新会话 |
-| useChatStream | delta/reasoning/tool/done；显式新分支 ID；手工取消一次；首包/流空闲超时；协议错误后恢复；卸载清理 |
+| useChatStream | delta/reasoning/tool/done；显式新分支 ID；取消完成握手；成功/停止后详情回拉；首包/流空闲超时；协议错误后恢复；卸载清理 |
 | message branching | 多行编辑、取消/未修改、最近用户消息定位、分支创建失败恢复 |
 | stream protocol | v2 六类事件；拆包；未知/损坏 JSON；负耗时；空 tool/error 字段 |
 | model catalog | provider/model 能力；disabled；空/损坏运行目录 fallback |
@@ -41,8 +41,8 @@
 | SQLite | CRUD、搜索、导入导出、摘要、临时 DB、损坏 JSON 跳过和 migration 后重开 |
 | conversation branch | file/SQLite 前缀与元数据一致；父会话不变；摘要不继承；非法索引/问题原子失败 |
 | chat persistence | 会话在回答完成前删除时拒绝假成功；不完整 Provider 流不落库且后续请求恢复 |
-| summary | 空/不存在、持久化、清空；即时提问、摘要后新消息、重新生成；完整消息快照竞态；shutdown 取消上游 |
-| request registry | requestId 校验、同会话单活动请求、全部取消和完成清理 |
+| summary | 空/不存在、持久化、清空；边界后增量滚动、输入预算、无新增时零调用、stopped 排除并推进边界；完整消息快照竞态；shutdown 取消上游 |
+| request registry | requestId 校验、同会话单活动请求、abort 后保持占用、取消等待 `completeRequest`、完成后清理和复用 |
 | NDJSON | backpressure 不误判关闭；destroyed/writableEnded 不再写入 |
 | test process lifecycle | child exit 等待、脚本超时、进程组终止与临时目录清理 |
 | model options | 范围、能力、禁用模型、启动配置一致性 |
@@ -51,7 +51,7 @@
 | tools | 安全计算器、IANA 时间、天气本地日期、网络/HTTP 失败隔离 |
 | production hosting | 缺失 build、SPA deep link、静态缓存、`/api` JSON 404、非 GET 不回退 |
 | TLS configuration | 生产默认值、`~/` 展开、非法布尔/端口、缺失或损坏证书 fail-fast |
-| health | 正常 200；数据目录不可写和运行配置异常 503；响应不泄漏路径、endpoint 或凭据 |
+| health | file 实际目录和 SQLite 事务探针；不可写/运行配置异常 503；恢复后 200；响应不泄漏路径、endpoint 或凭据 |
 
 ## CDP suites
 
@@ -67,7 +67,7 @@
 | Sidebar | `pnpm run test:cdp:sidebar-state` | 操作等待态、连点互斥和失败恢复 |
 | All mock | `pnpm run test:cdp:all-mock` | 上述去重后的 13-script 完整集合 |
 
-UI 四个入口位于 `tests/cdp/scenarios/ui/`。它们通过 `CDP_UI_GROUP` 选择原有断言分组，并统一复用 `helpers/browser.mjs`、`helpers/cdpClient.mjs` 和 `helpers/services.mjs`；任一失败会直接显示所属场景，不必从单个大型 UI 输出中反查。
+UI 四个入口位于 `tests/cdp/scenarios/ui/`，分别包含会话操作、流式恢复、滚动/布局和模型菜单的真实场景实现，并复用 `scenarios/ui/harness.mjs` 及底层 CDP helpers。`ui-scenarios.mjs` 只负责按入口调度；任一模块失败都会返回非零退出码并标明所属场景。
 
 ### UI 必测边界
 
@@ -75,6 +75,7 @@ UI 四个入口位于 `tests/cdp/scenarios/ui/`。它们通过 `CDP_UI_GROUP` �
 - 新建/切换会话时中止生成，旧响应不能污染新会话。
 - 删除/清空当前会话清理草稿和页面状态。
 - 编辑历史用户消息和重新生成回答均创建新分支；父会话逐条不变，连续分支保留各自回答，失败不留下额外会话。
+- 只有带服务端 `persistedIndex` 的消息显示编辑/重新生成；流成功或停止后 optimistic 行与服务端详情完全对齐。
 - 用户接近底部时跟随正文/reasoning/代码块；上滚查看历史时保持位置。
 - 代码块最后增长时 bottom gap 保持在阈值内。
 - 停止、HTTP 失败、网络断开、损坏 NDJSON、缺少 done、Provider 不完整错误和超时后均可恢复；只有有正文的用户手动停止落为 `stopped`，其他中断部分正文仅保留在当前 UI 且不落库。
@@ -102,6 +103,7 @@ UI 四个入口位于 `tests/cdp/scenarios/ui/`。它们通过 `CDP_UI_GROUP` �
 - file/SQLite 测试必须使用 `mkdtemp` 隔离目录。
 - runner 启动的 Vite、后端和浏览器 profile 必须在 `finally` 中清理。
 - CDP 总 runner 为脚本设置有界超时；超时时终止独立进程组，避免遗留脚本的子服务。
+- upstream cancellation 任一 cancel completion、上游释放或落库断言失败时，场景和总 runner 都必须返回非零退出码。
 - 测试前检查端口；不停止用户已有进程。
 - `.tmp/cdp-results/*.json` 是机器可读结果，不作为源码提交。
 
@@ -115,6 +117,8 @@ pnpm run test:cdp:real-model-options
 pnpm run test:cdp:real-openai
 ```
 
+三个专项命令和 `all-real` 都通过 `run-all-real.mjs` 分配随机端口和临时 file store；`all-real` 先以 OpenAI 为默认 provider 跑 UI/上下文/Markdown/Responses，再以 DeepSeek 为默认 provider 跑 Flash 的 Off/Low/Medium/High。已禁用的 V4 Pro 和 GPT-5.6 Sol 只验证禁用状态，不发送真实请求。
+
 真实测试必须说明模型、场景、可能费用、截图与否，并清理全部测试会话。未明确要求截图时保持 `CDP_SCREENSHOTS=0`。
 
-2026-08-10 的最新 Mock、Docker 与审查结果见 [全面 Code Review 与回归记录](code-review-2026-08-10.md)。
+2026-08-13 的 R16 Mock、Docker、DeepSeek/OpenAI 真实接口与审查结果见 [R16 全链路一致性验收记录](r16-consistency-hardening-2026-08-13.md)。

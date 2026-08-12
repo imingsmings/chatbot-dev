@@ -56,9 +56,9 @@ flowchart LR
 | `client/src/hooks/useConversationTransfer.ts` | 单会话 Markdown 导出、全量 JSON 导出和备份导入 |
 | `client/src/hooks/useConversationInsights.ts` | 上下文预览、会话摘要及切换/生成竞态保护 |
 | `client/src/hooks/useConversations.ts` | 会话列表、详情、选择序列和 CRUD |
-| `client/src/hooks/useChatStream.ts` | requestId、AbortController、首包/流空闲超时、取消和恢复 |
+| `client/src/hooks/useChatStream.ts` | requestId、AbortController、首包/流空闲超时、取消完成握手和持久化详情回拉 |
 | `client/src/hooks/useAutoScroll.ts` | 用户滚动意图、MutationObserver 和 rAF 跟随 |
-| `client/src/reducers/*` | 不可变 conversation/stream 状态转换 |
+| `client/src/reducers/*` | 不可变 conversation/stream 状态转换，以及已保存消息的 `persistedIndex` 映射 |
 | `client/src/api/*` | HTTP 错误读取、下载和 NDJSON 拆包 |
 | `client/src/utils/streamProtocol.ts` | 基于共享事件联合执行 NDJSON v2 运行时校验 |
 | `client/src/utils/markdownRenderer.ts` | 禁用 HTML/图片、净化、高亮和安全外链 |
@@ -84,15 +84,15 @@ flowchart LR
 | `server/controllers/*` | HTTP 输入、长度边界、状态码和流响应 |
 | `server/services/chatService.ts` | 上下文、模型、工具两阶段、生成元数据聚合和完成/手动停止持久化 |
 | `server/services/contextService.ts` | 摘要覆盖边界、安全截断、消息数和字符预算 |
-| `server/services/conversationSummaryService.ts` | 摘要生成及会话变化检测 |
+| `server/services/conversationSummaryService.ts` | 覆盖边界后的增量滚动摘要、输入预算及会话变化检测 |
 | `server/services/conversationService.ts` | 会话列表/标题/搜索，以及只复制目标消息前缀的普通会话分支 |
 | `server/services/toolService.ts` | 工具参数校验、失败隔离、耗时和生命周期事件 |
-| `server/services/healthService.ts` | 启动级配置校验、会话存储读取和数据根目录读写探针；仅输出稳定状态 |
+| `server/services/healthService.ts` | 启动级配置校验和当前会话 store 的实际读写探针；仅输出稳定状态 |
 | `server/tools/*` | 单工具 schema、validator 和 handler |
 | `server/utils/llm/providerConfig.ts` | HTTP/HTTPS endpoint、凭据和默认模型 |
 | `server/utils/llm/modelCatalog.ts` | 公共模型能力与禁用状态 |
 | `server/utils/llm/adapters/*` | provider body、SSE 语义与 continuation |
-| `server/utils/requestRegistry.ts` | requestId 与单会话活动请求互斥 |
+| `server/utils/requestRegistry.ts` | requestId 与单会话活动请求互斥、取消信号和请求完成通知 |
 | `server/utils/conversationStore.ts` | 稳定 facade；按运行配置选择 file/SQLite 实现并保持既有导出 |
 | `server/utils/conversationStore/contracts.ts` | 存储公共契约和默认标题 |
 | `server/utils/conversationStore/normalization.ts` | ID、消息、时间、摘要、标题和副本规范化 |
@@ -181,9 +181,14 @@ sequenceDiagram
   S-->>C: reasoning_delta / delta / tool events
   S->>D: 原子追加 user + assistant
   S-->>C: done
+  E->>E: ask finally completeRequest
+  C->>E: GET conversation detail
+  E-->>C: persisted messages + indices
 ```
 
 完整模型回答写入 user + `completed` assistant；只有用户显式停止且已经收到正文时，才写入 user + `stopped` assistant。DeepSeek 必须读到 `[DONE]`，OpenAI Responses 必须读到 `response.completed`；正文、reasoning 或工具参数之后异常 EOF 仍通过现有 NDJSON `error` 结束，不发送 `done`，也不落库。若会话在生成期间被删除，同样返回流错误而不是把“成功”但未落盘的结果交给前端。
+
+流式期间的 user/assistant 是 optimistic 行，不具备可持久化定位语义。正常完成或确认手动停止后，前端重新读取会话详情，以服务端消息替换当前会话状态；详情映射生成仅供 UI 操作使用的 `persistedIndex`，因此失败残留行会被清除，generation、tool trace 和 stopped 状态也以落库结果为准。编辑与重新生成只接受带 `persistedIndex` 的消息。
 
 ## 编辑与重新生成分支
 
@@ -212,6 +217,8 @@ sequenceDiagram
 assistant 的可选 `generation` 保存 provider、model、finish reason、首 token 延迟、总耗时和 Provider usage；多阶段工具调用只聚合所有已完成请求共同提供的 usage 字段。可选 `toolTrace` 只保留裁剪后的工具名、成功状态、耗时和可读摘要。file store 直接写入兼容 JSON，SQLite 继续把 messages 保存为 JSON，因此不提升备份 schema 或数据库表结构。
 
 存在会话摘要时，`summary.sourceMessageCount` 先安全截断到 `0..messages.length`，上下文窗口只在该边界之后的原始消息中按消息数和字符数选择最近后缀。上下文预览同时返回摘要覆盖数、摘要后消息数和最终选择的会话消息序号范围，便于确认摘要历史没有重复进入模型。
+
+重新生成摘要时只处理覆盖边界之后的新消息，并把旧摘要作为滚动基线；单次 prompt 中的消息输入由 `SUMMARY_MAX_INPUT_CHARS` 限制，默认 `24000` 字符、最小 `8000`，输出最多 `1024` tokens。没有新增消息时不调用 Provider；`stopped` assistant 不写入摘要正文，但会推进覆盖边界，避免后续重复扫描。
 
 ## Function Calling
 
@@ -247,12 +254,17 @@ flowchart LR
   Cancel --> Registry["Server request registry"]
   Registry --> ProviderAbort["Provider fetch / stream abort"]
   Registry --> ToolAbort["Tool AbortSignal"]
+  ProviderAbort --> Complete["ask finally completeRequest"]
+  ToolAbort --> Complete
+  Complete --> Ack["cancel returns completed"]
+  Ack --> Reconcile["Client reloads persisted detail"]
 ```
 
 - 客户端超时从发起 fetch 前开始，因此覆盖“迟迟没有响应头”。
 - 同一 requestId 只取消一次；请求结束后清理取消集合、timer 和 refs。
 - 后端同一会话只允许一个活动 ask，避免并行回答的语义和持久化竞态。
-- 用户点击停止时先向服务端发送 `manual` 原因，再中止浏览器 fetch；服务端将已有正文保存为 `stopped`。取消请求最多等待 500ms，避免停止按钮因网络异常卡住。
+- 用户点击停止时先向服务端发送 `manual` 原因，再中止浏览器 fetch；服务端将已有正文保存为 `stopped`。request registry 在 abort 后仍保留占用，直到 ask `finally` 完成；取消 API 等待该信号并返回 `completed`，前端随后回拉持久化详情。
+- 前端对取消确认设置 500ms 等待上限，仅作为取消接口异常时的 UI 降级；它不被当作服务端持久化完成的证据。
 - 超时、页面卸载和新建/切换会话分别标记原因；这些路径即使已有部分正文也不落库。
 - `stopped` assistant 可刷新恢复，但会从后续原始上下文和新摘要中排除；异常 EOF 仍保持 R11 的“不落库”语义。
 
@@ -265,6 +277,7 @@ flowchart LR
 - 写入先落到同目录唯一临时文件，再 rename 替换，避免进程中断留下半份 JSON。
 - 从文件读取时以文件名 ID 为准，防止 payload ID 串写其他文件。
 - 损坏时间戳回退为有效 ISO 时间；非法临时文件名不会进入会话列表。
+- 健康检查在实际 conversations 目录创建探针，完成写入、读回和删除；目录不可写时 `/api/health` 返回 503。
 
 ### SQLite
 
@@ -272,6 +285,7 @@ flowchart LR
 - WAL 模式；同步事务保证 migration 和批量写边界。
 - messages/summary 以 JSON 保存，包含可选 generation/tool trace/status，对外保持与 file store 相同语义。
 - 旧 JSON 迁移通过 metadata 标记实现幂等。
+- 健康检查在当前数据库执行 `BEGIN IMMEDIATE`、探针写入/读回和 `ROLLBACK`，验证真实 DB 路径和事务写能力且不留下数据。
 
 ## 输入与错误边界
 
@@ -282,6 +296,6 @@ flowchart LR
 - 新 provider：实现 `LlmAdapter`，登记 provider registry/model catalog，并补 adapter/真实协议 mock 测试。
 - 新工具：新增独立 tool 文件，提供 schema、validator、handler 和 AbortSignal 测试。
 - 新流事件：更新前后端判别联合、提升协议版本并补兼容测试。
-- 新存储：实现现有 CRUD/导入/摘要/并发语义，不能只满足 happy path。
+- 新存储：实现现有 CRUD/导入/摘要/并发语义和 `checkHealth`，不能只满足 happy path。
 
 当前不增加新功能；本阶段只接受缺陷修复、回归覆盖、文档和维护性收敛。

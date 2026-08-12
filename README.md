@@ -27,9 +27,9 @@ Vue 客户端已在 2026-08-09 完成下线，`client/` 现在是唯一的 React
 - provider SSE 到应用 NDJSON v2 的稳定流式协议；异常 EOF 不发送成功 `done` 且不落库。
 - reasoning 展示、耗时、持久化和历史恢复。
 - 天气、当前时间和安全表达式计算器 Function Calling。
-- 摘要覆盖边界后的消息/字符上下文窗口、手动摘要和带覆盖范围统计的实际上下文预览。
+- 摘要覆盖边界后的消息/字符上下文窗口、有输入预算的增量摘要和带覆盖范围统计的实际上下文预览。
 - Prompt 模板、Markdown 净化、代码高亮/复制和安全外链。
-- 前端 fetch abort、cancel API、后端 registry 与上游 AbortSignal 全链路停止。
+- 前端 fetch abort、cancel API、后端 registry 与上游 AbortSignal 全链路停止；确认清理后回拉持久化详情。
 - 明暗主题、响应式布局、滚动跟随及流式代码块自动滚动。
 
 完整功能与边界见 [功能清单](docs/features.md)。
@@ -76,6 +76,7 @@ pnpm run dev:client
 | `HEFENG_API_HOST` / `HEFENG_API_KEY` | 天气工具配置，仅调用时需要 |
 | `CONTEXT_MAX_HISTORY_MESSAGES` | 历史消息上限，默认 `20` |
 | `CONTEXT_MAX_HISTORY_CHARS` | 历史字符预算，默认 `12000` |
+| `SUMMARY_MAX_INPUT_CHARS` | 单次滚动摘要的输入字符预算，默认 `24000`，最小 `8000` |
 | `CONVERSATION_STORE` | `file`/`json`/`fs` 或 `sqlite`/`sqlite3`，默认 `sqlite` |
 | `CONVERSATION_DATA_DIR` | 数据根目录覆盖 |
 | `CONVERSATION_FILE_DATA_DIR` | file store 目录覆盖 |
@@ -162,7 +163,7 @@ pnpm run test:unit             # 全部后端 Node tests + React Vitest
 pnpm run build                 # 全部静态检查 + React 生产构建
 pnpm run audit:production      # 整个 workspace 生产依赖审计
 pnpm run test:cdp:all-mock     # React-only 全量 mock 浏览器回归
-pnpm run test:cdp:all-real     # 当前真实 provider 的 UI、上下文、Markdown、reasoning 与工具回归
+pnpm run test:cdp:all-real     # OpenAI 全链路 + DeepSeek Flash reasoning 矩阵；真实接口，需明确确认
 pnpm run test:docker           # Docker HTTPS、API、SQLite 持久性与 SIGTERM 冒烟
 ```
 
@@ -178,6 +179,7 @@ pnpm run test:docker           # Docker HTTPS、API、SQLite 持久性与 SIGTER
 - [Docker 部署说明](docs/docker-deployment.md)
 - [Docker 验证记录（2026-08-10）](docs/docker-validation-2026-08-10.md)
 - [R11 流完整性与摘要覆盖验收记录（2026-08-12）](docs/r11-stream-context-2026-08-12.md)
+- [R16 全链路一致性验收记录（2026-08-13）](docs/r16-consistency-hardening-2026-08-13.md)
 - [全面 Code Review 与回归记录（2026-08-10）](docs/code-review-2026-08-10.md)
 - [TypeScript 7 / Express 5 工具链升级记录](docs/toolchain-upgrade-2026-08-09.md)
 - [阶段交付审查（2026-08-09）](docs/release-readiness-2026-08-09.md)
