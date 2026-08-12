@@ -67,9 +67,9 @@
     "test:cdp:docker-ui": "node tests/cdp/run-cdp-regression.mjs docker-ui",
     "test:cdp:all-mock": "node tests/cdp/run-cdp-regression.mjs all-mock",
     "test:cdp:all-real": "node tests/cdp/run-all-real.mjs",
-    "test:cdp:real-openai": "node tests/cdp/run-cdp-regression.mjs real-openai",
-    "test:cdp:real-model-options": "node tests/cdp/run-cdp-regression.mjs real-model-options",
-    "test:cdp:real": "node tests/cdp/run-cdp-regression.mjs real",
+    "test:cdp:real-openai": "CDP_REAL_SUITE=real-openai node tests/cdp/run-all-real.mjs",
+    "test:cdp:real-model-options": "CDP_REAL_SUITE=real-model-options node tests/cdp/run-all-real.mjs",
+    "test:cdp:real": "CDP_REAL_SUITE=real node tests/cdp/run-all-real.mjs",
     "test:docker": "node tests/docker/container-smoke.mjs"
   }
 }
