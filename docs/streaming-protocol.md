@@ -102,6 +102,7 @@ X-Accel-Buffering: no
 
 - 用于响应头已发送后的流内错误。
 - 前端保留已收到的部分正文，显示错误并允许后续请求恢复。
+- Provider 在完成事件前 EOF 时也使用该事件；此时不得再发送 `done`，本轮问答不得持久化。
 
 ## Provider SSE 适配
 
@@ -111,6 +112,7 @@ DeepSeek adapter 负责：
 - 提取 `delta.content`、`delta.reasoning_content` 和增量 `tool_calls`。
 - 合并分片工具参数。
 - 把请求选项映射为 `temperature`、`max_tokens`、`thinking` 和 `reasoning_effort`。
+- 只有收到 `[DONE]` 才视为完整流。
 
 OpenAI Responses adapter 负责：
 
@@ -119,6 +121,9 @@ OpenAI Responses adapter 负责：
 - 完成时用 response output snapshot 校验/补齐正文和 reasoning summary，并把 output items 仅保留在当前请求内供工具 continuation 使用。
 - 将工具定义映射为 Responses API 的扁平 strict function schema；工具结果映射为 `function_call_output`。
 - `reasoning_delta` 表示 provider 提供的 reasoning summary，不代表隐藏的原始思维链。
+- 只有 `response.completed` 才视为完整流；通用 `[DONE]` 不能替代 Responses 完成事件。
+
+两种 provider 在正文、reasoning 或工具参数之后直接 EOF 都视为不完整。该判定发生在内部 LLM 层，不增加 NDJSON v2 事件类型。
 
 provider 字段不会直接透传到浏览器。更换 provider 时，只需保持内部 LLM event 和应用 NDJSON 协议稳定。
 

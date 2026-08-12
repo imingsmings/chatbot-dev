@@ -63,9 +63,12 @@ const mockScript = `
       ],
       stats: {
         totalHistoryMessages: conversation.messages.length,
+        summaryCoveredMessages: 0,
+        postSummaryMessages: conversation.messages.length,
         selectedHistoryMessages: selectedHistory.length,
         droppedHistoryMessages: conversation.messages.length - selectedHistory.length,
         selectedHistoryChars: selectedHistory.reduce((total, message) => total + message.content.length, 0),
+        selectedHistoryRange: { start: 2, end: 3 },
         maxHistoryMessages: 2,
         maxHistoryChars: 1000,
         summaryIncluded: false
@@ -206,6 +209,11 @@ async function readModalState(client) {
       const modal = document.querySelector('.context-debug-modal');
       const text = modal?.innerText || '';
       const state = window.__contextDebugState();
+      const readStat = (label) => {
+        const card = [...(modal?.querySelectorAll('.context-debug-stat') || [])]
+          .find((item) => item.querySelector('span')?.textContent.trim() === label);
+        return card?.querySelector('strong')?.textContent.trim() || '';
+      };
       return {
         hasModal: Boolean(modal),
         hasQuestion: text.includes('CURRENT_DEBUG_QUESTION'),
@@ -219,8 +227,12 @@ async function readModalState(client) {
           [
             'Model Context', 'Model Parameters', 'Provider', 'Model', 'Streaming',
             'Tool Choice', 'Reasoning', 'API Key', 'Storage', 'Temperature', 'Max Tokens',
-            'Messages', 'Tool Definitions'
+            'Summary Covered', 'After Summary', 'Selected Range', 'Messages', 'Tool Definitions'
           ].every((label) => text.includes(label)),
+        hasCoverageStats:
+          readStat('Summary Covered') === '0' &&
+          readStat('After Summary') === '3' &&
+          readStat('Selected Range') === '2-3',
         hasStandardValues: [
           'DeepSeek', 'Enabled', 'Auto', 'Max', 'Configured', 'File', 'Provider Default'
         ].every((value) => text.includes(value)),
@@ -269,6 +281,7 @@ async function main() {
     assert(!desktopState.hasSecretToken, 'secret token leaked into context preview')
     assert(desktopState.hasToolDefinition, 'tool definition summary was not displayed')
     assert(desktopState.hasStandardLabels, 'context debug labels exposed raw internal names')
+    assert(desktopState.hasCoverageStats, 'context debug summary coverage statistics are incomplete')
     assert(desktopState.hasStandardValues, 'context debug values exposed raw internal values')
     assert(desktopState.requestCount === 1, 'context preview endpoint should be called once')
     assert(desktopState.requestQuestion === 'CURRENT_DEBUG_QUESTION', 'preview endpoint did not receive current draft question')

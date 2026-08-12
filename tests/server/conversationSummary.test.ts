@@ -70,13 +70,67 @@ test('manual summary generation persists and participates in managed context', a
 
   const context = buildContextMessages(stored!, '继续做什么？')
   assert.equal(context.summaryIncluded, true)
-  assert.equal(context.selectedHistoryMessages, 1)
+  assert.equal(context.summaryCoveredMessages, 2)
+  assert.equal(context.postSummaryMessages, 0)
+  assert.equal(context.selectedHistoryMessages, 0)
+  assert.equal(context.selectedHistoryRange, null)
   assert(context.messages.some((message) => message.role === 'system' && message.content?.includes('本地聊天项目')))
 
   assert.equal(requests.length, 1)
   assert.equal(requests[0].temperature, 0.2)
   assert.equal(requests[0].max_tokens, 600)
   assert.deepEqual(requests[0].thinking, { type: 'disabled' })
+})
+
+test('messages added after a summary are the only raw history sent to the model', async () => {
+  const conversation = await createConversation('Summary follow-up')
+  await appendMessages(conversation.id, [
+    { role: 'user', content: '摘要前用户消息' },
+    { role: 'assistant', content: '摘要前助手消息' }
+  ])
+  const summaryResult = await generateConversationSummary(conversation.id)
+  assert(summaryResult.conversation)
+
+  await appendMessages(conversation.id, [
+    { role: 'user', content: '摘要后用户消息' },
+    { role: 'assistant', content: '摘要后助手消息' }
+  ])
+  const stored = await getConversation(conversation.id)
+  const context = buildContextMessages(stored!, '继续提问')
+  const content = context.messages.map((message) => message.content || '').join('\n')
+
+  assert.equal(context.summaryCoveredMessages, 2)
+  assert.equal(context.postSummaryMessages, 2)
+  assert.equal(context.selectedHistoryMessages, 1)
+  assert.equal(context.droppedHistoryMessages, 1)
+  assert.deepEqual(context.selectedHistoryRange, { start: 4, end: 4 })
+  assert(!content.includes('摘要前用户消息'))
+  assert(!content.includes('摘要前助手消息'))
+  assert(!content.includes('摘要后用户消息'))
+  assert(content.includes('摘要后助手消息'))
+})
+
+test('regenerating a summary advances the coverage boundary to the latest message', async () => {
+  const conversation = await createConversation('Summary regeneration')
+  await appendMessages(conversation.id, [
+    { role: 'user', content: '第一轮问题' },
+    { role: 'assistant', content: '第一轮回答' }
+  ])
+  const firstSummary = await generateConversationSummary(conversation.id)
+  assert.equal(firstSummary.conversation?.summary?.sourceMessageCount, 2)
+
+  await appendMessages(conversation.id, [
+    { role: 'user', content: '第二轮问题' },
+    { role: 'assistant', content: '第二轮回答' }
+  ])
+  const regenerated = await generateConversationSummary(conversation.id)
+  assert.equal(regenerated.conversation?.summary?.sourceMessageCount, 4)
+
+  const context = buildContextMessages(regenerated.conversation!, '第三轮问题')
+  assert.equal(context.summaryCoveredMessages, 4)
+  assert.equal(context.postSummaryMessages, 0)
+  assert.equal(context.selectedHistoryMessages, 0)
+  assert.equal(context.selectedHistoryRange, null)
 })
 
 test('clearing a conversation also clears the persisted summary', async () => {

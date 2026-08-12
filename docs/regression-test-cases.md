@@ -35,17 +35,17 @@
 
 | 范围 | 关键断言 |
 | --- | --- |
-| context | 消息数/字符预算、完整边界消息、空历史、当前问题不裁剪、摘要参与 |
+| context | 消息数/字符预算、完整边界消息、空历史、当前问题不裁剪、摘要覆盖后消息选择、越界计数截断和选择范围 |
 | file store | CRUD、搜索、导入导出、摘要；40 路同会话写不丢失；原子写无临时残留；payload ID/时间损坏恢复 |
 | SQLite | CRUD、搜索、导入导出、摘要、临时 DB、损坏 JSON 跳过和 migration 后重开 |
-| chat persistence | 会话在回答完成前删除时拒绝假成功 |
-| summary | 空/不存在、持久化、清空；完整消息快照竞态；shutdown 取消上游 |
+| chat persistence | 会话在回答完成前删除时拒绝假成功；不完整 Provider 流不落库且后续请求恢复 |
+| summary | 空/不存在、持久化、清空；即时提问、摘要后新消息、重新生成；完整消息快照竞态；shutdown 取消上游 |
 | request registry | requestId 校验、同会话单活动请求、全部取消和完成清理 |
 | NDJSON | backpressure 不误判关闭；destroyed/writableEnded 不再写入 |
 | test process lifecycle | child exit 等待、脚本超时、进程组终止与临时目录清理 |
 | model options | 范围、能力、禁用模型、启动配置一致性 |
 | provider config | OpenAI URL normalization、非 HTTP/HTTPS 拒绝、凭据不公开 |
-| adapters | DeepSeek/OpenAI SSE、reasoning summary、tool arguments 聚合、call_id continuation |
+| adapters | DeepSeek `[DONE]` / OpenAI `response.completed` 完成门禁、partial/reasoning/tool EOF、reasoning summary、tool arguments 聚合、call_id continuation |
 | tools | 安全计算器、IANA 时间、天气本地日期、网络/HTTP 失败隔离 |
 | production hosting | 缺失 build、SPA deep link、静态缓存、`/api` JSON 404、非 GET 不回退 |
 | TLS configuration | 生产默认值、`~/` 展开、非法布尔/端口、缺失或损坏证书 fail-fast |
@@ -73,7 +73,7 @@ UI 四个入口位于 `tests/cdp/scenarios/ui/`。它们通过 `CDP_UI_GROUP` �
 - 删除/清空当前会话清理草稿和页面状态。
 - 用户接近底部时跟随正文/reasoning/代码块；上滚查看历史时保持位置。
 - 代码块最后增长时 bottom gap 保持在阈值内。
-- 停止、HTTP 失败、网络断开、损坏 NDJSON、缺少 done 和超时后均可恢复。
+- 停止、HTTP 失败、网络断开、损坏 NDJSON、缺少 done、Provider 不完整错误和超时后均可恢复；部分正文保留且不落库。
 - 明暗主题刷新保持；390px 无页面级横向溢出。
 - 图标按钮有可读 `aria-label`；Dialog/Dropdown 的 Escape、focus 和 disabled 状态正确。
 

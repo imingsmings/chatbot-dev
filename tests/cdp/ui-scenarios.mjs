@@ -376,6 +376,10 @@ const mockScript = `
     Object.assign(flags, nextFlags || {});
   };
 
+  window.__getMockState = () => ({
+    conversations: serializeConversations(),
+  });
+
   function serializeConversations() {
     return [...conversations.values()].map((conversation) => ({
       ...conversation,
@@ -645,13 +649,6 @@ const mockScript = `
         const push = () => {
           if (closed) return;
 
-          if (plan.kind === 'streamError') {
-            controller.enqueue(line({ type: 'error', message: plan.message || '模拟失败' }));
-            closed = true;
-            controller.close();
-            return;
-          }
-
           if (plan.kind === 'malformedNdjson') {
             controller.enqueue(encoder.encode('{bad json\\n'));
             closed = true;
@@ -688,6 +685,13 @@ const mockScript = `
             controller.enqueue(line({ type: 'delta', content: chunk }));
             index += 1;
             timer = window.setTimeout(push, plan.interval ?? 80);
+            return;
+          }
+
+          if (plan.kind === 'streamError') {
+            controller.enqueue(line({ type: 'error', message: plan.message || '模拟失败' }));
+            closed = true;
+            controller.close();
             return;
           }
 
@@ -2228,6 +2232,12 @@ async function main() {
     await setPlan(client, [
       { kind: 'malformedNdjson' },
       { kind: 'noDoneClose', chunks: ['没有 done 的响应。'], interval: 20 },
+      {
+        kind: 'streamError',
+        chunks: ['上游部分正文。'],
+        message: '上游模型响应未完整结束，请重试',
+        interval: 20,
+      },
       { kind: 'success', chunks: ['异常后恢复成功。'], interval: 20 },
     ])
     await ask(client, '前端损坏 NDJSON')
@@ -2236,9 +2246,43 @@ async function main() {
     await ask(client, '前端没有 done')
     await waitFor(client, `document.body.innerText.includes('响应未完整结束')`)
     await waitIdle(client)
-      await ask(client, '前端异常后恢复')
-      await waitFor(client, `document.body.innerText.includes('异常后恢复成功。')`)
-      Object.assign(groupResults, { extraAfterDoneState, fastSubmitState, timeoutRecoveryState })
+    const persistedMessagesBeforeIncomplete = await evaluate(
+      client,
+      `window.__getMockState().conversations
+        .reduce((total, conversation) => total + conversation.messages.length, 0)`,
+    )
+    await ask(client, '上游不完整响应')
+    await waitFor(
+      client,
+      `document.body.innerText.includes('上游部分正文。') &&
+        document.body.innerText.includes('上游模型响应未完整结束，请重试')`,
+    )
+    await waitIdle(client)
+    const incompleteStreamState = await evaluate(
+      client,
+      `(() => ({
+        hasPartialText: document.body.innerText.includes('上游部分正文。'),
+        hasIncompleteError: document.body.innerText.includes('上游模型响应未完整结束，请重试'),
+        persistedMessagesDelta: window.__getMockState().conversations
+          .reduce((total, conversation) => total + conversation.messages.length, 0) -
+          ${persistedMessagesBeforeIncomplete},
+      }))()`,
+    )
+    if (
+      !incompleteStreamState.hasPartialText ||
+      !incompleteStreamState.hasIncompleteError ||
+      incompleteStreamState.persistedMessagesDelta !== 0
+    ) {
+      throw new Error(`Incomplete stream UI state failed: ${JSON.stringify(incompleteStreamState)}`)
+    }
+    await ask(client, '前端异常后恢复')
+    await waitFor(client, `document.body.innerText.includes('异常后恢复成功。')`)
+    Object.assign(groupResults, {
+      extraAfterDoneState,
+      fastSubmitState,
+      timeoutRecoveryState,
+      incompleteStreamState,
+    })
     }
 
     console.log(JSON.stringify({ group: UI_GROUP, ...groupResults }, null, 2))

@@ -17,6 +17,7 @@ after(async () => {
 })
 
 const {
+  appendMessages,
   createConversation,
   getConversation,
   updateConversationSummary
@@ -24,6 +25,12 @@ const {
 
 test('SQLite persists and reloads conversation summaries', async () => {
   const conversation = await createConversation('SQLite summary')
+  await appendMessages(conversation.id, [
+    { role: 'user', content: 'first question' },
+    { role: 'assistant', content: 'first answer' },
+    { role: 'user', content: 'second question' },
+    { role: 'assistant', content: 'second answer' }
+  ])
   const summary = {
     content: 'SQLite summary content',
     sourceMessageCount: 4,

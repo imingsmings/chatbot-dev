@@ -23,9 +23,15 @@ type ContextPreviewModel = {
 
 type ContextPreviewStats = {
   totalHistoryMessages: number
+  summaryCoveredMessages: number
+  postSummaryMessages: number
   selectedHistoryMessages: number
   droppedHistoryMessages: number
   selectedHistoryChars: number
+  selectedHistoryRange: {
+    start: number
+    end: number
+  } | null
   maxHistoryMessages: number
   maxHistoryChars: number
   summaryIncluded: boolean
@@ -76,9 +82,12 @@ function buildContextPreview(
     messages: context.messages,
     stats: {
       totalHistoryMessages: conversation.messages.length,
+      summaryCoveredMessages: context.summaryCoveredMessages,
+      postSummaryMessages: context.postSummaryMessages,
       selectedHistoryMessages: context.selectedHistoryMessages,
       droppedHistoryMessages: context.droppedHistoryMessages,
       selectedHistoryChars: context.selectedHistoryChars,
+      selectedHistoryRange: context.selectedHistoryRange,
       maxHistoryMessages: context.config.maxHistoryMessages,
       maxHistoryChars: context.config.maxHistoryChars,
       summaryIncluded: context.summaryIncluded

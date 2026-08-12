@@ -165,7 +165,7 @@ function parseSseData(line: string): Record<string, unknown> | null {
   const text = line.trim()
   if (!text || !text.startsWith('data:')) return null
   const json = text.slice(5).trimStart()
-  if (!json || json === '[DONE]') return json === '[DONE]' ? { type: 'done' } : null
+  if (!json || json === '[DONE]') return null
   const value = JSON.parse(json) as unknown
   return isRecord(value) ? value : null
 }
@@ -183,8 +183,6 @@ function createStreamParser(): (line: string) => LlmStreamEvent | null {
     if (!event) return null
 
     const type = typeof event.type === 'string' ? event.type : ''
-    if (type === 'done') return { done: true }
-
     if (type === 'response.output_item.added') {
       const item = isRecord(event.item) ? event.item : null
       const outputIndex = typeof event.output_index === 'number' ? event.output_index : 0

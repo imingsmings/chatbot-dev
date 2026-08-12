@@ -16,6 +16,7 @@ import type { PromptMessage } from '../../types/conversation.ts'
 import type { ChatCompletionToolCall, ToolResult } from '../../types/tools.ts'
 
 const TOOL_STREAM_CONTENT_BUFFER_MS = 120
+const INCOMPLETE_PROVIDER_STREAM_ERROR = '上游模型响应未完整结束，请重试'
 
 async function readResponseText(
   response: Response,
@@ -205,6 +206,7 @@ async function callLLM({
 
     let fullResponse = ''
     let reasoningContent = ''
+    let streamCompleted = false
     const parseStreamLine = adapter.createStreamParser?.() ?? adapter.parseStreamLine
 
     if (!response.body) {
@@ -246,6 +248,7 @@ async function callLLM({
       }
 
       if (event.done) {
+        streamCompleted = true
         return false
       }
     }
@@ -254,6 +257,10 @@ async function callLLM({
       signal: upstream.signal,
       onAbort: upstream.abortUpstream
     })
+
+    if (!streamCompleted) {
+      throw new Error(INCOMPLETE_PROVIDER_STREAM_ERROR)
+    }
 
     return {
       content: fullResponse,
@@ -300,6 +307,7 @@ async function callLLMStreamWithTools(
     let pendingContent = ''
     let pendingContentStartedAt = 0
     let contentUnlocked = false
+    let streamCompleted = false
     let providerState: unknown
     const toolCalls = new Map<number, ChatCompletionToolCall>()
     const parseStreamLine = adapter.createStreamParser?.() ?? adapter.parseStreamLine
@@ -383,6 +391,7 @@ async function callLLMStreamWithTools(
       }
 
       if (event.done) {
+        streamCompleted = true
         return false
       }
     }
@@ -396,6 +405,10 @@ async function callLLMStreamWithTools(
 
     if (collectedToolCalls.length === 0) {
       flushPendingContent()
+    }
+
+    if (!streamCompleted) {
+      throw new Error(INCOMPLETE_PROVIDER_STREAM_ERROR)
     }
 
     return {

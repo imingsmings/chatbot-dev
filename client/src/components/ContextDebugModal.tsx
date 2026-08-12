@@ -27,6 +27,9 @@ export function ContextDebugModal({ context, open, onClose }: ContextDebugModalP
     () => JSON.stringify(context?.tools.definitions ?? [], null, 2),
     [context],
   )
+  const selectedHistoryRange = context?.stats.selectedHistoryRange
+    ? `${context.stats.selectedHistoryRange.start}-${context.stats.selectedHistoryRange.end}`
+    : 'None'
 
   return (
     <DialogRoot onOpenChange={(nextOpen) => !nextOpen && onClose()} open={open}>
@@ -41,9 +44,12 @@ export function ContextDebugModal({ context, open, onClose }: ContextDebugModalP
           {context ? (
             <div className="context-debug-content flex flex-col gap-4 p-[18px]">
               <section aria-label="Context Statistics" className="context-debug-section">
-                <div className="context-debug-stats grid grid-cols-5 gap-[7px] max-[820px]:grid-cols-2">
+                <div className="context-debug-stats grid grid-cols-4 gap-[7px] max-[820px]:grid-cols-2">
                   {[
                     ['History', `${context.stats.selectedHistoryMessages}/${context.stats.totalHistoryMessages}`],
+                    ['Summary Covered', context.stats.summaryCoveredMessages],
+                    ['After Summary', context.stats.postSummaryMessages],
+                    ['Selected Range', selectedHistoryRange],
                     ['Dropped', context.stats.droppedHistoryMessages],
                     ['Characters', `${context.stats.selectedHistoryChars}/${context.stats.maxHistoryChars}`],
                     ['Tools', context.tools.count],

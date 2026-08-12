@@ -63,7 +63,7 @@ test('file identity wins over corrupt payload ids and invalid timestamps are nor
       messages: [],
       summary: {
         content: 'summary',
-        sourceMessageCount: 0,
+        sourceMessageCount: 99,
         updatedAt: 'invalid-summary-date',
       },
     }),
@@ -75,6 +75,7 @@ test('file identity wins over corrupt payload ids and invalid timestamps are nor
   assert.equal(Number.isNaN(Date.parse(stored?.createdAt ?? '')), false)
   assert.equal(Number.isNaN(Date.parse(stored?.updatedAt ?? '')), false)
   assert.equal(Number.isNaN(Date.parse(stored?.summary?.updatedAt ?? '')), false)
+  assert.equal(stored?.summary?.sourceMessageCount, 0)
   assert.equal(await getConversation('conv_wrong_identity'), null)
 })
 

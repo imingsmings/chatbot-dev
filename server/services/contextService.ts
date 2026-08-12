@@ -12,9 +12,15 @@ type ContextConfig = {
 type ContextBuildResult = {
   messages: PromptMessage[]
   config: ContextConfig
+  summaryCoveredMessages: number
+  postSummaryMessages: number
   selectedHistoryMessages: number
   droppedHistoryMessages: number
   selectedHistoryChars: number
+  selectedHistoryRange: {
+    start: number
+    end: number
+  } | null
   summaryIncluded: boolean
 }
 
@@ -34,6 +40,19 @@ function getContextConfig(): ContextConfig {
 
 function getMessageCharLength(message: StoredMessage): number {
   return message.content.length
+}
+
+function getSummaryCoveredMessageCount(conversation: Conversation): number {
+  const sourceMessageCount = conversation.summary?.sourceMessageCount
+  if (
+    typeof sourceMessageCount !== 'number' ||
+    !Number.isInteger(sourceMessageCount) ||
+    sourceMessageCount < 0
+  ) {
+    return 0
+  }
+
+  return Math.min(sourceMessageCount, conversation.messages.length)
 }
 
 function selectRecentHistory(messages: StoredMessage[], config: ContextConfig): StoredMessage[] {
@@ -66,15 +85,27 @@ function selectRecentHistory(messages: StoredMessage[], config: ContextConfig): 
 
 function buildContextMessages(conversation: Conversation, question: string): ContextBuildResult {
   const config = getContextConfig()
-  const recentHistory = selectRecentHistory(conversation.messages, config)
+  const totalHistoryMessages = conversation.messages.length
+  const summaryCoveredMessages = getSummaryCoveredMessageCount(conversation)
+  const postSummaryHistory = conversation.messages.slice(summaryCoveredMessages)
+  const recentHistory = selectRecentHistory(postSummaryHistory, config)
   const selectedHistoryChars = recentHistory.reduce((total, message) => total + getMessageCharLength(message), 0)
+  const selectedHistoryStart = totalHistoryMessages - recentHistory.length
 
   return {
     messages: buildStandardPrompt(question, recentHistory, conversation.summary),
     config,
+    summaryCoveredMessages,
+    postSummaryMessages: postSummaryHistory.length,
     selectedHistoryMessages: recentHistory.length,
-    droppedHistoryMessages: Math.max(0, conversation.messages.length - recentHistory.length),
+    droppedHistoryMessages: Math.max(0, postSummaryHistory.length - recentHistory.length),
     selectedHistoryChars,
+    selectedHistoryRange: recentHistory.length > 0
+      ? {
+          start: selectedHistoryStart + 1,
+          end: totalHistoryMessages
+        }
+      : null,
     summaryIncluded: Boolean(conversation.summary)
   }
 }

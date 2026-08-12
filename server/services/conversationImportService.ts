@@ -135,7 +135,10 @@ function parseConversation(value: unknown, index: number): Conversation {
 
   const summary = parseContextSummary(value.summary)
   if (summary) {
-    conversation.summary = summary
+    conversation.summary = {
+      ...summary,
+      sourceMessageCount: Math.min(summary.sourceMessageCount, conversation.messages.length)
+    }
   }
 
   return conversation

@@ -45,3 +45,22 @@ test('SQLite import applies conflict strategies without losing reasoning data', 
   assert.equal((await importConversationBackup(overwriteBackup, 'overwrite')).overwritten, 1)
   assert.equal((await getConversation('conv_import_sqlite'))?.messages[0]?.content, 'sqlite overwritten')
 })
+
+test('SQLite import clamps summary coverage to the imported message count', async () => {
+  const backup = structuredClone(baseBackup)
+  backup.conversations[0].id = 'conv_import_summary_clamp_sqlite'
+  Object.assign(backup.conversations[0], {
+    summary: {
+      content: 'legacy sqlite summary',
+      sourceMessageCount: 99,
+      updatedAt: '2026-07-31T00:00:00.000Z'
+    }
+  })
+
+  await importConversationBackup(backup)
+
+  assert.equal(
+    (await getConversation('conv_import_summary_clamp_sqlite'))?.summary?.sourceMessageCount,
+    1
+  )
+})

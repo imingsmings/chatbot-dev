@@ -74,7 +74,8 @@ export function normalizeMessage(message: unknown): StoredMessage {
 
 function normalizeConversationSummary(
   value: unknown,
-  fallbackUpdatedAt: string
+  fallbackUpdatedAt: string,
+  messageCount: number
 ): ConversationContextSummary | undefined {
   if (!isRecord(value) || typeof value.content !== 'string' || !value.content.trim()) {
     return undefined
@@ -89,7 +90,7 @@ function normalizeConversationSummary(
 
   return {
     content: value.content.trim(),
-    sourceMessageCount,
+    sourceMessageCount: Math.min(sourceMessageCount, messageCount),
     updatedAt: normalizeTimestamp(value.updatedAt, fallbackUpdatedAt)
   }
 }
@@ -118,7 +119,7 @@ export function normalizeConversation(conversation: unknown, expectedId?: string
       : []
   }
 
-  const summary = normalizeConversationSummary(rawConversation.summary, updatedAt)
+  const summary = normalizeConversationSummary(rawConversation.summary, updatedAt, normalized.messages.length)
   if (summary) {
     normalized.summary = summary
   }

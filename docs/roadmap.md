@@ -11,11 +11,12 @@
 - R8.9：TypeScript 7 前后端统一、根 workspace/catalog、共享 tsconfig 与 Express 5 升级已完成。
 - R9：DeepSeek Chat Completions 与 OpenAI Responses provider adapters 已完成。
 - R10：单 Node Docker 局域网部署、TLS/数据挂载和容器验收已完成并验证。
-- R11-R12、R14：上游流完整性、上下文语义、生成元数据和 Docker 运维能力已进入规划，尚未实施。
+- R11：Provider 流完整性与摘要覆盖语义已完成，并通过 DeepSeek/OpenAI mock、P0、UI 恢复和上下文预览回归。
+- R12、R14：生成元数据和 Docker 运维能力已进入规划，尚未实施。
 - R13：前端编排、存储实现、共享 NDJSON 协议和 CDP 场景套件已完成维护性拆分并通过全部门禁。
 - R15：保留为基于真实个人使用证据选择的功能阶段，不预先承诺全部候选能力。
 
-R13 已完成并验证。R11、R12、R14 仍需逐阶段确认后实施；R15 必须先有明确的真实使用需求再选定范围。
+R11、R13 已完成并验证。R12、R14 仍需逐阶段确认后实施；R15 必须先有明确的真实使用需求再选定范围。
 
 ## 当前基线
 
@@ -25,6 +26,8 @@ R13 已完成并验证。R11、R12、R14 仍需逐阶段确认后实施；R15 �
 - file/SQLite 会话持久化。
 - DeepSeek/OpenAI 请求级 provider/model 与 reasoning 配置。
 - 应用 NDJSON v2、reasoning 和工具生命周期。
+- DeepSeek `[DONE]` / OpenAI `response.completed` 完整性门禁，异常 EOF 不落库。
+- 摘要覆盖边界之后的原始消息窗口，以及可见的覆盖/选择范围统计。
 - 全链路取消、首包/流空闲超时和单会话请求互斥。
 - Node/Vitest/CDP 自动化回归。
 
@@ -46,7 +49,7 @@ R13 已完成并验证。R11、R12、R14 仍需逐阶段确认后实施；R15 �
 | R8.9 | TypeScript 7 统一、pnpm catalog/单 lockfile、共享 tsconfig、Express 5.2 | 完成并验证 |
 | R9 | OpenAI Responses adapter、reasoning summary、Function Calling continuation | 完成 |
 | R10 | 多阶段镜像、Compose、Node HTTPS、持久卷和容器回归 | 完成并验证 |
-| R11 | Provider 流完整性与摘要覆盖语义 | 规划中，未实施 |
+| R11 | Provider 流完整性与摘要覆盖语义 | 完成并验证 |
 | R12 | 生成元数据、工具轨迹和中断状态持久化 | 规划中，未实施 |
 | R13 | 前端编排、存储实现和 CDP 套件拆分 | 完成并验证 |
 | R14 | Docker 备份恢复、证书路径和健康检查 | 规划中，未实施 |
@@ -91,6 +94,8 @@ R13 已完成并验证。R11、R12、R14 仍需逐阶段确认后实施；R15 �
 
 ## R11 Provider 流完整性与摘要覆盖语义
 
+状态：2026-08-12 完成并验证。
+
 ### 直接价值
 
 - 避免 Provider 在输出部分正文后异常 EOF 时，被误判为完整回答并写入会话。
@@ -103,6 +108,15 @@ R13 已完成并验证。R11、R12、R14 仍需逐阶段确认后实施；R15 �
 - 保留已显示的前端部分正文并标记为错误，后续请求仍可恢复。
 - 摘要参与上下文时，只选择 `summary.sourceMessageCount` 之后的新消息；导入或异常计数必须进行安全截断。
 - 上下文预览明确显示摘要覆盖消息数、新增原始消息数和最终选择范围。
+
+### 交付结果
+
+- LLM 流读取层只有在 DeepSeek `[DONE]` 或 OpenAI `response.completed` 到达后才返回成功；OpenAI 的通用 `[DONE]` 哨兵不再冒充 Responses 完成事件。
+- Provider 在正文、reasoning 或工具参数中途 EOF 时，经现有 NDJSON v2 `error` 结束，不发送 `done`，也不追加本轮 user/assistant 消息。
+- 前端保留已接收的部分正文和错误状态，同一会话的下一次请求可以继续成功。
+- 摘要上下文只读取安全截断后的 `sourceMessageCount` 之后消息；file/SQLite 读取和 schema v1 导入都会截断越界计数。
+- 上下文预览显示摘要覆盖数、摘要后原始消息数以及按会话序号表示的最终选择范围。
+- 验收证据见 [R11 流完整性与摘要覆盖验收记录](r11-stream-context-2026-08-12.md)。
 
 ### 验收标准
 

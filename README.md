@@ -23,10 +23,10 @@ Vue 客户端已在 2026-08-09 完成下线，`client/` 现在是唯一的 React
 - 标题/消息搜索，单会话 Markdown 导出，全量 JSON 备份与导入。
 - file/SQLite 本地存储及旧 JSON 到 SQLite 幂等迁移。
 - DeepSeek / OpenAI provider、模型和推理强度的请求级切换。
-- provider SSE 到应用 NDJSON v2 的稳定流式协议。
+- provider SSE 到应用 NDJSON v2 的稳定流式协议；异常 EOF 不发送成功 `done` 且不落库。
 - reasoning 展示、耗时、持久化和历史恢复。
 - 天气、当前时间和安全表达式计算器 Function Calling。
-- 最近消息/字符上下文窗口、手动摘要和实际上下文预览。
+- 摘要覆盖边界后的消息/字符上下文窗口、手动摘要和带覆盖范围统计的实际上下文预览。
 - Prompt 模板、Markdown 净化、代码高亮/复制和安全外链。
 - 前端 fetch abort、cancel API、后端 registry 与上游 AbortSignal 全链路停止。
 - 明暗主题、响应式布局、滚动跟随及流式代码块自动滚动。
@@ -175,6 +175,7 @@ pnpm run test:docker           # Docker HTTPS、API、SQLite 持久性与 SIGTER
 - [生产部署说明](docs/production-deployment.md)
 - [Docker 部署说明](docs/docker-deployment.md)
 - [Docker 验证记录（2026-08-10）](docs/docker-validation-2026-08-10.md)
+- [R11 流完整性与摘要覆盖验收记录（2026-08-12）](docs/r11-stream-context-2026-08-12.md)
 - [全面 Code Review 与回归记录（2026-08-10）](docs/code-review-2026-08-10.md)
 - [TypeScript 7 / Express 5 工具链升级记录](docs/toolchain-upgrade-2026-08-09.md)
 - [阶段交付审查（2026-08-09）](docs/release-readiness-2026-08-09.md)

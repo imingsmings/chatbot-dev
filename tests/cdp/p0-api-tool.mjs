@@ -159,6 +159,15 @@ function createMockLlmServer() {
     }
 
     if (body.tools?.length) {
+      if (latestUserContent.includes('P0_INCOMPLETE_STREAM')) {
+        res.writeHead(200, { 'Content-Type': 'text/event-stream' })
+        writeSse(res, 'incomplete partial output')
+        record.chunksSent += 1
+        record.responseEnded = true
+        res.end()
+        return
+      }
+
       if (latestUserContent.includes('P0_MALFORMED_STREAM')) {
         res.writeHead(200, { 'Content-Type': 'text/event-stream' })
         res.write('data: {"choices":[{"delta":{"content":"broken"}}]\n\n')
@@ -929,11 +938,27 @@ async function main() {
     assert(answerStopDetail.data.conversation.messages.length === 0, 'P0-24 aborted answer-stage request was persisted')
 
     const badFunctionJson = await ask(client, toolId, 'P0_BAD_FUNCTION_JSON 触发非法函数 JSON')
+    const beforeIncompleteDetail = await api(client, `/conversations/${toolId}`)
+    const incompleteStream = await ask(client, toolId, 'P0_INCOMPLETE_STREAM 触发上游异常 EOF')
+    const afterIncompleteDetail = await api(client, `/conversations/${toolId}`)
     const malformedStream = await ask(client, toolId, 'P0_MALFORMED_STREAM 触发损坏流')
     const emptyModel = await ask(client, toolId, 'P0_EMPTY_MODEL 触发空模型响应')
     const recovery = await ask(client, toolId, 'P0_RECOVERY 确认异常后还能继续')
     assert(badFunctionJson.text.includes('标准回答') && badFunctionJson.text.includes('"type":"done"'), 'P0-20 invalid function JSON did not fallback to standard answer')
-    assert(malformedStream.text.includes('"type":"error"'), 'P0-21 malformed stream did not return stream error')
+    assert(
+      incompleteStream.text.includes('"type":"delta"') &&
+      incompleteStream.text.includes('incomplete partial output') &&
+      incompleteStream.text.includes('"type":"error"') &&
+      incompleteStream.text.includes('上游模型响应未完整结束') &&
+      !incompleteStream.text.includes('"type":"done"'),
+      'P0-21 incomplete provider stream did not preserve partial output and return only a stream error'
+    )
+    assert(
+      afterIncompleteDetail.data.conversation.messages.length ===
+        beforeIncompleteDetail.data.conversation.messages.length,
+      'P0-21 incomplete provider stream was persisted'
+    )
+    assert(malformedStream.text.includes('"type":"error"'), 'P0-22 malformed stream did not return stream error')
     assert(emptyModel.text.includes('"type":"error"'), 'P0-23 empty model did not return stream error')
     assert(recovery.text.includes('标准回答') && recovery.text.includes('"type":"done"'), 'P0-25 recovery request failed after errors')
 

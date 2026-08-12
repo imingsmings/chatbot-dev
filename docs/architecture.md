@@ -82,7 +82,7 @@ flowchart LR
 | `server/config/clientHosting.ts` | `client/dist` 校验、静态缓存与 HTML SPA 回退 |
 | `server/controllers/*` | HTTP 输入、长度边界、状态码和流响应 |
 | `server/services/chatService.ts` | 上下文、模型、工具两阶段和成功后持久化 |
-| `server/services/contextService.ts` | 摘要、消息数和字符预算 |
+| `server/services/contextService.ts` | 摘要覆盖边界、安全截断、消息数和字符预算 |
 | `server/services/conversationSummaryService.ts` | 摘要生成及会话变化检测 |
 | `server/services/toolService.ts` | 工具参数校验、失败隔离和生命周期事件 |
 | `server/tools/*` | 单工具 schema、validator 和 handler |
@@ -163,7 +163,9 @@ sequenceDiagram
   S-->>C: done
 ```
 
-只有完整模型回答才写入存储。若会话在生成期间被删除，服务返回流错误而不是把“成功”但未落盘的结果交给前端。
+只有完整模型回答才写入存储。DeepSeek 必须读到 `[DONE]`，OpenAI Responses 必须读到 `response.completed`；正文、reasoning 或工具参数之后直接 EOF 都通过现有 NDJSON `error` 结束，不发送 `done`。前端保留已经显示的部分内容，服务端不追加本轮 user/assistant 消息。若会话在生成期间被删除，同样返回流错误而不是把“成功”但未落盘的结果交给前端。
+
+存在会话摘要时，`summary.sourceMessageCount` 先安全截断到 `0..messages.length`，上下文窗口只在该边界之后的原始消息中按消息数和字符数选择最近后缀。上下文预览同时返回摘要覆盖数、摘要后消息数和最终选择的会话消息序号范围，便于确认摘要历史没有重复进入模型。
 
 ## Function Calling
 

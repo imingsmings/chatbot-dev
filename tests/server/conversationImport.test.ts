@@ -58,6 +58,19 @@ test('file import supports create, skip, duplicate and explicit overwrite', asyn
   assert.equal((await getConversation('conv_import_file'))?.messages[0]?.content, 'overwritten')
 })
 
+test('file import clamps summary coverage to the imported message count', async () => {
+  const imported = backup('legacy message')
+  imported.conversations[0].id = 'conv_import_summary_clamp_file'
+  imported.conversations[0].summary.sourceMessageCount = 99
+
+  await importConversationBackup(imported)
+
+  assert.equal(
+    (await getConversation('conv_import_summary_clamp_file'))?.summary?.sourceMessageCount,
+    1
+  )
+})
+
 test('file import rejects unsupported and malformed backups without partial writes', async () => {
   const countBeforeValidationFailures = (await listConversations()).length
 

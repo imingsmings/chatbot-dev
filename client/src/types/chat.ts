@@ -110,9 +110,15 @@ export type ContextPreview = {
   messages: ContextPreviewMessage[]
   stats: {
     totalHistoryMessages: number
+    summaryCoveredMessages: number
+    postSummaryMessages: number
     selectedHistoryMessages: number
     droppedHistoryMessages: number
     selectedHistoryChars: number
+    selectedHistoryRange: {
+      start: number
+      end: number
+    } | null
     maxHistoryMessages: number
     maxHistoryChars: number
     summaryIncluded: boolean

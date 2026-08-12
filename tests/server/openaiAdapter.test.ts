@@ -112,6 +112,7 @@ test('OpenAI stream parser emits text, reasoning summary, and completion snapsho
     providerState: { output },
     finishReason: 'stop'
   })
+  assert.equal(parse('data: [DONE]'), null)
 })
 
 test('OpenAI stream parser preserves call_id while aggregating function arguments', () => {

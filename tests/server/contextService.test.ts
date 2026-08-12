@@ -150,11 +150,73 @@ test('buildContextMessages keeps only the latest configured history messages', (
 
   assert.equal(result.selectedHistoryMessages, 4)
   assert.equal(result.droppedHistoryMessages, 4)
+  assert.equal(result.summaryCoveredMessages, 0)
+  assert.equal(result.postSummaryMessages, 8)
+  assert.deepEqual(result.selectedHistoryRange, { start: 5, end: 8 })
   assert.equal(result.selectedHistoryChars, 'MSG_4MSG_5MSG_6MSG_7'.length)
   assert(!content.includes('MSG_3'))
   assert(content.includes('MSG_4'))
   assert(content.includes('MSG_7'))
   assert(content.includes('CURRENT_QUESTION'))
+})
+
+test('buildContextMessages sends only messages after the summary coverage boundary', () => {
+  process.env.CONTEXT_MAX_HISTORY_MESSAGES = '20'
+  process.env.CONTEXT_MAX_HISTORY_CHARS = '1000'
+
+  const conversation = makeConversation([
+    user('SUMMARY_SOURCE_USER'),
+    assistant('SUMMARY_SOURCE_ASSISTANT'),
+    user('AFTER_SUMMARY_USER'),
+    assistant('AFTER_SUMMARY_ASSISTANT')
+  ])
+  conversation.summary = {
+    content: 'SUMMARY_CONTENT',
+    sourceMessageCount: 2,
+    updatedAt: '2026-05-26T00:00:00.000Z'
+  }
+
+  const result = buildContextMessages(conversation, 'CURRENT_QUESTION')
+  const content = promptContent(result.messages)
+
+  assert.equal(result.summaryIncluded, true)
+  assert.equal(result.summaryCoveredMessages, 2)
+  assert.equal(result.postSummaryMessages, 2)
+  assert.equal(result.selectedHistoryMessages, 2)
+  assert.equal(result.droppedHistoryMessages, 0)
+  assert.deepEqual(result.selectedHistoryRange, { start: 3, end: 4 })
+  assert(content.includes('SUMMARY_CONTENT'))
+  assert(!content.includes('SUMMARY_SOURCE_USER'))
+  assert(!content.includes('SUMMARY_SOURCE_ASSISTANT'))
+  assert(content.includes('AFTER_SUMMARY_USER'))
+  assert(content.includes('AFTER_SUMMARY_ASSISTANT'))
+})
+
+test('buildContextMessages safely clamps summary coverage beyond imported history', () => {
+  process.env.CONTEXT_MAX_HISTORY_MESSAGES = '20'
+  process.env.CONTEXT_MAX_HISTORY_CHARS = '1000'
+
+  const conversation = makeConversation([
+    user('OLD_BACKUP_USER'),
+    assistant('OLD_BACKUP_ASSISTANT')
+  ])
+  conversation.summary = {
+    content: 'OLD_BACKUP_SUMMARY',
+    sourceMessageCount: 999,
+    updatedAt: '2026-05-26T00:00:00.000Z'
+  }
+
+  const result = buildContextMessages(conversation, 'CURRENT_QUESTION')
+  const content = promptContent(result.messages)
+
+  assert.equal(result.summaryCoveredMessages, 2)
+  assert.equal(result.postSummaryMessages, 0)
+  assert.equal(result.selectedHistoryMessages, 0)
+  assert.equal(result.droppedHistoryMessages, 0)
+  assert.equal(result.selectedHistoryRange, null)
+  assert(content.includes('OLD_BACKUP_SUMMARY'))
+  assert(!content.includes('OLD_BACKUP_USER'))
+  assert(!content.includes('OLD_BACKUP_ASSISTANT'))
 })
 
 test('buildContextMessages drops the whole boundary message when adding it would exceed the char budget', () => {
@@ -315,8 +377,11 @@ test('buildContextPreview exposes managed context details without leaking secret
   assert.equal(preview.conversationId, conversation.id)
   assert.equal(preview.question, 'PREVIEW_CURRENT_QUESTION')
   assert.equal(preview.stats.totalHistoryMessages, 3)
+  assert.equal(preview.stats.summaryCoveredMessages, 0)
+  assert.equal(preview.stats.postSummaryMessages, 3)
   assert.equal(preview.stats.selectedHistoryMessages, 2)
   assert.equal(preview.stats.droppedHistoryMessages, 1)
+  assert.deepEqual(preview.stats.selectedHistoryRange, { start: 2, end: 3 })
   assert.equal(preview.stats.maxHistoryMessages, 2)
   assert.equal(preview.model.model, 'deepseek-v4-pro')
   assert.equal(preview.model.apiKeyConfigured, true)
