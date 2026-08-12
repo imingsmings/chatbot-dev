@@ -297,7 +297,17 @@ const mockScript = `
           setTimeout(() => {
             conversation.messages.push(
               { role: 'user', content: body.question || '' },
-              { role: 'assistant', content: finalMarkdown }
+              {
+                role: 'assistant',
+                content: finalMarkdown,
+                status: 'completed',
+                toolTrace: [{
+                  name: 'calculate',
+                  success: true,
+                  durationMs: 550,
+                  summary: '计算结果：42'
+                }]
+              }
             );
             conversation.updatedAt = new Date().toISOString();
             controller.enqueue(event({ type: 'done' }));

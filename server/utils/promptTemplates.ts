@@ -32,7 +32,10 @@ function buildStandardPrompt(
   ]
 }
 
-function buildConversationSummaryPrompt(messages: StoredMessage[]): PromptMessage[] {
+function buildConversationSummaryPrompt(
+  messages: StoredMessage[],
+  previousSummary = ''
+): PromptMessage[] {
   return [
     {
       role: 'system',
@@ -42,6 +45,12 @@ function buildConversationSummaryPrompt(messages: StoredMessage[]): PromptMessag
         '不要添加会话中不存在的事实，不要输出标题或前言，直接输出摘要正文。'
       ].join('\n')
     },
+    ...(previousSummary
+      ? [{
+          role: 'system' as const,
+          content: `以下是已覆盖较早会话的摘要。请在保留其关键信息的基础上合并新内容：\n${previousSummary}`
+        }]
+      : []),
     {
       role: 'user',
       content: messages

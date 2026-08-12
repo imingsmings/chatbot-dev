@@ -123,14 +123,88 @@ test('regenerating a summary advances the coverage boundary to the latest messag
     { role: 'user', content: '第二轮问题' },
     { role: 'assistant', content: '第二轮回答' }
   ])
+  const requestCount = requests.length
   const regenerated = await generateConversationSummary(conversation.id)
   assert.equal(regenerated.conversation?.summary?.sourceMessageCount, 4)
+  assert.equal(requests.length, requestCount + 1)
+  const incrementalRequest = JSON.stringify(requests[requestCount])
+  assert(!incrementalRequest.includes('第一轮问题'))
+  assert(!incrementalRequest.includes('第一轮回答'))
+  assert(incrementalRequest.includes('第二轮问题'))
+  assert(incrementalRequest.includes('第二轮回答'))
+  assert(incrementalRequest.includes('用户正在实现本地聊天项目'))
 
   const context = buildContextMessages(regenerated.conversation!, '第三轮问题')
   assert.equal(context.summaryCoveredMessages, 4)
   assert.equal(context.postSummaryMessages, 0)
   assert.equal(context.selectedHistoryMessages, 0)
   assert.equal(context.selectedHistoryRange, null)
+})
+
+test('summary generation chunks oversized input and caps each model request', async () => {
+  const previousBudget = process.env.SUMMARY_MAX_INPUT_CHARS
+  process.env.SUMMARY_MAX_INPUT_CHARS = '8000'
+  const conversation = await createConversation('Summary input budget')
+  const longMessage = `LONG_SUMMARY_START_${'x'.repeat(18_000)}_LONG_SUMMARY_END`
+  await appendMessages(conversation.id, [{ role: 'user', content: longMessage }])
+  const requestCount = requests.length
+
+  try {
+    const result = await generateConversationSummary(conversation.id, { maxTokens: 4096 })
+    assert.equal(result.conversation?.summary?.sourceMessageCount, 1)
+
+    const chunkRequests = requests.slice(requestCount)
+    assert(chunkRequests.length >= 3)
+    for (const request of chunkRequests) {
+      const messages = request.messages as Array<{ content?: string }>
+      const promptChars = messages.reduce(
+        (total, message) => total + (message.content?.length ?? 0),
+        0
+      )
+      assert(promptChars <= 8000, `summary prompt exceeded budget: ${promptChars}`)
+      assert.equal(request.max_tokens, 1024)
+      assert.deepEqual(request.thinking, { type: 'disabled' })
+    }
+
+    const serializedChunks = JSON.stringify(chunkRequests)
+    assert(serializedChunks.includes('LONG_SUMMARY_START'))
+    assert(serializedChunks.includes('LONG_SUMMARY_END'))
+  } finally {
+    if (previousBudget === undefined) {
+      delete process.env.SUMMARY_MAX_INPUT_CHARS
+    } else {
+      process.env.SUMMARY_MAX_INPUT_CHARS = previousBudget
+    }
+  }
+})
+
+test('summary generation reuses an unchanged persisted summary without another model call', async () => {
+  const conversation = await createConversation('Summary no changes')
+  await appendMessages(conversation.id, [{ role: 'user', content: '只需要摘要一次' }])
+  const first = await generateConversationSummary(conversation.id)
+  const requestCount = requests.length
+  const unchanged = await generateConversationSummary(conversation.id)
+
+  assert.deepEqual(unchanged, first)
+  assert.equal(requests.length, requestCount)
+})
+
+test('summary boundary advances over new stopped output without resending it', async () => {
+  const conversation = await createConversation('Summary stopped increment')
+  await appendMessages(conversation.id, [{ role: 'user', content: '先生成摘要' }])
+  await generateConversationSummary(conversation.id)
+  await appendMessages(conversation.id, [{
+    role: 'assistant',
+    content: 'STOPPED_INCREMENT_BODY',
+    status: 'stopped'
+  }])
+  const requestCount = requests.length
+
+  const result = await generateConversationSummary(conversation.id)
+
+  assert.equal(result.conversation?.summary?.sourceMessageCount, 2)
+  assert.equal(requests.length, requestCount)
+  assert(!result.conversation?.summary?.content.includes('STOPPED_INCREMENT_BODY'))
 })
 
 test('summary generation excludes stopped assistant bodies while advancing over the stored boundary', async () => {
