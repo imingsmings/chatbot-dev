@@ -49,6 +49,7 @@ export function ContextDebugModal({ context, open, onClose }: ContextDebugModalP
                     ['History', `${context.stats.selectedHistoryMessages}/${context.stats.totalHistoryMessages}`],
                     ['Summary Covered', context.stats.summaryCoveredMessages],
                     ['After Summary', context.stats.postSummaryMessages],
+                    ['Stopped Excluded', context.stats.excludedStoppedMessages],
                     ['Selected Range', selectedHistoryRange],
                     ['Dropped', context.stats.droppedHistoryMessages],
                     ['Characters', `${context.stats.selectedHistoryChars}/${context.stats.maxHistoryChars}`],

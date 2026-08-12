@@ -74,7 +74,22 @@ test(
         role: 'assistant',
         content: 'sqlite export answer',
         reasoningContent: 'sqlite export reasoning',
-        reasoningDurationMs: 17
+        reasoningDurationMs: 17,
+        status: 'completed',
+        generation: {
+          provider: 'openai',
+          model: 'gpt-5.6-sol',
+          finishReason: 'completed',
+          firstTokenLatencyMs: 8,
+          totalDurationMs: 25,
+          usage: { inputTokens: 7, outputTokens: 5, totalTokens: 12 }
+        },
+        toolTrace: [{
+          name: 'getCurrentTime',
+          success: true,
+          durationMs: 1,
+          summary: 'UTC time'
+        }]
       }
     ])
     const before = await findConversation(conversation.id)
@@ -89,9 +104,12 @@ test(
     assert(markdown.content.includes('sqlite export question'))
     assert(markdown.content.includes('sqlite export reasoning'))
     assert(markdown.content.includes('sqlite export answer'))
+    assert(markdown.content.includes('<summary>生成详情</summary>'))
     assert(exportedConversation)
     assert.equal(exportedConversation.messages[1]?.reasoningContent, 'sqlite export reasoning')
     assert.equal(exportedConversation.messages[1]?.reasoningDurationMs, 17)
+    assert.equal(exportedConversation.messages[1]?.generation?.usage?.totalTokens, 12)
+    assert.equal(exportedConversation.messages[1]?.toolTrace?.[0]?.name, 'getCurrentTime')
     assert.equal(dbStat.isFile(), true)
     assert.deepEqual(after?.messages, before?.messages)
     assert.equal(after?.updatedAt, before?.updatedAt)

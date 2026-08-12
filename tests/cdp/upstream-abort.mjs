@@ -236,6 +236,13 @@ async function getMessageCounts(id) {
   return data.conversation.messages.length
 }
 
+async function getConversationMessages(id) {
+  const response = await fetch(`${SERVER_URL}/conversations/${encodeURIComponent(id)}`)
+  if (!response.ok) return null
+  const data = await response.json()
+  return data.conversation.messages
+}
+
 function collectBody(req) {
   return new Promise((resolve, reject) => {
     let raw = ''
@@ -538,6 +545,7 @@ export default defineConfig({
       8000,
       'TC01 stream request start',
     )
+    await waitAssistantStreamingText(client)
     screenshots.push(await screenshot(client, '01-tc01-streaming-before-stop'))
     await clickText(client, 'button', '停止')
     await waitFor(client, `document.body.innerText.includes('已停止生成')`)
@@ -545,16 +553,34 @@ export default defineConfig({
     await delay(700)
     const tc01Records = mock.records.filter((item) => item.marker === '[TC01]')
     const tc01Stream = tc01Records.find((item) => item.stream && item.stage === 'answer')
-    const tc01Messages = await getMessageCounts(tc01Id)
+    const tc01StoredMessages = await getConversationMessages(tc01Id)
+    const tc01Messages = tc01StoredMessages?.length ?? null
+    const tc01Stopped = tc01StoredMessages?.[1]
+    await client.send('Page.reload', { ignoreCache: true })
+    await waitFor(client, `Boolean(document.querySelector('textarea'))`)
+    await waitFor(client, `document.body.innerText.includes('已停止生成')`)
+    const tc01ReloadedDiagnostics = await evaluate(
+      client,
+      `Boolean(document.querySelector('.generation-details'))`,
+    )
     const tc01Canceled = [...askRequests.values()].some((item) => item.failed && (item.canceled || item.errorText.includes('ERR_ABORTED')))
     results.push({
       id: 'TC-01',
       name: '流式回复中停止',
-      pass: Boolean(tc01Stream?.closeBeforeEnd && tc01Canceled && tc01Messages === 0),
+      pass: Boolean(
+        tc01Stream?.closeBeforeEnd &&
+        tc01Canceled &&
+        tc01Messages === 2 &&
+        tc01Stopped?.status === 'stopped' &&
+        tc01Stopped?.generation?.provider === 'deepseek' &&
+        tc01ReloadedDiagnostics
+      ),
       upstreamCloseBeforeEnd: Boolean(tc01Stream?.closeBeforeEnd),
       chunksBeforeAbort: tc01Stream?.chunksSent ?? 0,
       cdpRequestCanceled: tc01Canceled,
       persistedMessageCount: tc01Messages,
+      persistedStatus: tc01Stopped?.status,
+      diagnosticsAfterReload: tc01ReloadedDiagnostics,
     })
     await showOverlay(client, 'TC-01 流式回复中停止', [
       `PASS: ${results.at(-1).pass}`,
@@ -562,6 +588,8 @@ export default defineConfig({
       `chunks before abort: ${tc01Stream?.chunksSent ?? 0}`,
       `CDP /ask canceled: ${tc01Canceled}`,
       `persisted messages: ${tc01Messages}`,
+      `persisted status: ${tc01Stopped?.status}`,
+      `diagnostics after reload: ${tc01ReloadedDiagnostics}`,
     ])
     screenshots.push(await screenshot(client, '02-tc01-stopped-upstream-aborted'))
 

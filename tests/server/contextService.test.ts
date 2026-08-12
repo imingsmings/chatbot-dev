@@ -333,6 +333,29 @@ test('buildContextMessages preserves chronological order for selected history', 
   assert.equal(result.droppedHistoryMessages, 1)
 })
 
+test('buildContextMessages excludes stopped assistant bodies without counting them as budget drops', () => {
+  process.env.CONTEXT_MAX_HISTORY_MESSAGES = '20'
+  process.env.CONTEXT_MAX_HISTORY_CHARS = '1000'
+
+  const conversation = makeConversation([
+    user('STOP_CONTEXT_USER'),
+    { role: 'assistant', content: 'STOPPED_BODY_MUST_NOT_REACH_MODEL', status: 'stopped' },
+    user('NEXT_CONTEXT_USER'),
+    { role: 'assistant', content: 'COMPLETED_BODY_REACHES_MODEL', status: 'completed' }
+  ])
+  const result = buildContextMessages(conversation, 'CURRENT_QUESTION')
+  const content = promptContent(result.messages)
+
+  assert.equal(result.postSummaryMessages, 4)
+  assert.equal(result.excludedStoppedMessages, 1)
+  assert.equal(result.selectedHistoryMessages, 3)
+  assert.equal(result.droppedHistoryMessages, 0)
+  assert.deepEqual(result.selectedHistoryRange, { start: 1, end: 4 })
+  assert(!content.includes('STOPPED_BODY_MUST_NOT_REACH_MODEL'))
+  assert(content.includes('STOP_CONTEXT_USER'))
+  assert(content.includes('COMPLETED_BODY_REACHES_MODEL'))
+})
+
 test('buildContextMessages always keeps the current question outside the history budget', () => {
   process.env.CONTEXT_MAX_HISTORY_MESSAGES = '20'
   process.env.CONTEXT_MAX_HISTORY_CHARS = '5'
@@ -379,6 +402,7 @@ test('buildContextPreview exposes managed context details without leaking secret
   assert.equal(preview.stats.totalHistoryMessages, 3)
   assert.equal(preview.stats.summaryCoveredMessages, 0)
   assert.equal(preview.stats.postSummaryMessages, 3)
+  assert.equal(preview.stats.excludedStoppedMessages, 0)
   assert.equal(preview.stats.selectedHistoryMessages, 2)
   assert.equal(preview.stats.droppedHistoryMessages, 1)
   assert.deepEqual(preview.stats.selectedHistoryRange, { start: 2, end: 3 })

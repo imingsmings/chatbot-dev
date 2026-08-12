@@ -47,6 +47,7 @@ export type ToolExecutionEvent =
       name: string
       summary: string
       success: boolean
+      durationMs: number
     }
 
 export type ToolHandler<TArgs = unknown> = (

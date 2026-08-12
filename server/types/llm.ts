@@ -1,7 +1,8 @@
 import type { PromptMessage } from './conversation.ts'
+import type { GenerationProviderId, TokenUsage } from './generation.ts'
 import type { ChatCompletionToolCall, FunctionToolDefinition, ToolResult } from './tools.ts'
 
-export type LlmProviderId = 'deepseek' | 'openai'
+export type LlmProviderId = GenerationProviderId
 
 export type LlmModelCapabilities = {
   tools: boolean
@@ -73,6 +74,7 @@ export type LlmStreamEvent = {
   toolCallDeltas?: LlmStreamToolCallDelta[]
   finishReason?: string
   providerState?: unknown
+  usage?: TokenUsage
   error?: string
 }
 
@@ -84,11 +86,16 @@ export type LlmStreamWithToolsResult = {
   toolCalls: ChatCompletionToolCall[]
   finishReason?: string
   providerState?: unknown
+  usage?: TokenUsage
 }
 
 export type LlmStreamResult = {
+  provider: LlmProviderId
+  model: string
   content: string
   reasoningContent: string
+  finishReason?: string
+  usage?: TokenUsage
 }
 
 export type LlmAdapter = {

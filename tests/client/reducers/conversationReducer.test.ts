@@ -78,6 +78,47 @@ describe('conversation reducer', () => {
     })
   })
 
+  it('maps stopped generation metadata and persisted tool traces without inventing usage', () => {
+    const conversation = createConversation('metadata', '2026-08-12T02:00:00.000Z', [
+      { role: 'user', content: '问题' },
+      {
+        role: 'assistant',
+        content: '部分回答',
+        status: 'stopped',
+        generation: {
+          provider: 'openai',
+          model: 'gpt-5.6-terra',
+          firstTokenLatencyMs: 15,
+          totalDurationMs: 80,
+        },
+        toolTrace: [{
+          name: 'calculate',
+          success: true,
+          durationMs: 3,
+          summary: '计算结果：42',
+        }],
+      },
+    ])
+
+    const mapped = mapStoredMessages(conversation)
+    expect(mapped[1]).toMatchObject({
+      status: 'stopped',
+      generation: {
+        provider: 'openai',
+        model: 'gpt-5.6-terra',
+        firstTokenLatencyMs: 15,
+        totalDurationMs: 80,
+      },
+      toolActivities: [{
+        name: 'calculate',
+        status: 'success',
+        durationMs: 3,
+        summary: '计算结果：42',
+      }],
+    })
+    expect(mapped[1]?.generation?.usage).toBeUndefined()
+  })
+
   it('inserts, replaces and removes messages immutably', () => {
     const firstMessage = {
       id: 'user-1',

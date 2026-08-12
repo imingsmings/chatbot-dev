@@ -73,7 +73,8 @@ UI 四个入口位于 `tests/cdp/scenarios/ui/`。它们通过 `CDP_UI_GROUP` �
 - 删除/清空当前会话清理草稿和页面状态。
 - 用户接近底部时跟随正文/reasoning/代码块；上滚查看历史时保持位置。
 - 代码块最后增长时 bottom gap 保持在阈值内。
-- 停止、HTTP 失败、网络断开、损坏 NDJSON、缺少 done、Provider 不完整错误和超时后均可恢复；部分正文保留且不落库。
+- 停止、HTTP 失败、网络断开、损坏 NDJSON、缺少 done、Provider 不完整错误和超时后均可恢复；只有有正文的用户手动停止落为 `stopped`，其他中断部分正文仅保留在当前 UI 且不落库。
+- 刷新后 generation、usage、裁剪工具轨迹和 `stopped` 状态可恢复；缺失 usage 显示未知，`stopped` 不进入上下文或摘要。
 - 明暗主题刷新保持；390px 无页面级横向溢出。
 - 图标按钮有可读 `aria-label`；Dialog/Dropdown 的 Escape、focus 和 disabled 状态正确。
 

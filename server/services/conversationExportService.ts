@@ -68,6 +68,48 @@ function formatReasoning(message: StoredMessage): string[] {
   ]
 }
 
+function formatGenerationDetails(message: StoredMessage): string[] {
+  if (message.role !== 'assistant' || (!message.generation && !message.toolTrace?.length && !message.status)) {
+    return []
+  }
+
+  const generation = message.generation
+  const usage = generation?.usage
+  const lines = [
+    '<details>',
+    '<summary>生成详情</summary>',
+    '',
+    `- 状态：${message.status ?? 'completed'}`
+  ]
+
+  if (generation) {
+    lines.push(
+      `- Provider：${generation.provider}`,
+      `- 模型：${generation.model}`,
+      `- 结束原因：${generation.finishReason ?? '未知'}`,
+      `- 首 token 延迟：${generation.firstTokenLatencyMs === undefined ? '未知' : `${generation.firstTokenLatencyMs}ms`}`,
+      `- 总耗时：${generation.totalDurationMs}ms`,
+      `- 输入 token：${usage?.inputTokens ?? '未知'}`,
+      `- 输出 token：${usage?.outputTokens ?? '未知'}`,
+      `- 总 token：${usage?.totalTokens ?? '未知'}`,
+      `- 推理 token：${usage?.reasoningTokens ?? '未知'}`,
+      `- 缓存输入 token：${usage?.cachedInputTokens ?? '未知'}`
+    )
+  }
+
+  if (message.toolTrace?.length) {
+    lines.push('', '工具轨迹：', '')
+    for (const trace of message.toolTrace) {
+      lines.push(
+        `- ${trace.name} · ${trace.success ? '成功' : '失败'} · ${trace.durationMs}ms：${trace.summary || '(无摘要)'}`
+      )
+    }
+  }
+
+  lines.push('', '</details>', '')
+  return lines
+}
+
 function buildConversationMarkdown(conversation: Conversation): string {
   const lines = [
     `# ${conversation.title}`,
@@ -96,6 +138,7 @@ function buildConversationMarkdown(conversation: Conversation): string {
 
   conversation.messages.forEach((message, index) => {
     lines.push(formatMessageHeading(message, index), '')
+    lines.push(...formatGenerationDetails(message))
     lines.push(...formatReasoning(message))
     lines.push(message.content || '(空消息)', '')
   })

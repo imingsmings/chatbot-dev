@@ -1,12 +1,17 @@
 import crypto from 'node:crypto'
 import path from 'node:path'
-import { MAX_AUTO_TITLE_LENGTH } from '../../config/productLimits.ts'
+import {
+  MAX_AUTO_TITLE_LENGTH,
+  MAX_STORED_TOOL_TRACE_ITEMS,
+  MAX_STORED_TOOL_TRACE_SUMMARY_LENGTH
+} from '../../config/productLimits.ts'
 import type {
   Conversation,
   ConversationContextSummary,
   ConversationSummary,
   StoredMessage
 } from '../../types/conversation.ts'
+import type { GenerationMetadata, StoredToolTrace, TokenUsage } from '../../types/generation.ts'
 import { DEFAULT_TITLE } from './contracts.ts'
 import { CONVERSATIONS_DIR } from './paths.ts'
 
@@ -48,6 +53,88 @@ function normalizeTimestamp(value: unknown, fallback: string): string {
   return typeof value === 'string' && !Number.isNaN(Date.parse(value)) ? value : fallback
 }
 
+function normalizeNonNegativeNumber(value: unknown, integer = false): number | undefined {
+  return typeof value === 'number' &&
+    Number.isFinite(value) &&
+    value >= 0 &&
+    (!integer || Number.isInteger(value))
+    ? value
+    : undefined
+}
+
+function normalizeUsage(value: unknown): TokenUsage | undefined {
+  if (!isRecord(value)) return undefined
+
+  const usage: TokenUsage = {}
+  const fields = [
+    'inputTokens',
+    'outputTokens',
+    'totalTokens',
+    'reasoningTokens',
+    'cachedInputTokens'
+  ] as const
+  for (const field of fields) {
+    const count = normalizeNonNegativeNumber(value[field], true)
+    if (count !== undefined) usage[field] = count
+  }
+  return Object.keys(usage).length ? usage : undefined
+}
+
+function normalizeGeneration(value: unknown): GenerationMetadata | undefined {
+  if (
+    !isRecord(value) ||
+    (value.provider !== 'deepseek' && value.provider !== 'openai') ||
+    typeof value.model !== 'string' ||
+    !value.model.trim()
+  ) {
+    return undefined
+  }
+
+  const totalDurationMs = normalizeNonNegativeNumber(value.totalDurationMs)
+  if (totalDurationMs === undefined) return undefined
+
+  const generation: GenerationMetadata = {
+    provider: value.provider,
+    model: value.model.trim(),
+    totalDurationMs
+  }
+  if (typeof value.finishReason === 'string' && value.finishReason.trim()) {
+    generation.finishReason = value.finishReason.trim()
+  }
+  const firstTokenLatencyMs = normalizeNonNegativeNumber(value.firstTokenLatencyMs)
+  if (firstTokenLatencyMs !== undefined) generation.firstTokenLatencyMs = firstTokenLatencyMs
+  const usage = normalizeUsage(value.usage)
+  if (usage) generation.usage = usage
+  return generation
+}
+
+function normalizeToolTrace(value: unknown): StoredToolTrace[] | undefined {
+  if (!Array.isArray(value)) return undefined
+
+  const trace = value
+    .slice(0, MAX_STORED_TOOL_TRACE_ITEMS)
+    .flatMap((item): StoredToolTrace[] => {
+      if (
+        !isRecord(item) ||
+        typeof item.name !== 'string' ||
+        !item.name.trim() ||
+        typeof item.success !== 'boolean' ||
+        typeof item.summary !== 'string'
+      ) {
+        return []
+      }
+      const durationMs = normalizeNonNegativeNumber(item.durationMs)
+      if (durationMs === undefined) return []
+      return [{
+        name: item.name.trim(),
+        success: item.success,
+        durationMs,
+        summary: item.summary.slice(0, MAX_STORED_TOOL_TRACE_SUMMARY_LENGTH)
+      }]
+    })
+  return trace.length ? trace : undefined
+}
+
 export function normalizeMessage(message: unknown): StoredMessage {
   const rawMessage = isRecord(message) ? message : {}
   const role = rawMessage.role === 'assistant' ? 'assistant' : 'user'
@@ -67,6 +154,17 @@ export function normalizeMessage(message: unknown): StoredMessage {
     rawMessage.reasoningDurationMs >= 0
   ) {
     normalizedMessage.reasoningDurationMs = rawMessage.reasoningDurationMs
+  }
+
+  if (role === 'assistant' && (rawMessage.status === 'completed' || rawMessage.status === 'stopped')) {
+    normalizedMessage.status = rawMessage.status
+  }
+
+  if (role === 'assistant') {
+    const generation = normalizeGeneration(rawMessage.generation)
+    if (generation) normalizedMessage.generation = generation
+    const toolTrace = normalizeToolTrace(rawMessage.toolTrace)
+    if (toolTrace) normalizedMessage.toolTrace = toolTrace
   }
 
   return normalizedMessage
@@ -130,7 +228,16 @@ export function normalizeConversation(conversation: unknown, expectedId?: string
 export function cloneConversation(conversation: Conversation): Conversation {
   return {
     ...conversation,
-    messages: conversation.messages.map((message) => ({ ...message })),
+    messages: conversation.messages.map((message) => ({
+      ...message,
+      generation: message.generation
+        ? {
+            ...message.generation,
+            usage: message.generation.usage ? { ...message.generation.usage } : undefined
+          }
+        : undefined,
+      toolTrace: message.toolTrace?.map((trace) => ({ ...trace }))
+    })),
     summary: conversation.summary ? { ...conversation.summary } : undefined
   }
 }

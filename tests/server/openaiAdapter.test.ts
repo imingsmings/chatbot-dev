@@ -104,13 +104,30 @@ test('OpenAI stream parser emits text, reasoning summary, and completion snapsho
   ]
   assert.deepEqual(parse(`data: ${JSON.stringify({
     type: 'response.completed',
-    response: { output }
+    response: {
+      output,
+      status: 'completed',
+      usage: {
+        input_tokens: 21,
+        input_tokens_details: { cached_tokens: 8 },
+        output_tokens: 13,
+        output_tokens_details: { reasoning_tokens: 5 },
+        total_tokens: 34
+      }
+    }
   })}`), {
     done: true,
     contentSnapshot: '答案',
     reasoningSnapshot: '先分析。',
     providerState: { output },
-    finishReason: 'stop'
+    finishReason: 'completed',
+    usage: {
+      inputTokens: 21,
+      outputTokens: 13,
+      totalTokens: 34,
+      reasoningTokens: 5,
+      cachedInputTokens: 8
+    }
   })
   assert.equal(parse('data: [DONE]'), null)
 })

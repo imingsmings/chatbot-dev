@@ -1,4 +1,5 @@
 import type { ChatCompletionToolCall } from './tools.ts'
+import type { GenerationMetadata, StoredToolTrace } from './generation.ts'
 
 export type StoredMessageRole = 'user' | 'assistant'
 
@@ -9,6 +10,9 @@ export type StoredMessage = {
   content: string
   reasoningContent?: string
   reasoningDurationMs?: number
+  status?: 'completed' | 'stopped'
+  generation?: GenerationMetadata
+  toolTrace?: StoredToolTrace[]
 }
 
 export type ConversationContextSummary = {

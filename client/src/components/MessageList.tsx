@@ -6,6 +6,7 @@ import { Button } from '#components/ui/button'
 import { CHAT_CONTENT_COLUMN_CLASS } from '#lib/chatLayout'
 import { cn } from '#lib/utils'
 import type { ChatMessage, ToolActivity } from '#types/chat'
+import { formatModelName, formatProviderName } from '#utils/displayNames'
 
 type MessageListProps = {
   copiedMessageId: string | null
@@ -16,9 +17,46 @@ type MessageListProps = {
 }
 
 function getToolActivityLabel(activity: ToolActivity) {
-  if (activity.status === 'running') return '执行中'
-  if (activity.status === 'stopped') return activity.summary || '已停止'
-  return activity.summary || (activity.status === 'success' ? '执行完成' : '执行失败')
+  const label = activity.status === 'running'
+    ? '执行中'
+    : activity.status === 'stopped'
+      ? activity.summary || '已停止'
+      : activity.summary || (activity.status === 'success' ? '执行完成' : '执行失败')
+  return activity.durationMs === undefined ? label : `${label} · ${activity.durationMs}ms`
+}
+
+function GenerationDetails({ message }: { message: ChatMessage }) {
+  const generation = message.generation
+  if (!generation) return null
+
+  const usage = generation.usage
+  const rows = [
+    ['状态', message.status === 'stopped' ? '已停止' : '已完成'],
+    ['Provider', formatProviderName(generation.provider)],
+    ['模型', formatModelName(generation.model)],
+    ['结束原因', generation.finishReason ?? '未知'],
+    ['首 token 延迟', generation.firstTokenLatencyMs === undefined ? '未知' : `${generation.firstTokenLatencyMs}ms`],
+    ['总耗时', `${generation.totalDurationMs}ms`],
+    ['输入 token', usage?.inputTokens ?? '未知'],
+    ['输出 token', usage?.outputTokens ?? '未知'],
+    ['总 token', usage?.totalTokens ?? '未知'],
+    ['推理 token', usage?.reasoningTokens ?? '未知'],
+    ['缓存输入 token', usage?.cachedInputTokens ?? '未知'],
+  ]
+
+  return (
+    <details aria-label="生成详情" className="generation-details w-fit max-w-full rounded-md border border-[var(--border-soft)] px-2.5 py-1.5 text-xs text-[var(--text-secondary)]">
+      <summary className="cursor-pointer select-none font-medium">生成详情</summary>
+      <dl className="mt-2 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1">
+        {rows.map(([label, value]) => (
+          <div className="contents" key={label}>
+            <dt>{label}</dt>
+            <dd className="m-0 font-medium text-[var(--text-primary)] [overflow-wrap:anywhere]">{value}</dd>
+          </div>
+        ))}
+      </dl>
+    </details>
+  )
 }
 
 export function MessageList({
@@ -103,6 +141,8 @@ export function MessageList({
             {message.status === 'stopped' ? (
               <div className="message-status-text text-xs font-medium text-[var(--text-secondary)]">已停止生成</div>
             ) : null}
+
+            {message.role === 'assistant' ? <GenerationDetails message={message} /> : null}
 
             {message.role === 'assistant' ? (
               <div className="message-actions flex items-center gap-0.5 opacity-100 transition-opacity">

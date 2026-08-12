@@ -8,6 +8,7 @@ import type {
   LlmToolChoice
 } from '../../../types/llm.ts'
 import type { FunctionToolDefinition, ToolResult } from '../../../types/tools.ts'
+import type { TokenUsage } from '../../../types/generation.ts'
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -37,6 +38,26 @@ function extractReasoningSummary(output: unknown): string {
     .filter((item) => item.type === 'summary_text')
     .map((item) => typeof item.text === 'string' ? item.text : '')
     .join('')
+}
+
+function readTokenCount(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : undefined
+}
+
+function extractUsage(value: unknown): TokenUsage | undefined {
+  if (!isRecord(value)) return undefined
+
+  const inputDetails = isRecord(value.input_tokens_details) ? value.input_tokens_details : undefined
+  const outputDetails = isRecord(value.output_tokens_details) ? value.output_tokens_details : undefined
+  const usage: TokenUsage = {
+    inputTokens: readTokenCount(value.input_tokens),
+    outputTokens: readTokenCount(value.output_tokens),
+    totalTokens: readTokenCount(value.total_tokens),
+    reasoningTokens: readTokenCount(outputDetails?.reasoning_tokens),
+    cachedInputTokens: readTokenCount(inputDetails?.cached_tokens)
+  }
+
+  return Object.values(usage).some((count) => count !== undefined) ? usage : undefined
 }
 
 function buildHeaders(config: LlmProviderConfig & { apiKey: string }): Record<string, string> {
@@ -282,6 +303,7 @@ function createStreamParser(): (line: string) => LlmStreamEvent | null {
     if (type === 'response.completed') {
       const response = isRecord(event.response) ? event.response : null
       const output = response?.output
+      const status = typeof response?.status === 'string' ? response.status : undefined
       return {
         done: true,
         contentSnapshot: extractOutputText(output),
@@ -289,7 +311,8 @@ function createStreamParser(): (line: string) => LlmStreamEvent | null {
         providerState: {
           output: Array.isArray(output) ? output : []
         },
-        finishReason: 'stop'
+        finishReason: status ?? 'completed',
+        usage: extractUsage(response?.usage)
       }
     }
 
@@ -331,6 +354,7 @@ export {
   buildToolOutputs,
   extractOutputText,
   extractReasoningSummary,
+  extractUsage,
   toResponseTools
 }
 

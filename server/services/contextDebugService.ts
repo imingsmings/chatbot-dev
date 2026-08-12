@@ -25,6 +25,7 @@ type ContextPreviewStats = {
   totalHistoryMessages: number
   summaryCoveredMessages: number
   postSummaryMessages: number
+  excludedStoppedMessages: number
   selectedHistoryMessages: number
   droppedHistoryMessages: number
   selectedHistoryChars: number
@@ -84,6 +85,7 @@ function buildContextPreview(
       totalHistoryMessages: conversation.messages.length,
       summaryCoveredMessages: context.summaryCoveredMessages,
       postSummaryMessages: context.postSummaryMessages,
+      excludedStoppedMessages: context.excludedStoppedMessages,
       selectedHistoryMessages: context.selectedHistoryMessages,
       droppedHistoryMessages: context.droppedHistoryMessages,
       selectedHistoryChars: context.selectedHistoryChars,

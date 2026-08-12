@@ -14,6 +14,7 @@ import type {
 } from '../../types/llm.ts'
 import type { PromptMessage } from '../../types/conversation.ts'
 import type { ChatCompletionToolCall, ToolResult } from '../../types/tools.ts'
+import type { TokenUsage } from '../../types/generation.ts'
 
 const TOOL_STREAM_CONTENT_BUFFER_MS = 120
 const INCOMPLETE_PROVIDER_STREAM_ERROR = '上游模型响应未完整结束，请重试'
@@ -190,7 +191,7 @@ async function callLLM({
     modelOptions,
     continuation
   })
-  const { adapter, upstream } = request
+  const { adapter, effectiveOptions, upstream } = request
   const { response } = upstream
 
   try {
@@ -206,6 +207,8 @@ async function callLLM({
 
     let fullResponse = ''
     let reasoningContent = ''
+    let finishReason: string | undefined
+    let usage: TokenUsage | undefined
     let streamCompleted = false
     const parseStreamLine = adapter.createStreamParser?.() ?? adapter.parseStreamLine
 
@@ -219,6 +222,14 @@ async function callLLM({
 
       if (event.error) {
         throw new Error(event.error)
+      }
+
+      if (event.finishReason) {
+        finishReason = event.finishReason
+      }
+
+      if (event.usage) {
+        usage = event.usage
       }
 
       if (event.toolCallDeltas?.length) {
@@ -263,8 +274,12 @@ async function callLLM({
     }
 
     return {
+      provider: effectiveOptions.provider,
+      model: effectiveOptions.model,
       content: fullResponse,
-      reasoningContent
+      reasoningContent,
+      finishReason,
+      usage
     }
   } catch (error) {
     if (upstream.isTimedOut()) {
@@ -309,6 +324,7 @@ async function callLLMStreamWithTools(
     let contentUnlocked = false
     let streamCompleted = false
     let providerState: unknown
+    let usage: TokenUsage | undefined
     const toolCalls = new Map<number, ChatCompletionToolCall>()
     const parseStreamLine = adapter.createStreamParser?.() ?? adapter.parseStreamLine
 
@@ -333,6 +349,10 @@ async function callLLMStreamWithTools(
 
       if (event.finishReason) {
         finishReason = event.finishReason
+      }
+
+      if (event.usage) {
+        usage = event.usage
       }
 
       if (event.reasoningContent) {
@@ -418,7 +438,8 @@ async function callLLMStreamWithTools(
       reasoningContent,
       toolCalls: collectedToolCalls,
       finishReason,
-      providerState
+      providerState,
+      usage
     }
   } catch (error) {
     if (upstream.isTimedOut()) {

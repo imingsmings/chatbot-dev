@@ -59,14 +59,39 @@ function deepseekDelta(content: string): unknown {
   return { choices: [{ delta: { content } }] }
 }
 
-function openaiCompleted(content: string): unknown {
+function openaiCompleted(content: string, withUsage = false): unknown {
   return {
     type: 'response.completed',
     response: {
+      status: 'completed',
       output: [{
         type: 'message',
         content: [{ type: 'output_text', text: content }]
-      }]
+      }],
+      ...(withUsage
+        ? {
+            usage: {
+              input_tokens: 12,
+              output_tokens: 5,
+              total_tokens: 17,
+              input_tokens_details: { cached_tokens: 2 },
+              output_tokens_details: { reasoning_tokens: 1 }
+            }
+          }
+        : {})
+    }
+  }
+}
+
+function deepseekUsage(): unknown {
+  return {
+    choices: [],
+    usage: {
+      prompt_tokens: 10,
+      completion_tokens: 4,
+      total_tokens: 14,
+      prompt_cache_hit_tokens: 3,
+      completion_tokens_details: { reasoning_tokens: 2 }
     }
   }
 }
@@ -93,7 +118,11 @@ test('DeepSeek partial text EOF is not persisted and the next completed request 
   const conversation = await createConversation('DeepSeek partial EOF')
   const responses = [
     deepseekSse([deepseekDelta('部分正文')]),
-    deepseekSse([deepseekDelta('恢复成功')], true)
+    deepseekSse([
+      deepseekDelta('恢复成功'),
+      { choices: [{ delta: {}, finish_reason: 'stop' }] },
+      deepseekUsage()
+    ], true)
   ]
   const deltas: Array<{ chunk: string; type: string }> = []
   globalThis.fetch = async () => responses.shift()!
@@ -111,6 +140,15 @@ test('DeepSeek partial text EOF is not persisted and the next completed request 
     (await getConversation(conversation.id))?.messages.map((message) => message.content),
     ['第二次请求', '恢复成功']
   )
+  assert.deepEqual((await getConversation(conversation.id))?.messages[1]?.generation?.usage, {
+    inputTokens: 10,
+    outputTokens: 4,
+    totalTokens: 14,
+    reasoningTokens: 2,
+    cachedInputTokens: 3
+  })
+  assert.equal((await getConversation(conversation.id))?.messages[1]?.status, 'completed')
+  assert.equal((await getConversation(conversation.id))?.messages[1]?.generation?.finishReason, 'stop')
 })
 
 test('DeepSeek reasoning-only and incomplete tool-argument EOF are rejected', async () => {
@@ -166,7 +204,7 @@ test('OpenAI partial text EOF rejects a trailing DONE sentinel and then recovers
         item: { type: 'message', phase: 'final_answer' }
       },
       { type: 'response.output_text.delta', output_index: 0, delta: '恢复成功' },
-      openaiCompleted('恢复成功')
+      openaiCompleted('恢复成功', true)
     ])
   ]
   const deltas: Array<{ chunk: string; type: string }> = []
@@ -185,6 +223,131 @@ test('OpenAI partial text EOF rejects a trailing DONE sentinel and then recovers
     (await getConversation(conversation.id))?.messages.map((message) => message.content),
     ['第二次请求', '恢复成功']
   )
+  assert.deepEqual((await getConversation(conversation.id))?.messages[1]?.generation?.usage, {
+    inputTokens: 12,
+    outputTokens: 5,
+    totalTokens: 17,
+    reasoningTokens: 1,
+    cachedInputTokens: 2
+  })
+  assert.equal((await getConversation(conversation.id))?.messages[1]?.generation?.finishReason, 'completed')
+})
+
+test('manual stop persists partial body as stopped while excluding incomplete usage', async () => {
+  const conversation = await createConversation('Manual stop partial')
+  const controller = new AbortController()
+  globalThis.fetch = async () => deepseekSse([
+    deepseekDelta('保留这段部分正文'),
+    deepseekUsage()
+  ], true)
+
+  await assert.rejects(
+    generateConversationAnswer({
+      conversation,
+      conversationId: conversation.id,
+      question: '手动停止问题',
+      signal: controller.signal,
+      onDelta: (_chunk, type) => {
+        if (type === 'content') controller.abort('explicit_cancel')
+      },
+      modelOptions: { provider: 'deepseek' }
+    }),
+    (error: unknown) => error instanceof Error && error.name === 'AbortError'
+  )
+
+  const persisted = await getConversation(conversation.id)
+  assert.deepEqual(persisted?.messages.map((message) => message.content), [
+    '手动停止问题',
+    '保留这段部分正文'
+  ])
+  assert.equal(persisted?.messages[1]?.status, 'stopped')
+  assert.equal(persisted?.messages[1]?.generation?.provider, 'deepseek')
+  assert.equal(persisted?.messages[1]?.generation?.usage, undefined)
+})
+
+test('manual stop before body does not create pseudo messages', async () => {
+  const conversation = await createConversation('Manual stop empty')
+  const controller = new AbortController()
+  controller.abort('explicit_cancel')
+
+  await assert.rejects(
+    generateConversationAnswer({
+      conversation,
+      conversationId: conversation.id,
+      question: '空停止问题',
+      signal: controller.signal,
+      onDelta: () => {},
+      modelOptions: { provider: 'deepseek' }
+    }),
+    (error: unknown) => error instanceof Error && error.name === 'AbortError'
+  )
+  assert.equal((await getConversation(conversation.id))?.messages.length, 0)
+})
+
+test('parallel tool calls persist trimmed result traces and aggregate completed request usage', async () => {
+  const conversation = await createConversation('Tool metadata')
+  const responses = [
+    deepseekSse([
+      {
+        choices: [{
+          delta: {
+            tool_calls: [
+              {
+                index: 0,
+                id: 'call_calc_metadata',
+                type: 'function',
+                function: { name: 'calculate', arguments: '{"expression":"6 * 7"}' }
+              },
+              {
+                index: 1,
+                id: 'call_time_metadata',
+                type: 'function',
+                function: { name: 'getCurrentTime', arguments: '{"timeZone":"UTC"}' }
+              }
+            ]
+          },
+          finish_reason: 'tool_calls'
+        }]
+      },
+      deepseekUsage()
+    ], true),
+    deepseekSse([
+      deepseekDelta('工具执行完成'),
+      { choices: [{ delta: {}, finish_reason: 'stop' }] },
+      deepseekUsage()
+    ], true)
+  ]
+  globalThis.fetch = async () => responses.shift()!
+
+  const answer = await generate(conversation, '执行两个工具', { provider: 'deepseek' }, [])
+  assert.equal(answer.content, '工具执行完成')
+
+  const assistant = (await getConversation(conversation.id))?.messages[1]
+  assert.equal(assistant?.status, 'completed')
+  assert.equal(assistant?.generation?.finishReason, 'stop')
+  assert.deepEqual(assistant?.generation?.usage, {
+    inputTokens: 20,
+    outputTokens: 8,
+    totalTokens: 28,
+    reasoningTokens: 4,
+    cachedInputTokens: 6
+  })
+  assert.equal(assistant?.toolTrace?.length, 2)
+  assert.deepEqual(assistant?.toolTrace?.map((trace) => ({
+    name: trace.name,
+    success: trace.success,
+    hasDuration: trace.durationMs >= 0,
+    hasSummary: Boolean(trace.summary)
+  })), [
+    { name: 'calculate', success: true, hasDuration: true, hasSummary: true },
+    { name: 'getCurrentTime', success: true, hasDuration: true, hasSummary: true }
+  ])
+  assert.deepEqual(Object.keys(assistant?.toolTrace?.[0] ?? {}).sort(), [
+    'durationMs',
+    'name',
+    'success',
+    'summary'
+  ])
 })
 
 test('OpenAI reasoning-only and incomplete tool-argument EOF are rejected', async () => {

@@ -9,6 +9,7 @@ import type {
 } from '../../../types/llm.ts'
 import type { PromptMessage } from '../../../types/conversation.ts'
 import type { FunctionToolDefinition, ToolResult } from '../../../types/tools.ts'
+import type { TokenUsage } from '../../../types/generation.ts'
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
@@ -21,6 +22,27 @@ function getChoice(data: unknown): Record<string, unknown> | null {
 
   const [choice] = data.choices
   return isRecord(choice) ? choice : null
+}
+
+function readTokenCount(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : undefined
+}
+
+function extractUsage(data: unknown): TokenUsage | undefined {
+  if (!isRecord(data) || !isRecord(data.usage)) return undefined
+
+  const details = isRecord(data.usage.completion_tokens_details)
+    ? data.usage.completion_tokens_details
+    : undefined
+  const usage: TokenUsage = {
+    inputTokens: readTokenCount(data.usage.prompt_tokens),
+    outputTokens: readTokenCount(data.usage.completion_tokens),
+    totalTokens: readTokenCount(data.usage.total_tokens),
+    reasoningTokens: readTokenCount(details?.reasoning_tokens),
+    cachedInputTokens: readTokenCount(data.usage.prompt_cache_hit_tokens)
+  }
+
+  return Object.values(usage).some((value) => value !== undefined) ? usage : undefined
 }
 
 function buildHeaders(config: LlmProviderConfig & { apiKey: string }): Record<string, string> {
@@ -61,6 +83,12 @@ function buildBody({
     model: options.model,
     messages: requestPrompt,
     stream
+  }
+
+  if (stream) {
+    body.stream_options = {
+      include_usage: true
+    }
   }
 
   if (options.temperature !== undefined) {
@@ -116,9 +144,10 @@ function parseStreamLine(line: string): LlmStreamEvent | null {
   const choice = getChoice(data)
   const delta = choice?.delta
   const finishReason = typeof choice?.finish_reason === 'string' ? choice.finish_reason : undefined
+  const usage = extractUsage(data)
 
   if (!isRecord(delta)) {
-    return finishReason ? { finishReason } : null
+    return finishReason || usage ? { finishReason, usage } : null
   }
 
   const content = delta.content
@@ -145,7 +174,8 @@ function parseStreamLine(line: string): LlmStreamEvent | null {
       content,
       reasoningContent: typeof reasoningContent === 'string' ? reasoningContent : undefined,
       toolCallDeltas: toolCalls,
-      finishReason
+      finishReason,
+      usage
     }
   }
 
@@ -153,14 +183,16 @@ function parseStreamLine(line: string): LlmStreamEvent | null {
     return {
       reasoningContent,
       toolCallDeltas: toolCalls,
-      finishReason
+      finishReason,
+      usage
     }
   }
 
-  if (toolCalls?.length || finishReason) {
+  if (toolCalls?.length || finishReason || usage) {
     return {
       toolCallDeltas: toolCalls,
-      finishReason
+      finishReason,
+      usage
     }
   }
 
@@ -176,3 +208,5 @@ const deepseekAdapter: LlmAdapter = {
 }
 
 export default deepseekAdapter
+
+export { extractUsage }

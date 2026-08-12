@@ -197,10 +197,16 @@ export async function requestConversationAnswer(params: {
   })
 }
 
-export async function cancelRequest(requestId: string) {
+export type RequestCancellationReason = 'manual' | 'timeout' | 'transition' | 'unmount'
+
+export async function cancelRequest(
+  requestId: string,
+  reason: RequestCancellationReason = 'manual',
+) {
   const response = await fetch(`/api/requests/${encodeURIComponent(requestId)}/cancel`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ reason }),
   })
 
   if (!response.ok) {

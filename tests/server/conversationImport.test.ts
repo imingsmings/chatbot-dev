@@ -71,6 +71,42 @@ test('file import clamps summary coverage to the imported message count', async 
   )
 })
 
+test('file import preserves optional generation and tool metadata while accepting legacy messages', async () => {
+  const imported = backup('legacy user message')
+  imported.conversations[0].id = 'conv_import_generation_file'
+  Object.assign(imported.conversations[0], {
+    messages: [
+      { role: 'user', content: 'legacy user message' },
+      {
+        role: 'assistant',
+        content: 'partial answer',
+        status: 'stopped',
+        generation: {
+          provider: 'deepseek',
+          model: 'deepseek-v4-flash',
+          firstTokenLatencyMs: 10,
+          totalDurationMs: 50,
+          usage: { inputTokens: 9 }
+        },
+        toolTrace: [{
+          name: 'calculate',
+          success: true,
+          durationMs: 2,
+          summary: '计算结果：42'
+        }]
+      }
+    ]
+  })
+
+  await importConversationBackup(imported)
+  const stored = await getConversation('conv_import_generation_file')
+  assert.equal(stored?.messages[0]?.status, undefined)
+  assert.equal(stored?.messages[1]?.status, 'stopped')
+  assert.equal(stored?.messages[1]?.generation?.usage?.totalTokens, undefined)
+  assert.deepEqual(stored?.messages[1]?.generation?.usage, { inputTokens: 9 })
+  assert.equal(stored?.messages[1]?.toolTrace?.[0]?.summary, '计算结果：42')
+})
+
 test('file import rejects unsupported and malformed backups without partial writes', async () => {
   const countBeforeValidationFailures = (await listConversations()).length
 
@@ -105,6 +141,27 @@ test('file import rejects unsupported and malformed backups without partial writ
       ]
     }),
     /重复会话 id/
+  )
+  await assert.rejects(
+    importConversationBackup({
+      ...backup(),
+      conversations: [{
+        ...backup().conversations[0],
+        id: 'conv_invalid_generation',
+        messages: [{
+          role: 'assistant',
+          content: 'invalid usage',
+          status: 'completed',
+          generation: {
+            provider: 'deepseek',
+            model: 'deepseek-v4-flash',
+            totalDurationMs: 10,
+            usage: { totalTokens: -1 }
+          }
+        }]
+      }]
+    }),
+    /totalTokens 必须是非负整数/
   )
 
   assert.equal((await listConversations()).length, countBeforeValidationFailures)

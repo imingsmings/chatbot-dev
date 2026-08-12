@@ -5,7 +5,18 @@ type CancelRequestParams = {
   requestId: string
 }
 
-const cancelActiveRequest: RequestHandler<CancelRequestParams> = (req, res) => {
+type CancelRequestBody = {
+  reason?: unknown
+}
+
+const CANCEL_REASONS = {
+  manual: 'explicit_cancel',
+  timeout: 'client_timeout',
+  transition: 'client_transition',
+  unmount: 'client_unmount'
+} as const
+
+const cancelActiveRequest: RequestHandler<CancelRequestParams, unknown, CancelRequestBody> = (req, res) => {
   const requestId = parseRequestId(req.params.requestId)
 
   if (!requestId) {
@@ -15,8 +26,11 @@ const cancelActiveRequest: RequestHandler<CancelRequestParams> = (req, res) => {
     return
   }
 
+  const clientReason = typeof req.body?.reason === 'string' ? req.body.reason : 'manual'
+  const reason = CANCEL_REASONS[clientReason as keyof typeof CANCEL_REASONS] ?? 'explicit_cancel'
+
   res.json({
-    cancelled: cancelRequest(requestId, 'explicit_cancel')
+    cancelled: cancelRequest(requestId, reason)
   })
 }
 

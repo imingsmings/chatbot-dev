@@ -537,8 +537,11 @@ async function askAndAbort(client, conversationId, question) {
         return { completed: true, status: response.status };
       }).catch((error) => ({ completed: false, errorName: error.name }));
       setTimeout(() => {
-        controller.abort();
-        fetch(${JSON.stringify(cancelUrl)}, { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+        fetch(${JSON.stringify(cancelUrl)}, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reason: 'manual' })
+        }).catch(() => {}).finally(() => controller.abort());
       }, 100);
       return task;
     })()`,
@@ -905,6 +908,24 @@ async function main() {
       typeof reasoningMessage?.reasoningDurationMs === 'number' && reasoningMessage.reasoningDurationMs >= 0,
       'P0-28 assistant reasoning duration was not persisted'
     )
+    const successfulToolMessage = toolDetail.data.conversation.messages.find(
+      (message) => message.role === 'assistant' && message.content.includes('北京明天天气：晴，')
+    )
+    assert(successfulToolMessage?.status === 'completed', 'R12 completed status was not persisted')
+    assert(
+      successfulToolMessage?.generation?.provider === 'deepseek' &&
+      successfulToolMessage?.generation?.model === 'cdp-p0-api' &&
+      successfulToolMessage?.generation?.finishReason === 'stop' &&
+      successfulToolMessage?.generation?.usage?.totalTokens === 26,
+      'R12 generation metadata or aggregated usage was not persisted'
+    )
+    assert(
+      successfulToolMessage?.toolTrace?.[0]?.name === 'getWeather' &&
+      successfulToolMessage?.toolTrace?.[0]?.success === true &&
+      typeof successfulToolMessage?.toolTrace?.[0]?.durationMs === 'number' &&
+      !JSON.stringify(successfulToolMessage.toolTrace).includes('city'),
+      'R12 trimmed tool trace was not persisted safely'
+    )
 
     const stopConv = await api(client, '/conversations', {
       method: 'POST',
@@ -935,7 +956,14 @@ async function main() {
       [...mock.requests].reverse().find((request) => request.stream && request.content.includes('P0_TOOL_ANSWER_STOP'))
     assert(answerStopped.completed === false || answerStopped.errorName === 'AbortError', 'P0-24 answer-stage fetch was not aborted')
     assert(answerStreamRecord?.closeBeforeEnd === true, 'P0-24 answer-stage upstream stream was not closed early')
-    assert(answerStopDetail.data.conversation.messages.length === 0, 'P0-24 aborted answer-stage request was persisted')
+    assert(answerStopDetail.data.conversation.messages.length === 2, 'P0-24 stopped answer-stage body was not persisted')
+    assert(
+      answerStopDetail.data.conversation.messages[1]?.status === 'stopped' &&
+      answerStopDetail.data.conversation.messages[1]?.content.includes('answer-stage-1') &&
+      answerStopDetail.data.conversation.messages[1]?.generation?.usage === undefined &&
+      answerStopDetail.data.conversation.messages[1]?.toolTrace?.[0]?.name === 'getWeather',
+      'P0-24 stopped answer metadata was not preserved safely'
+    )
 
     const badFunctionJson = await ask(client, toolId, 'P0_BAD_FUNCTION_JSON 触发非法函数 JSON')
     const beforeIncompleteDetail = await api(client, `/conversations/${toolId}`)

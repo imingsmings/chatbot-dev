@@ -12,11 +12,12 @@
 - R9：DeepSeek Chat Completions 与 OpenAI Responses provider adapters 已完成。
 - R10：单 Node Docker 局域网部署、TLS/数据挂载和容器验收已完成并验证。
 - R11：Provider 流完整性与摘要覆盖语义已完成，并通过 DeepSeek/OpenAI mock、P0、UI 恢复和上下文预览回归。
-- R12、R14：生成元数据和 Docker 运维能力已进入规划，尚未实施。
+- R12：生成元数据、工具轨迹和手动停止持久化已完成，并通过 file/SQLite、DeepSeek/OpenAI mock、P0 和上下文回归。
+- R14：Docker 运维能力已进入规划，尚未实施。
 - R13：前端编排、存储实现、共享 NDJSON 协议和 CDP 场景套件已完成维护性拆分并通过全部门禁。
 - R15：保留为基于真实个人使用证据选择的功能阶段，不预先承诺全部候选能力。
 
-R11、R13 已完成并验证。R12、R14 仍需逐阶段确认后实施；R15 必须先有明确的真实使用需求再选定范围。
+R11-R13 已完成并验证。R14 仍需确认后实施；R15 必须先有明确的真实使用需求再选定范围。
 
 ## 当前基线
 
@@ -30,6 +31,7 @@ R11、R13 已完成并验证。R12、R14 仍需逐阶段确认后实施；R15 �
 - 摘要覆盖边界之后的原始消息窗口，以及可见的覆盖/选择范围统计。
 - 全链路取消、首包/流空闲超时和单会话请求互斥。
 - Node/Vitest/CDP 自动化回归。
+- assistant 可选生成元数据、裁剪工具轨迹和 `completed`/`stopped` 状态；手动停止正文默认排除在后续模型上下文之外。
 
 ## 阶段矩阵
 
@@ -50,7 +52,7 @@ R11、R13 已完成并验证。R12、R14 仍需逐阶段确认后实施；R15 �
 | R9 | OpenAI Responses adapter、reasoning summary、Function Calling continuation | 完成 |
 | R10 | 多阶段镜像、Compose、Node HTTPS、持久卷和容器回归 | 完成并验证 |
 | R11 | Provider 流完整性与摘要覆盖语义 | 完成并验证 |
-| R12 | 生成元数据、工具轨迹和中断状态持久化 | 规划中，未实施 |
+| R12 | 生成元数据、工具轨迹和中断状态持久化 | 完成并验证 |
 | R13 | 前端编排、存储实现和 CDP 套件拆分 | 完成并验证 |
 | R14 | Docker 备份恢复、证书路径和健康检查 | 规划中，未实施 |
 | R15 | 基于真实使用证据选择下一项自用功能 | 候选阶段，范围未确定 |
@@ -132,6 +134,8 @@ R11、R13 已完成并验证。R12、R14 仍需逐阶段确认后实施；R15 �
 
 ## R12 生成元数据、工具轨迹和中断状态持久化
 
+状态：2026-08-12 完成并验证。
+
 ### 直接价值
 
 - 为个人模型实验提供可回看证据，能比较模型、token、首字延迟、总耗时和工具行为。
@@ -151,6 +155,16 @@ R11、R13 已完成并验证。R12、R14 仍需逐阶段确认后实施；R15 �
 - 完整回答的模型、耗时、usage 和工具轨迹刷新后可恢复，并能正确导入导出。
 - 手动停止的部分正文刷新后仍可辨识，且上下文预览证明其不会冒充完整回答。
 - DeepSeek/OpenAI、无工具/单工具/并行工具、停止和错误路径都有存储回归。
+
+### 交付结果
+
+- assistant message 以可选字段保存 `status`、`generation` 和 `toolTrace`；旧消息、schema v1、NDJSON v2 和 SQLite 表结构均无需迁移。
+- DeepSeek 开启官方 `stream_options.include_usage`，OpenAI 从 `response.completed` 读取 usage；多阶段工具回答只对所有已完成请求都提供的 token 字段求和，缺失字段保持未知。
+- 工具轨迹最多保存 20 项，每项只有工具名、成功状态、耗时和最多 240 字符的可读摘要，不保存参数、请求头、API key 或 Provider continuation state。
+- 只有用户显式停止且已经收到正文时才追加 user + `stopped` assistant；首 token 前停止、超时、切换/新建、卸载和错误均不写伪消息。
+- `stopped` assistant 不进入后续原始上下文和新摘要；context preview 显示 `Stopped Excluded` 数量。
+- JSON 备份/导入、Markdown 导出、file/SQLite、刷新映射与消息级“生成详情”保持相同语义；缺失 usage 显示“未知”。
+- 验收证据见 [R12 生成元数据与停止持久化验收记录](r12-generation-metadata-2026-08-12.md)。
 
 ### 非目标
 

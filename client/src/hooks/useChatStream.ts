@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState, type Dispatch } from 'react'
 import {
   cancelRequest as cancelRequestApi,
   requestConversationAnswer as requestConversationAnswerApi,
+  type RequestCancellationReason,
 } from '#api/conversations'
 import { readChatStream } from '#api/readChatStream'
 import {
@@ -47,7 +48,7 @@ export type UseChatStreamOptions = {
   writeClipboard?: (text: string) => Promise<void>
 }
 
-type AbortReason = 'manual' | 'timeout' | 'unmount' | null
+type AbortReason = RequestCancellationReason | null
 
 function createMessageId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`
@@ -139,19 +140,38 @@ export function useChatStream(options: UseChatStreamOptions) {
   }, [])
 
   const cancelActiveRequest = useCallback(
-    async (requestId: string) => {
+    async (requestId: string, reason: RequestCancellationReason) => {
       if (cancelledRequestIdsRef.current.has(requestId)) {
         return
       }
 
       cancelledRequestIdsRef.current.add(requestId)
       try {
-        await (optionsRef.current.cancelRequest ?? cancelRequestApi)(requestId)
+        await (optionsRef.current.cancelRequest ?? cancelRequestApi)(requestId, reason)
       } catch (error) {
         logError('Failed to cancel active request:', error)
       }
     },
     [logError],
+  )
+
+  const cancelWithDeadline = useCallback(
+    async (requestId: string, reason: RequestCancellationReason) => {
+      let timerId: number | null = null
+      try {
+        await Promise.race([
+          cancelActiveRequest(requestId, reason),
+          new Promise<void>((resolve) => {
+            timerId = window.setTimeout(resolve, 500)
+          }),
+        ])
+      } finally {
+        if (timerId !== null) {
+          window.clearTimeout(timerId)
+        }
+      }
+    },
+    [cancelActiveRequest],
   )
 
   const followNewContent = useCallback((shouldFollow: boolean) => {
@@ -192,7 +212,7 @@ export function useChatStream(options: UseChatStreamOptions) {
 
         abortReasonRef.current = 'timeout'
         controller.abort()
-        void cancelActiveRequest(requestId)
+        void cancelActiveRequest(requestId, 'timeout')
       }, timeoutMs)
     },
     [cancelActiveRequest, clearIdleTimer],
@@ -328,7 +348,7 @@ export function useChatStream(options: UseChatStreamOptions) {
         const abortReason = abortReasonRef.current
         const streamState = activeStreamStateRef.current
 
-        if (abortReason === 'unmount' || !mountedRef.current) {
+        if (abortReason === 'unmount' || abortReason === 'transition' || !mountedRef.current) {
           return
         }
 
@@ -355,6 +375,12 @@ export function useChatStream(options: UseChatStreamOptions) {
 
         if (!manualAbort) {
           logError('Failed to request model:', error)
+        } else {
+          try {
+            await optionsRef.current.refreshConversationList()
+          } catch (refreshError) {
+            logError('Failed to refresh conversations after stopping:', refreshError)
+          }
         }
       } finally {
         clearIdleTimer()
@@ -381,7 +407,9 @@ export function useChatStream(options: UseChatStreamOptions) {
     [clearIdleTimer, followNewContent, logError, replaceAssistantMessage, resetIdleTimer],
   )
 
-  const stopGenerating = useCallback(async () => {
+  const stopGenerating = useCallback(async (
+    reason: Extract<RequestCancellationReason, 'manual' | 'transition'> = 'manual',
+  ) => {
     if (isStoppingRef.current) {
       return
     }
@@ -398,19 +426,19 @@ export function useChatStream(options: UseChatStreamOptions) {
     }
 
     try {
-      abortReasonRef.current = 'manual'
-      controller?.abort()
+      abortReasonRef.current = reason
 
       if (requestId) {
-        await cancelActiveRequest(requestId)
+        await cancelWithDeadline(requestId, reason)
       }
+      controller?.abort()
     } finally {
       isStoppingRef.current = false
       if (mountedRef.current) {
         setIsStopping(false)
       }
     }
-  }, [cancelActiveRequest])
+  }, [cancelWithDeadline])
 
   const copyMessage = useCallback(
     async (message: ChatMessage) => {
@@ -489,7 +517,7 @@ export function useChatStream(options: UseChatStreamOptions) {
         abortReasonRef.current = 'unmount'
         controller?.abort()
         if (requestId) {
-          void cancelActiveRequest(requestId)
+          void cancelActiveRequest(requestId, 'unmount')
         }
       }
     }

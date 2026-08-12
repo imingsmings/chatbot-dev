@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
+  cancelRequest,
   downloadConversationMarkdown,
   getConversations,
   requestConversationAnswer,
@@ -89,6 +90,18 @@ describe('conversation API client', () => {
         options: { temperature: 0.3, reasoningEnabled: true },
       }),
       signal: controller.signal,
+    })
+  })
+
+  it('sends the cancellation reason so only manual stops are persisted', async () => {
+    const fetchMock = stubFetch(new Response(null, { status: 200 }))
+
+    await cancelRequest('request/1', 'transition')
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/requests/request%2F1/cancel', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reason: 'transition' }),
     })
   })
 })

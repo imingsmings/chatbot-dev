@@ -47,6 +47,31 @@ export type ToolActivity = {
   name: string
   status: 'running' | 'success' | 'error' | 'stopped'
   summary?: string
+  durationMs?: number
+}
+
+export type TokenUsage = {
+  inputTokens?: number
+  outputTokens?: number
+  totalTokens?: number
+  reasoningTokens?: number
+  cachedInputTokens?: number
+}
+
+export type GenerationMetadata = {
+  provider: LlmProviderId
+  model: string
+  finishReason?: string
+  firstTokenLatencyMs?: number
+  totalDurationMs: number
+  usage?: TokenUsage
+}
+
+export type StoredToolTrace = {
+  name: string
+  success: boolean
+  durationMs: number
+  summary: string
 }
 
 export type ChatMessage = {
@@ -58,6 +83,7 @@ export type ChatMessage = {
   status: MessageStatus
   error?: string
   toolActivities?: ToolActivity[]
+  generation?: GenerationMetadata
 }
 
 export type StoredMessage = {
@@ -65,6 +91,9 @@ export type StoredMessage = {
   content: string
   reasoningContent?: string
   reasoningDurationMs?: number
+  status?: 'completed' | 'stopped'
+  generation?: GenerationMetadata
+  toolTrace?: StoredToolTrace[]
 }
 
 export type ConversationSummary = {
@@ -112,6 +141,7 @@ export type ContextPreview = {
     totalHistoryMessages: number
     summaryCoveredMessages: number
     postSummaryMessages: number
+    excludedStoppedMessages: number
     selectedHistoryMessages: number
     droppedHistoryMessages: number
     selectedHistoryChars: number

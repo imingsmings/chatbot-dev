@@ -27,12 +27,15 @@ async function generateConversationSummary(
     return { error: 'not_found' }
   }
 
-  if (conversation.messages.length === 0) {
+  const summaryMessages = conversation.messages.filter(
+    (message) => !(message.role === 'assistant' && message.status === 'stopped')
+  )
+  if (summaryMessages.length === 0) {
     return { error: 'empty' }
   }
   const sourceMessagesSnapshot = JSON.stringify(conversation.messages)
 
-  const content = (await callLLM(buildConversationSummaryPrompt(conversation.messages), {
+  const content = (await callLLM(buildConversationSummaryPrompt(summaryMessages), {
     signal,
     modelOptions: {
       ...options,

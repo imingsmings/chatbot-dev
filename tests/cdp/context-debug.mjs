@@ -65,6 +65,7 @@ const mockScript = `
         totalHistoryMessages: conversation.messages.length,
         summaryCoveredMessages: 0,
         postSummaryMessages: conversation.messages.length,
+        excludedStoppedMessages: 0,
         selectedHistoryMessages: selectedHistory.length,
         droppedHistoryMessages: conversation.messages.length - selectedHistory.length,
         selectedHistoryChars: selectedHistory.reduce((total, message) => total + message.content.length, 0),
@@ -227,11 +228,12 @@ async function readModalState(client) {
           [
             'Model Context', 'Model Parameters', 'Provider', 'Model', 'Streaming',
             'Tool Choice', 'Reasoning', 'API Key', 'Storage', 'Temperature', 'Max Tokens',
-            'Summary Covered', 'After Summary', 'Selected Range', 'Messages', 'Tool Definitions'
+            'Summary Covered', 'After Summary', 'Stopped Excluded', 'Selected Range', 'Messages', 'Tool Definitions'
           ].every((label) => text.includes(label)),
         hasCoverageStats:
           readStat('Summary Covered') === '0' &&
           readStat('After Summary') === '3' &&
+          readStat('Stopped Excluded') === '0' &&
           readStat('Selected Range') === '2-3',
         hasStandardValues: [
           'DeepSeek', 'Enabled', 'Auto', 'Max', 'Configured', 'File', 'Provider Default'

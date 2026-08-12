@@ -133,6 +133,24 @@ test('regenerating a summary advances the coverage boundary to the latest messag
   assert.equal(context.selectedHistoryRange, null)
 })
 
+test('summary generation excludes stopped assistant bodies while advancing over the stored boundary', async () => {
+  const conversation = await createConversation('Stopped summary exclusion')
+  await appendMessages(conversation.id, [
+    { role: 'user', content: '停止前问题仍可摘要' },
+    { role: 'assistant', content: 'STOPPED_SUMMARY_BODY', status: 'stopped' },
+    { role: 'user', content: '后续问题' },
+    { role: 'assistant', content: '完整回答', status: 'completed' }
+  ])
+  const requestCount = requests.length
+  const result = await generateConversationSummary(conversation.id)
+
+  assert.equal(result.conversation?.summary?.sourceMessageCount, 4)
+  const serializedRequest = JSON.stringify(requests[requestCount])
+  assert(!serializedRequest.includes('STOPPED_SUMMARY_BODY'))
+  assert(serializedRequest.includes('停止前问题仍可摘要'))
+  assert(serializedRequest.includes('完整回答'))
+})
+
 test('clearing a conversation also clears the persisted summary', async () => {
   const conversation = await createConversation('Summary clear')
   await appendMessages(conversation.id, [{ role: 'user', content: '需要摘要' }])

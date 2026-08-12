@@ -89,7 +89,7 @@ const askConversation: RequestHandler<AskConversationParams, unknown, AskConvers
     }
 
     abortReason = reason
-    requestController.abort()
+    requestController.abort(reason)
   }
 
   const abortOnClientClose = (): void => {

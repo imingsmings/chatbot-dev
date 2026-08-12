@@ -56,7 +56,15 @@ export function mapStoredMessages(conversation: ConversationDetail): ChatMessage
     text: message.content,
     reasoningText: message.reasoningContent,
     reasoningDurationMs: message.reasoningDurationMs,
-    status: 'done',
+    status: message.status === 'stopped' ? 'stopped' : 'done',
+    generation: message.generation,
+    toolActivities: message.toolTrace?.map((trace, traceIndex) => ({
+      id: `${conversation.id}-${index}-tool-${traceIndex}`,
+      name: trace.name,
+      status: trace.success ? 'success' : 'error',
+      summary: trace.summary,
+      durationMs: trace.durationMs,
+    })),
   }))
 }
 

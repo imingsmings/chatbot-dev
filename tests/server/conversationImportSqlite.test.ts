@@ -29,13 +29,33 @@ const baseBackup = {
     createdAt: '2026-07-30T00:00:00.000Z',
     updatedAt: '2026-07-31T00:00:00.000Z',
     titleManuallyEdited: true,
-    messages: [{ role: 'assistant', content: 'sqlite original', reasoningContent: 'reasoning' }]
+    messages: [{
+      role: 'assistant',
+      content: 'sqlite original',
+      reasoningContent: 'reasoning',
+      status: 'completed',
+      generation: {
+        provider: 'openai',
+        model: 'gpt-5.6-terra',
+        finishReason: 'completed',
+        totalDurationMs: 40,
+        usage: { inputTokens: 8, outputTokens: 4, totalTokens: 12 }
+      },
+      toolTrace: [{
+        name: 'getCurrentTime',
+        success: true,
+        durationMs: 1,
+        summary: 'UTC time'
+      }]
+    }]
   }]
 }
 
 test('SQLite import applies conflict strategies without losing reasoning data', async () => {
   assert.equal((await importConversationBackup(baseBackup)).created, 1)
   assert.equal((await getConversation('conv_import_sqlite'))?.messages[0]?.reasoningContent, 'reasoning')
+  assert.equal((await getConversation('conv_import_sqlite'))?.messages[0]?.generation?.usage?.totalTokens, 12)
+  assert.equal((await getConversation('conv_import_sqlite'))?.messages[0]?.toolTrace?.[0]?.name, 'getCurrentTime')
   assert.equal((await importConversationBackup(baseBackup, 'skip')).skipped, 1)
   assert.equal((await importConversationBackup(baseBackup, 'duplicate')).duplicated, 1)
   assert.equal((await listConversations()).length, 2)

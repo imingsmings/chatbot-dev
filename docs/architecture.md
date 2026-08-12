@@ -81,10 +81,10 @@ flowchart LR
 | `server/config/deploymentConfig.ts` | HOST/PORT、生产默认值、`~/` 路径和 TLS 证书/私钥校验 |
 | `server/config/clientHosting.ts` | `client/dist` 校验、静态缓存与 HTML SPA 回退 |
 | `server/controllers/*` | HTTP 输入、长度边界、状态码和流响应 |
-| `server/services/chatService.ts` | 上下文、模型、工具两阶段和成功后持久化 |
+| `server/services/chatService.ts` | 上下文、模型、工具两阶段、生成元数据聚合和完成/手动停止持久化 |
 | `server/services/contextService.ts` | 摘要覆盖边界、安全截断、消息数和字符预算 |
 | `server/services/conversationSummaryService.ts` | 摘要生成及会话变化检测 |
-| `server/services/toolService.ts` | 工具参数校验、失败隔离和生命周期事件 |
+| `server/services/toolService.ts` | 工具参数校验、失败隔离、耗时和生命周期事件 |
 | `server/tools/*` | 单工具 schema、validator 和 handler |
 | `server/utils/llm/providerConfig.ts` | HTTP/HTTPS endpoint、凭据和默认模型 |
 | `server/utils/llm/modelCatalog.ts` | 公共模型能力与禁用状态 |
@@ -163,7 +163,9 @@ sequenceDiagram
   S-->>C: done
 ```
 
-只有完整模型回答才写入存储。DeepSeek 必须读到 `[DONE]`，OpenAI Responses 必须读到 `response.completed`；正文、reasoning 或工具参数之后直接 EOF 都通过现有 NDJSON `error` 结束，不发送 `done`。前端保留已经显示的部分内容，服务端不追加本轮 user/assistant 消息。若会话在生成期间被删除，同样返回流错误而不是把“成功”但未落盘的结果交给前端。
+完整模型回答写入 user + `completed` assistant；只有用户显式停止且已经收到正文时，才写入 user + `stopped` assistant。DeepSeek 必须读到 `[DONE]`，OpenAI Responses 必须读到 `response.completed`；正文、reasoning 或工具参数之后异常 EOF 仍通过现有 NDJSON `error` 结束，不发送 `done`，也不落库。若会话在生成期间被删除，同样返回流错误而不是把“成功”但未落盘的结果交给前端。
+
+assistant 的可选 `generation` 保存 provider、model、finish reason、首 token 延迟、总耗时和 Provider usage；多阶段工具调用只聚合所有已完成请求共同提供的 usage 字段。可选 `toolTrace` 只保留裁剪后的工具名、成功状态、耗时和可读摘要。file store 直接写入兼容 JSON，SQLite 继续把 messages 保存为 JSON，因此不提升备份 schema 或数据库表结构。
 
 存在会话摘要时，`summary.sourceMessageCount` 先安全截断到 `0..messages.length`，上下文窗口只在该边界之后的原始消息中按消息数和字符数选择最近后缀。上下文预览同时返回摘要覆盖数、摘要后消息数和最终选择的会话消息序号范围，便于确认摘要历史没有重复进入模型。
 
@@ -195,8 +197,9 @@ sequenceDiagram
 
 ```mermaid
 flowchart LR
-  Stop["停止 / 首包或流空闲超时 / 页面卸载"] --> Abort["Client AbortController"]
-  Abort --> Cancel["POST /requests/:id/cancel"]
+  Stop["停止 / 首包或流空闲超时 / 页面卸载"] --> Classify["Client cancellation reason"]
+  Classify --> Cancel["POST /requests/:id/cancel"]
+  Cancel --> Abort["Client AbortController"]
   Cancel --> Registry["Server request registry"]
   Registry --> ProviderAbort["Provider fetch / stream abort"]
   Registry --> ToolAbort["Tool AbortSignal"]
@@ -205,7 +208,9 @@ flowchart LR
 - 客户端超时从发起 fetch 前开始，因此覆盖“迟迟没有响应头”。
 - 同一 requestId 只取消一次；请求结束后清理取消集合、timer 和 refs。
 - 后端同一会话只允许一个活动 ask，避免并行回答的语义和持久化竞态。
-- 停止保留屏幕上已收到的部分内容，但不持久化不完整问答。
+- 用户点击停止时先向服务端发送 `manual` 原因，再中止浏览器 fetch；服务端将已有正文保存为 `stopped`。取消请求最多等待 500ms，避免停止按钮因网络异常卡住。
+- 超时、页面卸载和新建/切换会话分别标记原因；这些路径即使已有部分正文也不落库。
+- `stopped` assistant 可刷新恢复，但会从后续原始上下文和新摘要中排除；异常 EOF 仍保持 R11 的“不落库”语义。
 
 ## 存储一致性
 
@@ -221,7 +226,7 @@ flowchart LR
 
 - 默认会话存储；可显式设置 `CONVERSATION_STORE=file` 回退到单会话 JSON 文件。
 - WAL 模式；同步事务保证 migration 和批量写边界。
-- messages/summary 以 JSON 保存，对外保持与 file store 相同语义。
+- messages/summary 以 JSON 保存，包含可选 generation/tool trace/status，对外保持与 file store 相同语义。
 - 旧 JSON 迁移通过 metadata 标记实现幂等。
 
 ## 输入与错误边界

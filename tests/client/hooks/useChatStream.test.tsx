@@ -266,7 +266,7 @@ describe('useChatStream', () => {
 
     expect(capturedSignal.aborted).toBe(true)
     expect(cancelRequest).toHaveBeenCalledTimes(1)
-    expect(cancelRequest).toHaveBeenCalledWith('request-1')
+    expect(cancelRequest).toHaveBeenCalledWith('request-1', 'manual')
     expect(result.current.messages[1]).toMatchObject({
       status: 'stopped',
       error: '已停止生成',
@@ -320,6 +320,7 @@ describe('useChatStream', () => {
 
     expect(capturedSignal.aborted).toBe(true)
     expect(cancelRequest).toHaveBeenCalledTimes(1)
+    expect(cancelRequest).toHaveBeenCalledWith('request-1', 'timeout')
     expect(result.current.isResponding).toBe(false)
   })
 
@@ -355,6 +356,7 @@ describe('useChatStream', () => {
 
     expect(capturedSignal.aborted).toBe(true)
     expect(cancelRequest).toHaveBeenCalledOnce()
+    expect(cancelRequest).toHaveBeenCalledWith('request-1', 'timeout')
     expect(result.current.messages[1]).toMatchObject({
       status: 'error',
       error: '响应超时或连接中断',
@@ -468,6 +470,7 @@ describe('useChatStream', () => {
 
     expect(capturedSignal.aborted).toBe(true)
     expect(cancelRequest).toHaveBeenCalledTimes(1)
+    expect(cancelRequest).toHaveBeenCalledWith('request-1', 'unmount')
   })
 
   it('clears the copied-message timer on unmount', async () => {

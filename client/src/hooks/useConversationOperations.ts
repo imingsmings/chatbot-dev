@@ -34,7 +34,7 @@ export type ConversationOperationOptions = {
     scroll?: boolean
   }) => Promise<void>
   showError: (message: string, title?: string) => Promise<void>
-  stopGenerating: () => Promise<void>
+  stopGenerating: (reason?: 'manual' | 'transition') => Promise<void>
 }
 
 export function useConversationOperations(options: ConversationOperationOptions) {
@@ -69,7 +69,7 @@ export function useConversationOperations(options: ConversationOperationOptions)
     if (options.isStopping || !beginSidebarOperation('create')) return
     options.closeTopMenu()
     try {
-      if (options.isResponding) await options.stopGenerating()
+      if (options.isResponding) await options.stopGenerating('transition')
 
       if (
         options.currentConversationId &&
@@ -107,7 +107,7 @@ export function useConversationOperations(options: ConversationOperationOptions)
       }
       options.closeTopMenu()
       try {
-        if (options.isResponding) await options.stopGenerating()
+        if (options.isResponding) await options.stopGenerating('transition')
         await options.loadConversation(id)
         options.resetInput()
         await options.settleConversationView({ scroll: true })

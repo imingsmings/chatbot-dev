@@ -14,6 +14,7 @@ type ContextBuildResult = {
   config: ContextConfig
   summaryCoveredMessages: number
   postSummaryMessages: number
+  excludedStoppedMessages: number
   selectedHistoryMessages: number
   droppedHistoryMessages: number
   selectedHistoryChars: number
@@ -55,8 +56,13 @@ function getSummaryCoveredMessageCount(conversation: Conversation): number {
   return Math.min(sourceMessageCount, conversation.messages.length)
 }
 
-function selectRecentHistory(messages: StoredMessage[], config: ContextConfig): StoredMessage[] {
-  const selected: StoredMessage[] = []
+type IndexedStoredMessage = {
+  index: number
+  message: StoredMessage
+}
+
+function selectRecentHistory(messages: IndexedStoredMessage[], config: ContextConfig): IndexedStoredMessage[] {
+  const selected: IndexedStoredMessage[] = []
   let selectedChars = 0
 
   for (let index = messages.length - 1; index >= 0; index -= 1) {
@@ -64,7 +70,8 @@ function selectRecentHistory(messages: StoredMessage[], config: ContextConfig): 
       break
     }
 
-    const message = messages[index]
+    const indexedMessage = messages[index]
+    const message = indexedMessage.message
     const messageChars = getMessageCharLength(message)
 
     if (selected.length > 0 && selectedChars + messageChars > config.maxHistoryChars) {
@@ -72,11 +79,11 @@ function selectRecentHistory(messages: StoredMessage[], config: ContextConfig): 
     }
 
     if (selected.length === 0 && messageChars > config.maxHistoryChars) {
-      selected.unshift(message)
+      selected.unshift(indexedMessage)
       break
     }
 
-    selected.unshift(message)
+    selected.unshift(indexedMessage)
     selectedChars += messageChars
   }
 
@@ -87,23 +94,32 @@ function buildContextMessages(conversation: Conversation, question: string): Con
   const config = getContextConfig()
   const totalHistoryMessages = conversation.messages.length
   const summaryCoveredMessages = getSummaryCoveredMessageCount(conversation)
-  const postSummaryHistory = conversation.messages.slice(summaryCoveredMessages)
-  const recentHistory = selectRecentHistory(postSummaryHistory, config)
-  const selectedHistoryChars = recentHistory.reduce((total, message) => total + getMessageCharLength(message), 0)
-  const selectedHistoryStart = totalHistoryMessages - recentHistory.length
+  const postSummaryHistory = conversation.messages
+    .slice(summaryCoveredMessages)
+    .map((message, offset) => ({ index: summaryCoveredMessages + offset, message }))
+  const eligibleHistory = postSummaryHistory.filter(
+    ({ message }) => !(message.role === 'assistant' && message.status === 'stopped')
+  )
+  const recentHistory = selectRecentHistory(eligibleHistory, config)
+  const selectedHistoryChars = recentHistory.reduce(
+    (total, { message }) => total + getMessageCharLength(message),
+    0
+  )
+  const selectedMessages = recentHistory.map(({ message }) => message)
 
   return {
-    messages: buildStandardPrompt(question, recentHistory, conversation.summary),
+    messages: buildStandardPrompt(question, selectedMessages, conversation.summary),
     config,
     summaryCoveredMessages,
     postSummaryMessages: postSummaryHistory.length,
+    excludedStoppedMessages: postSummaryHistory.length - eligibleHistory.length,
     selectedHistoryMessages: recentHistory.length,
-    droppedHistoryMessages: Math.max(0, postSummaryHistory.length - recentHistory.length),
+    droppedHistoryMessages: Math.max(0, eligibleHistory.length - recentHistory.length),
     selectedHistoryChars,
     selectedHistoryRange: recentHistory.length > 0
       ? {
-          start: selectedHistoryStart + 1,
-          end: totalHistoryMessages
+          start: recentHistory[0].index + 1,
+          end: recentHistory[recentHistory.length - 1].index + 1
         }
       : null,
     summaryIncluded: Boolean(conversation.summary)

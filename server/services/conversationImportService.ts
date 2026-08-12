@@ -3,6 +3,8 @@ import {
   MAX_CONVERSATION_TITLE_LENGTH,
   MAX_IMPORT_CONVERSATIONS,
   MAX_MESSAGES_PER_CONVERSATION,
+  MAX_STORED_TOOL_TRACE_ITEMS,
+  MAX_STORED_TOOL_TRACE_SUMMARY_LENGTH,
 } from '../config/productLimits.ts'
 import { EXPORT_SCHEMA_VERSION } from './conversationExportService.ts'
 import type {
@@ -12,6 +14,7 @@ import type {
   ConversationImportResult,
   StoredMessage
 } from '../types/conversation.ts'
+import type { GenerationMetadata, StoredToolTrace, TokenUsage } from '../types/generation.ts'
 
 const VALID_CONVERSATION_ID = /^conv_[a-zA-Z0-9_-]+$/
 
@@ -33,6 +36,102 @@ function readTimestamp(record: Record<string, unknown>, name: string): string {
     throw new Error(`${name} 必须是有效时间`)
   }
   return value
+}
+
+function readNonNegativeNumber(value: unknown, path: string, integer = false): number {
+  if (
+    typeof value !== 'number' ||
+    !Number.isFinite(value) ||
+    value < 0 ||
+    (integer && !Number.isInteger(value))
+  ) {
+    throw new Error(`${path} 必须是非负${integer ? '整数' : '数字'}`)
+  }
+  return value
+}
+
+function parseUsage(value: unknown, path: string): TokenUsage | undefined {
+  if (value === undefined) return undefined
+  if (!isRecord(value)) throw new Error(`${path} 必须是对象`)
+
+  const usage: TokenUsage = {}
+  const fields = [
+    'inputTokens',
+    'outputTokens',
+    'totalTokens',
+    'reasoningTokens',
+    'cachedInputTokens'
+  ] as const
+  for (const field of fields) {
+    if (value[field] !== undefined) {
+      usage[field] = readNonNegativeNumber(value[field], `${path}.${field}`, true)
+    }
+  }
+
+  return Object.keys(usage).length ? usage : undefined
+}
+
+function parseGeneration(value: unknown, path: string): GenerationMetadata | undefined {
+  if (value === undefined) return undefined
+  if (!isRecord(value)) throw new Error(`${path} 必须是对象`)
+  if (value.provider !== 'deepseek' && value.provider !== 'openai') {
+    throw new Error(`${path}.provider 必须是 deepseek 或 openai`)
+  }
+  if (typeof value.model !== 'string' || !value.model.trim()) {
+    throw new Error(`${path}.model 必须是非空字符串`)
+  }
+
+  const generation: GenerationMetadata = {
+    provider: value.provider,
+    model: value.model.trim(),
+    totalDurationMs: readNonNegativeNumber(value.totalDurationMs, `${path}.totalDurationMs`)
+  }
+  if (value.finishReason !== undefined) {
+    if (typeof value.finishReason !== 'string' || !value.finishReason.trim()) {
+      throw new Error(`${path}.finishReason 必须是非空字符串`)
+    }
+    generation.finishReason = value.finishReason.trim()
+  }
+  if (value.firstTokenLatencyMs !== undefined) {
+    generation.firstTokenLatencyMs = readNonNegativeNumber(
+      value.firstTokenLatencyMs,
+      `${path}.firstTokenLatencyMs`
+    )
+  }
+  const usage = parseUsage(value.usage, `${path}.usage`)
+  if (usage) generation.usage = usage
+  return generation
+}
+
+function parseToolTrace(value: unknown, path: string): StoredToolTrace[] | undefined {
+  if (value === undefined) return undefined
+  if (!Array.isArray(value)) throw new Error(`${path} 必须是数组`)
+  if (value.length > MAX_STORED_TOOL_TRACE_ITEMS) {
+    throw new Error(`${path} 不能超过 ${MAX_STORED_TOOL_TRACE_ITEMS} 项`)
+  }
+
+  return value.map((item, traceIndex) => {
+    const itemPath = `${path}[${traceIndex}]`
+    if (!isRecord(item)) throw new Error(`${itemPath} 必须是对象`)
+    if (typeof item.name !== 'string' || !item.name.trim()) {
+      throw new Error(`${itemPath}.name 必须是非空字符串`)
+    }
+    if (typeof item.success !== 'boolean') {
+      throw new Error(`${itemPath}.success 必须是布尔值`)
+    }
+    if (typeof item.summary !== 'string') {
+      throw new Error(`${itemPath}.summary 必须是字符串`)
+    }
+    if (item.summary.length > MAX_STORED_TOOL_TRACE_SUMMARY_LENGTH) {
+      throw new Error(`${itemPath}.summary 不能超过 ${MAX_STORED_TOOL_TRACE_SUMMARY_LENGTH} 个字符`)
+    }
+    return {
+      name: item.name.trim(),
+      success: item.success,
+      durationMs: readNonNegativeNumber(item.durationMs, `${itemPath}.durationMs`),
+      summary: item.summary
+    }
+  })
 }
 
 function parseStoredMessage(value: unknown, index: number): StoredMessage {
@@ -65,6 +164,27 @@ function parseStoredMessage(value: unknown, index: number): StoredMessage {
       throw new Error(`messages[${index}] 的 reasoningDurationMs 不合法`)
     }
     message.reasoningDurationMs = value.reasoningDurationMs
+  }
+
+  if (value.status !== undefined) {
+    if (value.role !== 'assistant' || (value.status !== 'completed' && value.status !== 'stopped')) {
+      throw new Error(`messages[${index}] 的 status 不合法`)
+    }
+    message.status = value.status
+  }
+
+  if (value.generation !== undefined) {
+    if (value.role !== 'assistant') {
+      throw new Error(`messages[${index}] 的 generation 只允许用于 assistant`)
+    }
+    message.generation = parseGeneration(value.generation, `messages[${index}].generation`)
+  }
+
+  if (value.toolTrace !== undefined) {
+    if (value.role !== 'assistant') {
+      throw new Error(`messages[${index}] 的 toolTrace 只允许用于 assistant`)
+    }
+    message.toolTrace = parseToolTrace(value.toolTrace, `messages[${index}].toolTrace`)
   }
 
   return message

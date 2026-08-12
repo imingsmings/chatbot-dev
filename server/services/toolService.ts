@@ -9,6 +9,7 @@ import type {
   ToolRegistryItem,
   ToolResult
 } from '../types/tools.ts'
+import { MAX_STORED_TOOL_TRACE_SUMMARY_LENGTH } from '../config/productLimits.ts'
 
 function eraseToolArgs<TArgs>(tool: ToolRegistryItem<TArgs>): ToolRegistryItem {
   return {
@@ -92,7 +93,9 @@ function getToolDefinitions(): FunctionToolDefinition[] {
 
 function summarizeToolResult(result: string): string {
   const normalized = result.replace(/\s+/g, ' ').trim()
-  return normalized.length > 240 ? `${normalized.slice(0, 237)}...` : normalized
+  return normalized.length > MAX_STORED_TOOL_TRACE_SUMMARY_LENGTH
+    ? `${normalized.slice(0, MAX_STORED_TOOL_TRACE_SUMMARY_LENGTH - 3)}...`
+    : normalized
 }
 
 async function executeToolCalls(toolCalls: unknown, options: ExecuteToolOptions = {}): Promise<ToolResult[]> {
@@ -106,6 +109,7 @@ async function executeToolCalls(toolCalls: unknown, options: ExecuteToolOptions 
 
     const functionName = tool.function
     const args = tool.args
+    const startedAt = Date.now()
     onEvent?.({
       type: 'tool_start',
       toolCallId: tool.id,
@@ -133,7 +137,8 @@ async function executeToolCalls(toolCalls: unknown, options: ExecuteToolOptions 
           toolCallId: tool.id,
           name: functionName,
           summary: summarizeToolResult(result),
-          success: true
+          success: true,
+          durationMs: Math.max(0, Date.now() - startedAt)
         })
       } catch (err: unknown) {
         if (err instanceof Error && err.name === 'AbortError') {
@@ -153,7 +158,8 @@ async function executeToolCalls(toolCalls: unknown, options: ExecuteToolOptions 
           toolCallId: tool.id,
           name: functionName,
           summary: `执行失败：${message}`,
-          success: false
+          success: false,
+          durationMs: Math.max(0, Date.now() - startedAt)
         })
       }
     } else {
@@ -169,7 +175,8 @@ async function executeToolCalls(toolCalls: unknown, options: ExecuteToolOptions 
         toolCallId: tool.id,
         name: functionName,
         summary: '未找到该工具',
-        success: false
+        success: false,
+        durationMs: Math.max(0, Date.now() - startedAt)
       })
     }
   }
