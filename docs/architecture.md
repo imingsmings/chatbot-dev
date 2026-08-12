@@ -52,6 +52,7 @@ flowchart LR
 | `client/src/components/*` | 展示、交互、ARIA 与 shadcn 组件组合 |
 | `client/src/hooks/useChatAppController.ts` | 单一页面装配入口：运行配置、聊天流、搜索、主题和各专责 hook 组合 |
 | `client/src/hooks/useConversationOperations.ts` | 新建、切换、重命名、删除、清空和侧栏操作互斥 |
+| `client/src/hooks/useMessageBranching.ts` | 编辑/重新生成的目标定位、分支创建、新会话显式发送和失败恢复 |
 | `client/src/hooks/useConversationTransfer.ts` | 单会话 Markdown 导出、全量 JSON 导出和备份导入 |
 | `client/src/hooks/useConversationInsights.ts` | 上下文预览、会话摘要及切换/生成竞态保护 |
 | `client/src/hooks/useConversations.ts` | 会话列表、详情、选择序列和 CRUD |
@@ -84,6 +85,7 @@ flowchart LR
 | `server/services/chatService.ts` | 上下文、模型、工具两阶段、生成元数据聚合和完成/手动停止持久化 |
 | `server/services/contextService.ts` | 摘要覆盖边界、安全截断、消息数和字符预算 |
 | `server/services/conversationSummaryService.ts` | 摘要生成及会话变化检测 |
+| `server/services/conversationService.ts` | 会话列表/标题/搜索，以及只复制目标消息前缀的普通会话分支 |
 | `server/services/toolService.ts` | 工具参数校验、失败隔离、耗时和生命周期事件 |
 | `server/services/healthService.ts` | 启动级配置校验、会话存储读取和数据根目录读写探针；仅输出稳定状态 |
 | `server/tools/*` | 单工具 schema、validator 和 handler |
@@ -182,6 +184,30 @@ sequenceDiagram
 ```
 
 完整模型回答写入 user + `completed` assistant；只有用户显式停止且已经收到正文时，才写入 user + `stopped` assistant。DeepSeek 必须读到 `[DONE]`，OpenAI Responses 必须读到 `response.completed`；正文、reasoning 或工具参数之后异常 EOF 仍通过现有 NDJSON `error` 结束，不发送 `done`，也不落库。若会话在生成期间被删除，同样返回流错误而不是把“成功”但未落盘的结果交给前端。
+
+## 编辑与重新生成分支
+
+```mermaid
+sequenceDiagram
+  participant U as User
+  participant C as React client
+  participant E as Express
+  participant D as Store
+  participant S as Existing ask stream
+
+  U->>C: 编辑历史用户消息 / 重新生成回答
+  C->>E: POST /conversations/:id/branches + messageIndex
+  E->>D: 读取父会话并复制 target 之前的消息
+  D-->>C: 新普通会话（无 summary）
+  C->>C: 选中新会话
+  C->>S: 以新 conversationId 提交问题
+  S-->>C: 既有 NDJSON v2 流
+```
+
+- 分支不引入 parentId、branch tree 或新的持久化 schema；它与手工新建/导入的会话使用同一 file/SQLite 结构。
+- 目标索引必须指向已保存的 user message。前缀复制保留 reasoning、generation 和 tool trace，目标用户消息及其后全部消息不复制，summary 不继承。
+- 编辑保存和重新生成都先持久化空分支，再复用既有 ask；若模型请求失败，父会话不变，新分支保留为可重试状态。
+- error assistant 继续走原地重试，避免把未落库的 optimistic user message 当作可分支历史。
 
 assistant 的可选 `generation` 保存 provider、model、finish reason、首 token 延迟、总耗时和 Provider usage；多阶段工具调用只聚合所有已完成请求共同提供的 usage 字段。可选 `toolTrace` 只保留裁剪后的工具名、成功状态、耗时和可读摘要。file store 直接写入兼容 JSON，SQLite 继续把 messages 保存为 JSON，因此不提升备份 schema 或数据库表结构。
 

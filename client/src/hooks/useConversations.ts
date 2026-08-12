@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'r
 import {
   clearConversation as clearConversationRequest,
   createConversation as createConversationRequest,
+  createConversationBranch as createConversationBranchRequest,
   deleteConversation as deleteConversationRequest,
   getConversation as getConversationRequest,
   getConversations as getConversationsRequest,
@@ -18,6 +19,7 @@ import type { ConversationDetail, ConversationSummary } from '#types/chat'
 export type ConversationsApi = {
   clearConversation: typeof clearConversationRequest
   createConversation: typeof createConversationRequest
+  createConversationBranch: typeof createConversationBranchRequest
   deleteConversation: typeof deleteConversationRequest
   getConversation: typeof getConversationRequest
   getConversations: typeof getConversationsRequest
@@ -33,6 +35,7 @@ export type UseConversationsOptions = {
 const defaultApi: ConversationsApi = {
   clearConversation: clearConversationRequest,
   createConversation: createConversationRequest,
+  createConversationBranch: createConversationBranchRequest,
   deleteConversation: deleteConversationRequest,
   getConversation: getConversationRequest,
   getConversations: getConversationsRequest,
@@ -72,6 +75,25 @@ export function useConversations(options: UseConversationsOptions = {}) {
   const createNewConversation = useCallback(async () => {
     const sequence = ++selectionSequenceRef.current
     const conversation = await api.createConversation()
+
+    if (sequence === selectionSequenceRef.current) {
+      dispatchWhenMounted({ type: 'select-conversation', conversation })
+    }
+
+    return conversation
+  }, [api, dispatchWhenMounted])
+
+  const createBranchConversation = useCallback(async (
+    sourceConversationId: string,
+    messageIndex: number,
+    question: string,
+  ) => {
+    const sequence = ++selectionSequenceRef.current
+    const conversation = await api.createConversationBranch(
+      sourceConversationId,
+      messageIndex,
+      question,
+    )
 
     if (sequence === selectionSequenceRef.current) {
       dispatchWhenMounted({ type: 'select-conversation', conversation })
@@ -234,6 +256,7 @@ export function useConversations(options: UseConversationsOptions = {}) {
     applyConversationDetail,
     clearCurrentConversation,
     conversations: state.conversations,
+    createBranchConversation,
     createNewConversation,
     currentConversationId: state.currentConversationId,
     currentConversationSummary: state.currentConversationSummary,

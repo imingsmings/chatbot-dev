@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
 import { MessageList } from '../../../client/src/components/MessageList'
@@ -16,6 +16,8 @@ describe('MessageList', () => {
           text: 'Completed answer',
         }]}
         onCopyMessage={vi.fn()}
+        onEditMessage={vi.fn()}
+        onRegenerateMessage={vi.fn()}
         onRetryMessage={vi.fn()}
       />,
     )
@@ -50,6 +52,8 @@ describe('MessageList', () => {
           }],
         }]}
         onCopyMessage={vi.fn()}
+        onEditMessage={vi.fn()}
+        onRegenerateMessage={vi.fn()}
         onRetryMessage={vi.fn()}
       />,
     )
@@ -60,5 +64,61 @@ describe('MessageList', () => {
     expect(screen.getByText('DeepSeek')).toBeInTheDocument()
     expect(screen.getByText('DeepSeek V4 Pro')).toBeInTheDocument()
     expect(screen.getAllByText('未知')).toHaveLength(6)
+  })
+
+  it('offers edit and regenerate actions for persisted history', () => {
+    const onEditMessage = vi.fn()
+    const onRegenerateMessage = vi.fn()
+
+    render(
+      <MessageList
+        copiedMessageId={null}
+        isResponding={false}
+        messages={[
+          { id: 'user-1', role: 'user', status: 'done', text: '原问题' },
+          { id: 'assistant-1', role: 'assistant', status: 'done', text: '原回答' },
+        ]}
+        onCopyMessage={vi.fn()}
+        onEditMessage={onEditMessage}
+        onRegenerateMessage={onRegenerateMessage}
+        onRetryMessage={vi.fn()}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '编辑消息' }))
+    fireEvent.click(screen.getByRole('button', { name: '重新生成回答' }))
+
+    expect(onEditMessage).toHaveBeenCalledWith(0)
+    expect(onRegenerateMessage).toHaveBeenCalledWith(1)
+  })
+
+  it('keeps failed optimistic questions on the in-place retry path', () => {
+    const onRetryMessage = vi.fn()
+
+    render(
+      <MessageList
+        copiedMessageId={null}
+        isResponding={false}
+        messages={[
+          { id: 'user-1', role: 'user', status: 'done', text: '未保存问题' },
+          {
+            id: 'assistant-error',
+            role: 'assistant',
+            status: 'error',
+            text: '',
+            error: '网络失败',
+          },
+        ]}
+        onCopyMessage={vi.fn()}
+        onEditMessage={vi.fn()}
+        onRegenerateMessage={vi.fn()}
+        onRetryMessage={onRetryMessage}
+      />,
+    )
+
+    expect(screen.queryByRole('button', { name: '编辑消息' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '重新生成回答' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '重试' }))
+    expect(onRetryMessage).toHaveBeenCalledWith(1)
   })
 })

@@ -127,6 +127,8 @@ export function App() {
               }
               messages={controller.messages}
               onCopyMessage={(message) => void controller.copyMessage(message)}
+              onEditMessage={(index) => void controller.handleEditMessage(index)}
+              onRegenerateMessage={(index) => void controller.handleRegenerateMessage(index)}
               onRetryMessage={(index) => void controller.retryMessage(index)}
             />
           )}

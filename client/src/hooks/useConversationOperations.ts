@@ -59,7 +59,7 @@ export function useConversationOperations(options: ConversationOperationOptions)
 
   const isConversationTransitioning = useMemo(
     () =>
-      ['initialize', 'create', 'select', 'delete', 'clear'].includes(
+      ['initialize', 'create', 'select', 'delete', 'clear', 'branch'].includes(
         sidebarOperation?.type || '',
       ),
     [sidebarOperation],

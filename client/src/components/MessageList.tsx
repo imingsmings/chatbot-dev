@@ -1,4 +1,4 @@
-import { CheckIcon, CopyIcon, RefreshCwIcon } from 'lucide-react'
+import { CheckIcon, CopyIcon, PencilIcon, RefreshCwIcon } from 'lucide-react'
 
 import { MarkdownMessage } from '#components/MarkdownMessage'
 import { ReasoningDisclosure } from '#components/ReasoningDisclosure'
@@ -13,6 +13,8 @@ type MessageListProps = {
   isResponding: boolean
   messages: ChatMessage[]
   onCopyMessage: (message: ChatMessage) => void
+  onEditMessage: (index: number) => void
+  onRegenerateMessage: (index: number) => void
   onRetryMessage: (index: number) => void
 }
 
@@ -64,6 +66,8 @@ export function MessageList({
   isResponding,
   messages,
   onCopyMessage,
+  onEditMessage,
+  onRegenerateMessage,
   onRetryMessage,
 }: MessageListProps) {
   return (
@@ -71,6 +75,14 @@ export function MessageList({
       {messages.map((message, index) => {
         const isUser = message.role === 'user'
         const hasReasoning = Boolean(message.reasoningText)
+        const hasPreviousUserMessage = messages
+          .slice(0, index)
+          .some((candidate) => candidate.role === 'user')
+        const nextMessage = messages[index + 1]
+        const isUnpersistedFailedQuestion =
+          nextMessage?.role === 'assistant' &&
+          (nextMessage.status === 'error' ||
+            (nextMessage.status === 'stopped' && !nextMessage.text))
 
         return (
           <article
@@ -144,6 +156,23 @@ export function MessageList({
 
             {message.role === 'assistant' ? <GenerationDetails message={message} /> : null}
 
+            {isUser && !isUnpersistedFailedQuestion ? (
+              <div className="message-actions flex items-center justify-end gap-0.5 opacity-100 transition-opacity">
+                <Button
+                  aria-label="编辑消息"
+                  className="message-action-btn min-h-7 gap-[5px] rounded-md px-[7px] text-[11px] text-[var(--text-tertiary)] hover:bg-[var(--surface-muted)] hover:text-[var(--text-primary)]"
+                  disabled={isResponding}
+                  onClick={() => onEditMessage(index)}
+                  size="xs"
+                  type="button"
+                  variant="ghost"
+                >
+                  <PencilIcon aria-hidden="true" size={14} />
+                  <span>编辑</span>
+                </Button>
+              </div>
+            ) : null}
+
             {message.role === 'assistant' ? (
               <div className="message-actions flex items-center gap-0.5 opacity-100 transition-opacity">
                 {message.text && message.status !== 'pending' && message.status !== 'streaming' ? (
@@ -161,6 +190,22 @@ export function MessageList({
                       <CopyIcon aria-hidden="true" size={15} />
                     )}
                     <span>{copiedMessageId === message.id ? '已复制' : '复制'}</span>
+                  </Button>
+                ) : null}
+                {message.text &&
+                hasPreviousUserMessage &&
+                ['done', 'stopped'].includes(message.status) ? (
+                  <Button
+                    aria-label="重新生成回答"
+                    className="message-action-btn min-h-7 gap-[5px] rounded-md px-[7px] text-[11px] text-[var(--text-tertiary)] hover:bg-[var(--surface-muted)] hover:text-[var(--text-primary)]"
+                    disabled={isResponding}
+                    onClick={() => onRegenerateMessage(index)}
+                    size="xs"
+                    type="button"
+                    variant="ghost"
+                  >
+                    <RefreshCwIcon aria-hidden="true" size={15} />
+                    <span>重新生成</span>
                   </Button>
                 ) : null}
                 {message.status === 'error' ? (

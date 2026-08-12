@@ -223,6 +223,42 @@ describe('useChatStream', () => {
     expect(requestConversationAnswer).toHaveBeenCalledTimes(1)
   })
 
+  it('can target a newly selected branch before controller state catches up', async () => {
+    const requestConversationAnswer = vi
+      .fn<RequestAnswer>()
+      .mockResolvedValue(
+        responseFromEvents([
+          { type: 'delta', content: '分支回答' },
+          { type: 'done' },
+        ]),
+      )
+    const { result } = renderStreamHook(
+      createHarnessOptions({
+        conversationId: 'source-1',
+        requestConversationAnswer,
+      }),
+    )
+
+    await act(async () => {
+      await result.current.submitQuestion('编辑后的问题', {
+        appendUser: true,
+        clearComposer: false,
+        conversationId: 'branch-1',
+      })
+    })
+
+    expect(requestConversationAnswer).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conversationId: 'branch-1',
+        question: '编辑后的问题',
+      }),
+    )
+    expect(result.current.messages).toEqual([
+      expect.objectContaining({ role: 'user', text: '编辑后的问题' }),
+      expect.objectContaining({ role: 'assistant', text: '分支回答', status: 'done' }),
+    ])
+  })
+
   it('sends one manual cancel and settles a running tool as stopped', async () => {
     let capturedSignal!: AbortSignal
     let abortable!: ReturnType<typeof createAbortableResponse>

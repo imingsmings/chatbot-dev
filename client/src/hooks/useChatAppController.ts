@@ -10,6 +10,7 @@ import { useConversationOperations } from '#hooks/useConversationOperations'
 import { useConversationSearch } from '#hooks/useConversationSearch'
 import { useConversationTransfer } from '#hooks/useConversationTransfer'
 import { useConversations } from '#hooks/useConversations'
+import { useMessageBranching } from '#hooks/useMessageBranching'
 import { useTheme } from '#hooks/useTheme'
 import type { ModelRequestOptions, RuntimeInfo } from '#types/chat'
 import { getInitialModelOptions } from '#utils/modelOptions'
@@ -47,6 +48,7 @@ export function useChatAppController() {
     applyConversationDetail,
     clearCurrentConversation,
     conversations,
+    createBranchConversation,
     createNewConversation,
     currentConversationId,
     currentConversationSummary,
@@ -150,6 +152,25 @@ export function useChatAppController() {
     settleConversationView,
     showError,
     stopGenerating,
+  })
+
+  const {
+    handleEditMessage,
+    handleRegenerateMessage,
+  } = useMessageBranching({
+    beginSidebarOperation,
+    clearSearch,
+    createBranchConversation,
+    currentConversationId,
+    isResponding,
+    isStopping,
+    messages,
+    promptText,
+    resetInput,
+    setOperation,
+    settleConversationView,
+    showError,
+    submitQuestion,
   })
 
   const {
@@ -285,11 +306,13 @@ export function useChatAppController() {
     dialog,
     handleClearCurrentConversation,
     handleDeleteConversation,
+    handleEditMessage,
     handleExportAllConversations,
     handleExportConversation,
     handleGenerateSummary,
     handleImportFile,
     handleRenameConversation,
+    handleRegenerateMessage,
     handleSubmit,
     importInputRef,
     input,

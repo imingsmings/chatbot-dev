@@ -1,6 +1,7 @@
 import crypto from 'node:crypto'
 import {
   clearConversationMessages,
+  createConversationBranch,
   createNewConversation,
   findConversation,
   listConversationSummaries,
@@ -42,6 +43,11 @@ type RenameConversationBody = {
 type ContextPreviewBody = {
   question?: unknown
   options?: unknown
+}
+
+type BranchConversationBody = {
+  messageIndex?: unknown
+  question?: unknown
 }
 
 type ImportConversationBody = {
@@ -118,6 +124,46 @@ const getConversation: RequestHandler<ConversationParams> = async (req, res, nex
     })
   } catch (err) {
     next(err)
+  }
+}
+
+const branchConversation: RequestHandler<ConversationParams, unknown, BranchConversationBody> = async (
+  req,
+  res,
+  next
+) => {
+  const messageIndex = req.body.messageIndex
+  const question = typeof req.body.question === 'string' ? req.body.question.trim() : ''
+
+  if (!Number.isInteger(messageIndex) || (messageIndex as number) < 0) {
+    res.status(400).json({ message: 'messageIndex 必须是非负整数' })
+    return
+  }
+  if (!question) {
+    res.status(400).json({ message: '问题不能为空' })
+    return
+  }
+  if (question.length > MAX_QUESTION_LENGTH) {
+    res.status(400).json({
+      message: `问题不能超过 ${MAX_QUESTION_LENGTH} 个字符`
+    })
+    return
+  }
+
+  try {
+    const result = await createConversationBranch(req.params.id, messageIndex as number)
+    if ('error' in result) {
+      if (result.error === 'not_found') {
+        writeNotFound(res)
+        return
+      }
+      res.status(400).json({ message: '只能从已保存的用户消息创建分支' })
+      return
+    }
+
+    res.status(201).json({ conversation: result.conversation })
+  } catch (error) {
+    next(error)
   }
 }
 
@@ -380,6 +426,7 @@ const clearConversation: RequestHandler<ConversationParams> = async (req, res, n
 }
 
 export {
+  branchConversation,
   clearConversation,
   createConversation,
   deleteConversation,

@@ -118,6 +118,20 @@ export async function createConversation() {
   return data.conversation
 }
 
+export async function createConversationBranch(
+  id: string,
+  messageIndex: number,
+  question: string,
+) {
+  const response = await fetch(`/api/conversations/${encodeURIComponent(id)}/branches`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ messageIndex, question }),
+  })
+  const data = await readJson<{ conversation: ConversationDetail }>(response)
+  return data.conversation
+}
+
 export async function getConversation(id: string) {
   const response = await fetch(`/api/conversations/${encodeURIComponent(id)}`)
   const data = await readJson<{ conversation: ConversationDetail }>(response)

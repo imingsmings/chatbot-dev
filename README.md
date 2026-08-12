@@ -20,6 +20,7 @@ Vue 客户端已在 2026-08-09 完成下线，`client/` 现在是唯一的 React
 ## 当前能力
 
 - 多会话创建、切换、重命名、清空、删除和自动标题。
+- 历史用户消息编辑、已完成回答重新生成和不改写原会话的独立分支。
 - 标题/消息搜索，单会话 Markdown 导出，全量 JSON 备份与导入。
 - file/SQLite 本地存储及旧 JSON 到 SQLite 幂等迁移。
 - DeepSeek / OpenAI provider、模型和推理强度的请求级切换。
@@ -142,6 +143,7 @@ tsconfig.base.json             前后端共用 TypeScript 严格规则
 | `GET/POST` | `/api/conversations` | 列表、新建 |
 | `GET/PATCH/DELETE` | `/api/conversations/:id` | 详情、重命名、删除 |
 | `POST` | `/api/conversations/:id/clear` | 清空消息和摘要 |
+| `POST` | `/api/conversations/:id/branches` | 从已保存用户消息前创建独立分支 |
 | `POST` | `/api/conversations/:id/ask` | NDJSON v2 流式问答 |
 | `POST` | `/api/conversations/:id/context-preview` | 实际上下文预览 |
 | `POST` | `/api/conversations/:id/summary` | 生成摘要 |

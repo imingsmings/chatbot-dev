@@ -1,5 +1,6 @@
 import express from 'express'
 import {
+  branchConversation,
   clearConversation,
   createConversation,
   deleteConversation,
@@ -21,6 +22,7 @@ router.post('/conversations', createConversation)
 router.get('/conversations/search', searchConversations)
 router.get('/conversations/export.json', exportAllConversations)
 router.post('/conversations/import', importConversations)
+router.post('/conversations/:id/branches', branchConversation)
 router.post('/conversations/:id/context-preview', previewConversationContext)
 router.post('/conversations/:id/summary', summarizeConversation)
 router.get('/conversations/:id/export.md', exportConversationMarkdown)

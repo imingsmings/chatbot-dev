@@ -8,6 +8,7 @@ import {
 } from '#components/ui/dialog'
 import { Button } from '#components/ui/button'
 import { Input } from '#components/ui/input'
+import { Textarea } from '#components/ui/textarea'
 import type { DialogState } from '#hooks/useAppDialog'
 
 type AppDialogProps = {
@@ -19,6 +20,7 @@ type AppDialogProps = {
 export function AppDialog({ dialog, onCancel, onConfirm }: AppDialogProps) {
   const [draftValue, setDraftValue] = useState(dialog.initialValue)
   const inputRef = useRef<HTMLInputElement>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
   const confirmButtonRef = useRef<HTMLButtonElement>(null)
 
   useEffect(() => {
@@ -35,7 +37,13 @@ export function AppDialog({ dialog, onCancel, onConfirm }: AppDialogProps) {
     >
       <DialogContent
         className="app-dialog"
-        initialFocus={dialog.mode === 'prompt' ? inputRef : confirmButtonRef}
+        initialFocus={
+          dialog.mode === 'prompt'
+            ? dialog.multiline
+              ? textareaRef
+              : inputRef
+            : confirmButtonRef
+        }
       >
         <header className="modal-header flex shrink-0 items-center justify-between border-b border-[var(--border-soft)] px-[17px] py-[15px]">
           <DialogTitle>{dialog.title}</DialogTitle>
@@ -43,22 +51,38 @@ export function AppDialog({ dialog, onCancel, onConfirm }: AppDialogProps) {
         <div className="modal-body min-h-0 flex-1 overflow-y-auto p-[18px]">
           <DialogDescription className="dialog-message m-0 text-[13px] leading-[1.6] whitespace-pre-wrap text-[var(--text-primary)] [overflow-wrap:anywhere]">{dialog.message}</DialogDescription>
           {dialog.mode === 'prompt' ? (
-            <label className="dialog-field mt-4 flex flex-col gap-[7px]" htmlFor="app-dialog-conversation-name">
-              <span className="dialog-label text-xs font-semibold text-[var(--text-secondary)]">会话名称</span>
-              <Input
-                className="dialog-input h-auto rounded-[7px] border-[var(--border-strong)] bg-[var(--surface)] px-2.5 py-[9px] text-[13px] text-[var(--text-primary)] focus-visible:border-[var(--ring)] focus-visible:ring-0"
-                id="app-dialog-conversation-name"
-                onChange={(event) => setDraftValue(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter') {
-                    event.preventDefault()
-                    onConfirm(draftValue)
-                  }
-                }}
-                ref={inputRef}
-                type="text"
-                value={draftValue}
-              />
+            <label className="dialog-field mt-4 flex flex-col gap-[7px]" htmlFor="app-dialog-input">
+              <span className="dialog-label text-xs font-semibold text-[var(--text-secondary)]">{dialog.fieldLabel}</span>
+              {dialog.multiline ? (
+                <Textarea
+                  className="dialog-input min-h-32 resize-y rounded-[7px] border-[var(--border-strong)] bg-[var(--surface)] px-2.5 py-[9px] text-[13px] leading-[1.55] text-[var(--text-primary)] focus-visible:border-[var(--ring)] focus-visible:ring-0"
+                  id="app-dialog-input"
+                  onChange={(event) => setDraftValue(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+                      event.preventDefault()
+                      onConfirm(draftValue)
+                    }
+                  }}
+                  ref={textareaRef}
+                  value={draftValue}
+                />
+              ) : (
+                <Input
+                  className="dialog-input h-auto rounded-[7px] border-[var(--border-strong)] bg-[var(--surface)] px-2.5 py-[9px] text-[13px] text-[var(--text-primary)] focus-visible:border-[var(--ring)] focus-visible:ring-0"
+                  id="app-dialog-input"
+                  onChange={(event) => setDraftValue(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      event.preventDefault()
+                      onConfirm(draftValue)
+                    }
+                  }}
+                  ref={inputRef}
+                  type="text"
+                  value={draftValue}
+                />
+              )}
             </label>
           ) : null}
         </div>

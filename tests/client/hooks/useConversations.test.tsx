@@ -26,6 +26,10 @@ function createApi(overrides: Partial<ConversationsApi> = {}): ConversationsApi 
     createConversation: vi.fn<ConversationsApi['createConversation']>().mockResolvedValue(
       fallbackConversation,
     ),
+    createConversationBranch:
+      vi.fn<ConversationsApi['createConversationBranch']>().mockResolvedValue(
+        fallbackConversation,
+      ),
     deleteConversation: vi.fn<ConversationsApi['deleteConversation']>().mockResolvedValue(
       undefined,
     ),
@@ -111,6 +115,31 @@ describe('useConversations', () => {
       await firstRequest
     })
     expect(result.current.currentConversationId).toBe('second')
+  })
+
+  it('selects a newly created branch without mutating the source selection first', async () => {
+    const branch = createConversation('branch-1')
+    const createConversationBranch = vi
+      .fn<ConversationsApi['createConversationBranch']>()
+      .mockResolvedValue(branch)
+    const api = createApi({ createConversationBranch })
+    const { result } = renderHook(() =>
+      useConversations({ api, autoInitialize: false }),
+    )
+
+    await act(async () => {
+      await result.current.createBranchConversation('source-1', 2, '编辑后的问题')
+    })
+
+    expect(createConversationBranch).toHaveBeenCalledWith(
+      'source-1',
+      2,
+      '编辑后的问题',
+    )
+    expect(result.current.currentConversationId).toBe('branch-1')
+    expect(result.current.conversations.map((conversation) => conversation.id)).toEqual([
+      'branch-1',
+    ])
   })
 
   it('does not retain a deleted active conversation when loading its successor fails', async () => {

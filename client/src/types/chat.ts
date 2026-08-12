@@ -212,6 +212,7 @@ export type SidebarOperation = {
     | 'rename'
     | 'delete'
     | 'clear'
+    | 'branch'
     | 'export-one'
     | 'export-all'
     | 'import'

@@ -23,6 +23,7 @@ export type SubmitQuestionOptions = {
   appendUser: boolean
   clearComposer: boolean
   assistantInsertIndex?: number
+  conversationId?: string
 }
 
 export type UseChatStreamOptions = {
@@ -236,7 +237,7 @@ export function useChatStream(options: UseChatStreamOptions) {
 
       try {
         const currentOptions = optionsRef.current
-        let conversationId = currentOptions.conversationId
+        let conversationId = submitOptions.conversationId ?? currentOptions.conversationId
 
         if (!conversationId) {
           const conversation = await currentOptions.createConversation()

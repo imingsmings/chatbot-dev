@@ -6,9 +6,11 @@ export type DialogState = {
   cancelLabel: string
   confirmLabel: string
   danger: boolean
+  fieldLabel: string
   initialValue: string
   message: string
   mode: DialogMode
+  multiline: boolean
   open: boolean
   title: string
 }
@@ -17,9 +19,11 @@ const initialState: DialogState = {
   cancelLabel: '取消',
   confirmLabel: '确定',
   danger: false,
+  fieldLabel: '会话名称',
   initialValue: '',
   message: '',
   mode: 'alert',
+  multiline: false,
   open: false,
   title: '',
 }
@@ -78,12 +82,20 @@ export function useAppDialog() {
   )
 
   const promptText = useCallback(
-    async (options: { initialValue: string; message: string; title: string }) => {
+    async (options: {
+      fieldLabel?: string
+      initialValue: string
+      message: string
+      multiline?: boolean
+      title: string
+    }) => {
       const result = await openDialog({
         confirmLabel: '保存',
+        fieldLabel: options.fieldLabel ?? '会话名称',
         initialValue: options.initialValue,
         message: options.message,
         mode: 'prompt',
+        multiline: options.multiline ?? false,
         title: options.title,
       })
       return typeof result === 'string' ? result.trim() : null

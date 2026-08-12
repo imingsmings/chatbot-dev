@@ -180,7 +180,10 @@ async function submitPromptDialog(client, value, options = {}) {
     `(() => {
       const input = document.querySelector('.modal-content[role="dialog"] .dialog-input');
       if (!input) throw new Error('Cannot find dialog input');
-      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')
+      const prototype = input instanceof HTMLTextAreaElement
+        ? HTMLTextAreaElement.prototype
+        : HTMLInputElement.prototype;
+      Object.getOwnPropertyDescriptor(prototype, 'value')
         .set.call(input, ${JSON.stringify(value)});
       input.dispatchEvent(new Event('input', { bubbles: true }));
     })()`,
@@ -361,6 +364,7 @@ const mockScript = `
     failNextRename: false,
     failNextDelete: false,
     failNextClear: false,
+    failNextBranch: false,
     cancelDelayMs: 0,
   };
   window.__abortCount = 0;
@@ -575,6 +579,29 @@ const mockScript = `
       conversation.updatedAt = now();
       persistMockData();
       return json({ conversation });
+    }
+
+    const branchMatch = pathname.match(/^\\/conversations\\/([^/]+)\\/branches$/);
+    if (branchMatch && method === 'POST') {
+      if (consumeFlag('failNextBranch')) {
+        return json({ message: 'branch failed' }, 500);
+      }
+      const source = conversations.get(decodeURIComponent(branchMatch[1]));
+      if (!source) return json({ message: 'not found' }, 404);
+      const body = JSON.parse(init.body || '{}');
+      if (!Number.isInteger(body.messageIndex) || source.messages[body.messageIndex]?.role !== 'user') {
+        return json({ message: 'invalid branch target' }, 400);
+      }
+      const suffix = '（分支）';
+      const title = source.title.endsWith(suffix)
+        ? source.title
+        : source.title.slice(0, 200 - suffix.length) + suffix;
+      const branch = createConversation(title);
+      branch.messages = source.messages
+        .slice(0, body.messageIndex)
+        .map((message) => ({ ...message }));
+      persistMockData();
+      return json({ conversation: branch }, 201);
     }
 
     const askMatch = pathname.match(/^\\/conversations\\/([^/]+)\\/ask$/);
@@ -1092,6 +1119,206 @@ async function main() {
     if (!deleteLastState.isEmpty || deleteLastState.count !== 1 || !deleteLastState.canFocusComposer) {
       throw new Error(`Delete last conversation failed: ${JSON.stringify(deleteLastState)}`)
     }
+
+    console.log('UI stage: edit and regenerate create recoverable conversation branches')
+    const branchingSource = {
+      id: 'ui-branch-source',
+      title: 'R15 原会话',
+      createdAt: '2026-08-12T00:00:00.000Z',
+      updatedAt: '2026-08-12T00:01:00.000Z',
+      messages: [
+        { role: 'user', content: '第一轮问题' },
+        { role: 'assistant', content: '第一轮回答' },
+        { role: 'user', content: '第二轮原问题' },
+        { role: 'assistant', content: '第二轮原回答' },
+      ],
+    }
+    await seedConversations(client, [branchingSource])
+    await client.send('Page.reload')
+    await waitFor(client, `document.body.innerText.includes('第二轮原回答')`)
+    await evaluate(
+      client,
+      `(() => {
+        const row = [...document.querySelectorAll('.message-row.user')][1];
+        const button = row?.querySelector('button[aria-label="编辑消息"]');
+        if (!button) throw new Error('Cannot find second user edit action');
+        button.click();
+      })()`,
+    )
+    await waitForDialog(client, '编辑消息并创建分支')
+    const branchingDialogState = await evaluate(
+      client,
+      `(() => {
+        const input = document.querySelector('.modal-content[role="dialog"] .dialog-input');
+        return {
+          tagName: input?.tagName,
+          value: input?.value,
+          label: document.querySelector('.modal-content[role="dialog"] .dialog-label')?.textContent.trim(),
+          explainsSourceSafety: document.querySelector('.modal-content[role="dialog"]')?.innerText.includes('原会话保持不变'),
+        };
+      })()`,
+    )
+    if (
+      branchingDialogState.tagName !== 'TEXTAREA' ||
+      branchingDialogState.value !== '第二轮原问题' ||
+      branchingDialogState.label !== '用户消息' ||
+      !branchingDialogState.explainsSourceSafety
+    ) {
+      throw new Error(`Branch edit dialog failed: ${JSON.stringify(branchingDialogState)}`)
+    }
+
+    await setPlan(client, [{
+      kind: 'success',
+      chunks: ['编辑后的分支回答'],
+      firstDelay: 240,
+      interval: 40,
+    }])
+    await submitPromptDialog(client, '第二轮编辑后的问题')
+    await waitFor(client, `window.__mockSnapshot().conversations.length === 2`)
+    const branchOperationState = await evaluate(
+      client,
+      `(() => ({
+        activeTitle: document.querySelector('.conversation-item-shell.active .conversation-title')?.textContent.trim(),
+        composerDisabled: document.querySelector('.composer textarea')?.disabled === true,
+        hasStop: [...document.querySelectorAll('button')].some((button) => button.textContent.trim() === '停止'),
+        messageActionsDisabled: [...document.querySelectorAll(
+          'button[aria-label="编辑消息"], button[aria-label="重新生成回答"]',
+        )]
+          .every((button) => button.matches(':disabled, [data-disabled], [aria-disabled="true"]')),
+      }))()`,
+    )
+    if (
+      branchOperationState.activeTitle !== 'R15 原会话（分支）' ||
+      !branchOperationState.composerDisabled ||
+      !branchOperationState.hasStop ||
+      !branchOperationState.messageActionsDisabled
+    ) {
+      throw new Error(`Branch operation state failed: ${JSON.stringify(branchOperationState)}`)
+    }
+    await waitFor(client, `document.body.innerText.includes('编辑后的分支回答')`)
+    await waitIdle(client)
+    const branchState = await evaluate(
+      client,
+      `(() => {
+        const snapshot = window.__mockSnapshot();
+        const source = snapshot.conversations.find((item) => item.id === 'ui-branch-source');
+        const branch = snapshot.conversations.find((item) => item.id !== 'ui-branch-source');
+        return {
+          count: snapshot.conversations.length,
+          sourceMessages: source?.messages,
+          branchId: branch?.id,
+          branchTitle: branch?.title,
+          branchMessages: branch?.messages,
+          activeText: document.querySelector('.message-list')?.innerText || '',
+        };
+      })()`,
+    )
+    if (
+      branchState.count !== 2 ||
+      JSON.stringify(branchState.sourceMessages) !== JSON.stringify(branchingSource.messages) ||
+      branchState.branchTitle !== 'R15 原会话（分支）' ||
+      JSON.stringify(branchState.branchMessages) !== JSON.stringify([
+        { role: 'user', content: '第一轮问题' },
+        { role: 'assistant', content: '第一轮回答' },
+        { role: 'user', content: '第二轮编辑后的问题' },
+        { role: 'assistant', content: '编辑后的分支回答', reasoningContent: undefined, reasoningDurationMs: undefined },
+      ]) ||
+      !branchState.activeText.includes('第二轮编辑后的问题') ||
+      !branchState.activeText.includes('编辑后的分支回答') ||
+      branchState.activeText.includes('第二轮原回答')
+    ) {
+      throw new Error(`Edited branch assertions failed: ${JSON.stringify(branchState)}`)
+    }
+
+    await setPlan(client, [{
+      kind: 'success',
+      chunks: ['重新生成的分支回答'],
+      firstDelay: 80,
+      interval: 20,
+    }])
+    await evaluate(
+      client,
+      `(() => {
+        const buttons = [...document.querySelectorAll('button[aria-label="重新生成回答"]')];
+        const button = buttons.at(-1);
+        if (!button) throw new Error('Cannot find regenerate action');
+        button.click();
+      })()`,
+    )
+    await waitFor(client, `window.__mockSnapshot().conversations.length === 3`)
+    await waitFor(client, `document.body.innerText.includes('重新生成的分支回答')`)
+    await waitIdle(client)
+    const regenerateState = await evaluate(
+      client,
+      `(() => {
+        const snapshot = window.__mockSnapshot();
+        const source = snapshot.conversations.find((item) => item.id === 'ui-branch-source');
+        const firstBranch = snapshot.conversations.find((item) => item.id === ${JSON.stringify(branchState.branchId)});
+        const regenerated = snapshot.conversations.find(
+          (item) => item.id !== 'ui-branch-source' && item.id !== ${JSON.stringify(branchState.branchId)},
+        );
+        return {
+          count: snapshot.conversations.length,
+          sourceMessages: source?.messages,
+          firstBranchMessages: firstBranch?.messages,
+          regeneratedTitle: regenerated?.title,
+          regeneratedMessages: regenerated?.messages,
+          activeText: document.querySelector('.message-list')?.innerText || '',
+        };
+      })()`,
+    )
+    if (
+      regenerateState.count !== 3 ||
+      JSON.stringify(regenerateState.sourceMessages) !== JSON.stringify(branchingSource.messages) ||
+      JSON.stringify(regenerateState.firstBranchMessages) !== JSON.stringify(branchState.branchMessages) ||
+      regenerateState.regeneratedTitle !== 'R15 原会话（分支）' ||
+      JSON.stringify(regenerateState.regeneratedMessages) !== JSON.stringify([
+        { role: 'user', content: '第一轮问题' },
+        { role: 'assistant', content: '第一轮回答' },
+        { role: 'user', content: '第二轮编辑后的问题' },
+        { role: 'assistant', content: '重新生成的分支回答', reasoningContent: undefined, reasoningDurationMs: undefined },
+      ]) ||
+      !regenerateState.activeText.includes('重新生成的分支回答') ||
+      regenerateState.activeText.includes('编辑后的分支回答')
+    ) {
+      throw new Error(`Regenerate branch assertions failed: ${JSON.stringify(regenerateState)}`)
+    }
+
+    await setMockFlags(client, { failNextBranch: true })
+    await evaluate(
+      client,
+      `(() => {
+        const buttons = [...document.querySelectorAll('button[aria-label="编辑消息"]')];
+        const button = buttons.at(-1);
+        if (!button) throw new Error('Cannot find branch failure edit action');
+        button.click();
+      })()`,
+    )
+    await waitForDialog(client, '编辑消息并创建分支')
+    await submitPromptDialog(client, '这次分支会失败', { waitForClose: false })
+    await waitForDialog(client, '创建分支失败')
+    const branchFailureState = await evaluate(
+      client,
+      `(() => ({
+        count: window.__mockSnapshot().conversations.length,
+        activeText: document.querySelector('.message-list')?.innerText || '',
+      }))()`,
+    )
+    if (
+      branchFailureState.count !== 3 ||
+      !branchFailureState.activeText.includes('重新生成的分支回答') ||
+      branchFailureState.activeText.includes('这次分支会失败')
+    ) {
+      throw new Error(`Branch failure recovery failed: ${JSON.stringify(branchFailureState)}`)
+    }
+    await confirmDialog(client, '知道了')
+    Object.assign(groupResults, {
+      branchingDialogState,
+      branchOperationState,
+      branchState,
+      regenerateState,
+      branchFailureState,
+    })
 
     }
 

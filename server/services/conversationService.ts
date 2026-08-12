@@ -3,10 +3,12 @@ import {
   createConversation,
   deleteConversation,
   getConversation,
+  importConversation,
   listConversations,
   renameConversation
 } from '../utils/conversationStore.ts'
 import { MAX_CONVERSATION_TITLE_LENGTH } from '../config/productLimits.ts'
+import { createId, now } from '../utils/conversationStore/normalization.ts'
 import type {
   Conversation,
   ConversationSearchResult,
@@ -15,6 +17,11 @@ import type {
 } from '../types/conversation.ts'
 
 const SEARCH_SNIPPET_RADIUS = 42
+const BRANCH_TITLE_SUFFIX = '（分支）'
+
+type ConversationBranchResult =
+  | { conversation: Conversation }
+  | { error: 'not_found' | 'invalid_message' }
 
 function normalizeTitle(value: unknown): string {
   return typeof value === 'string' ? value.trim() : ''
@@ -50,6 +57,52 @@ async function listConversationSummaries(): Promise<ConversationSummary[]> {
 
 async function createNewConversation(title: unknown): Promise<Conversation> {
   return createConversation(title)
+}
+
+function createBranchTitle(title: string): string {
+  if (title.endsWith(BRANCH_TITLE_SUFFIX)) {
+    return title
+  }
+  const maximumBaseLength = MAX_CONVERSATION_TITLE_LENGTH - BRANCH_TITLE_SUFFIX.length
+  return `${title.slice(0, maximumBaseLength)}${BRANCH_TITLE_SUFFIX}`
+}
+
+async function createConversationBranch(
+  id: string,
+  messageIndex: number
+): Promise<ConversationBranchResult> {
+  const source = await getConversation(id)
+  if (!source) {
+    return { error: 'not_found' }
+  }
+
+  if (source.messages[messageIndex]?.role !== 'user') {
+    return { error: 'invalid_message' }
+  }
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const timestamp = now()
+    const branch: Conversation = {
+      id: createId(),
+      title: createBranchTitle(source.title),
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      titleManuallyEdited: true,
+      messages: source.messages.slice(0, messageIndex)
+    }
+    const imported = await importConversation(branch, 'skip')
+    if (!imported.conversationId) {
+      continue
+    }
+
+    const persisted = await getConversation(imported.conversationId)
+    if (!persisted) {
+      throw new Error('会话分支创建后无法读取')
+    }
+    return { conversation: persisted }
+  }
+
+  throw new Error('会话分支 ID 冲突，请重试')
 }
 
 async function findConversation(id: string): Promise<Conversation | null> {
@@ -147,6 +200,7 @@ async function clearAllConversations(): Promise<void> {
 export {
   clearAllConversations,
   clearConversationMessages,
+  createConversationBranch,
   createNewConversation,
   findConversation,
   listConversationSummaries,

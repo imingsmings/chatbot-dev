@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
   cancelRequest,
+  createConversationBranch,
   downloadConversationMarkdown,
   getConversations,
   requestConversationAnswer,
@@ -90,6 +91,28 @@ describe('conversation API client', () => {
         options: { temperature: 0.3, reasoningEnabled: true },
       }),
       signal: controller.signal,
+    })
+  })
+
+  it('creates a branch with an encoded source id and target question', async () => {
+    const conversation = {
+      id: 'branch-1',
+      title: '测试会话（分支）',
+      createdAt: '2026-08-12T00:00:00.000Z',
+      updatedAt: '2026-08-12T00:00:00.000Z',
+      messages: [],
+    }
+    const fetchMock = stubFetch(
+      Response.json({ conversation }, { status: 201 }),
+    )
+
+    await expect(
+      createConversationBranch('folder/id', 2, '编辑后的问题'),
+    ).resolves.toEqual(conversation)
+    expect(fetchMock).toHaveBeenCalledWith('/api/conversations/folder%2Fid/branches', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messageIndex: 2, question: '编辑后的问题' }),
     })
   })
 

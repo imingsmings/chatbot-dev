@@ -24,8 +24,9 @@
 | 范围 | 关键断言 |
 | --- | --- |
 | conversation reducer | 不可变 upsert/sort；删除 active 立即清空 ID、summary、messages |
-| useConversations | Strict Mode 初始化去重；选择乱序；删除后继加载失败不保留已删除详情 |
-| useChatStream | delta/reasoning/tool/done；手工取消一次；首包/流空闲超时；协议错误后恢复；卸载清理 |
+| useConversations | Strict Mode 初始化去重；选择乱序；删除后继加载失败不保留已删除详情；创建分支后选中新会话 |
+| useChatStream | delta/reasoning/tool/done；显式新分支 ID；手工取消一次；首包/流空闲超时；协议错误后恢复；卸载清理 |
+| message branching | 多行编辑、取消/未修改、最近用户消息定位、分支创建失败恢复 |
 | stream protocol | v2 六类事件；拆包；未知/损坏 JSON；负耗时；空 tool/error 字段 |
 | model catalog | provider/model 能力；disabled；空/损坏运行目录 fallback |
 | Markdown | HTML/图片禁用；外链安全；代码语言与净化；stream/complete 模式 |
@@ -38,6 +39,7 @@
 | context | 消息数/字符预算、完整边界消息、空历史、当前问题不裁剪、摘要覆盖后消息选择、越界计数截断和选择范围 |
 | file store | CRUD、搜索、导入导出、摘要；40 路同会话写不丢失；原子写无临时残留；payload ID/时间损坏恢复 |
 | SQLite | CRUD、搜索、导入导出、摘要、临时 DB、损坏 JSON 跳过和 migration 后重开 |
+| conversation branch | file/SQLite 前缀与元数据一致；父会话不变；摘要不继承；非法索引/问题原子失败 |
 | chat persistence | 会话在回答完成前删除时拒绝假成功；不完整 Provider 流不落库且后续请求恢复 |
 | summary | 空/不存在、持久化、清空；即时提问、摘要后新消息、重新生成；完整消息快照竞态；shutdown 取消上游 |
 | request registry | requestId 校验、同会话单活动请求、全部取消和完成清理 |
@@ -72,6 +74,7 @@ UI 四个入口位于 `tests/cdp/scenarios/ui/`。它们通过 `CDP_UI_GROUP` �
 - Enter 提交、Shift+Enter 换行、空白与快速连点不发送。
 - 新建/切换会话时中止生成，旧响应不能污染新会话。
 - 删除/清空当前会话清理草稿和页面状态。
+- 编辑历史用户消息和重新生成回答均创建新分支；父会话逐条不变，连续分支保留各自回答，失败不留下额外会话。
 - 用户接近底部时跟随正文/reasoning/代码块；上滚查看历史时保持位置。
 - 代码块最后增长时 bottom gap 保持在阈值内。
 - 停止、HTTP 失败、网络断开、损坏 NDJSON、缺少 done、Provider 不完整错误和超时后均可恢复；只有有正文的用户手动停止落为 `stopped`，其他中断部分正文仅保留在当前 UI 且不落库。
