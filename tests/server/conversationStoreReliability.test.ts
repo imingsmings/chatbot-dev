@@ -82,10 +82,19 @@ test('a malformed JSON file does not make valid conversations unavailable', asyn
   const valid = await createConversation('Valid beside malformed')
   const conversationsDir = path.join(dataDir, 'file', 'conversations')
   await writeFile(path.join(conversationsDir, 'conv_malformed.json'), '{not-json', 'utf8')
+  await writeFile(
+    path.join(conversationsDir, 'invalid-file-name.json'),
+    JSON.stringify({ id: 'conv_invalid_filename_payload', title: 'Must stay hidden', messages: [] }),
+    'utf8',
+  )
 
   const summaries = await listConversations()
   assert(summaries.some((conversation) => conversation.id === valid.id))
   assert.equal(summaries.some((conversation) => conversation.id === 'conv_malformed'), false)
+  assert.equal(
+    summaries.some((conversation) => conversation.id === 'conv_invalid_filename_payload'),
+    false,
+  )
 })
 
 test('completed model output reports an error when its conversation was deleted before persistence', async () => {

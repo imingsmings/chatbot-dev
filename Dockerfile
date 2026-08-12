@@ -31,6 +31,8 @@ RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
 COPY client client
 # 复制服务端源码，保留构建阶段的完整工作区结构。
 COPY server server
+# 复制前后端共同使用的轻量应用协议定义。
+COPY shared shared
 # 复制客户端测试类型文件，因为客户端 TypeScript 构建配置会校验这些文件。
 COPY tests/client tests/client
 
@@ -78,6 +80,8 @@ RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
 
 # 复制服务端 TypeScript 源码和运行配置。
 COPY server server
+# 复制服务端运行时导入的共享应用协议定义。
+COPY shared shared
 # 从 build 阶段复制 React 生产构建，不复制 build 阶段的依赖目录。
 COPY --from=build /app/client/dist client/dist
 # 安装容器启动脚本，用于复制 TLS 文件并将应用进程降权到 node 用户。

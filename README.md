@@ -117,6 +117,7 @@ client/                         React 业务客户端
   src/reducers/                 conversation/stream 纯状态转换
   src/api/                      HTTP 与 NDJSON reader
   src/utils/                    Markdown、协议、模型目录、模板
+shared/                         前后端共用 NDJSON v2 事件与协议常量
 server/
   config/                       产品限制、构建托管和部署/TLS 配置
   routes/                       路由注册
@@ -124,10 +125,11 @@ server/
   services/                     聊天、上下文、摘要、导入导出、工具编排
   tools/                        工具 schema、参数校验和 handler
   utils/llm/                    provider 配置、目录、adapter 和 SSE 解析
-  utils/conversationStore.ts    file/SQLite 统一存储
+  utils/conversationStore.ts    file/SQLite 稳定 facade
+  utils/conversationStore/      契约、规范化/迁移和两种存储实现
 tests/client/                   React unit/component/hook 测试及 setup
 tests/server/                   后端单元、存储和异常测试
-tests/cdp/                      浏览器/API 回归
+tests/cdp/                      浏览器/API 回归及拆分后的 UI 场景入口
 docs/                           架构、协议、功能、路线图和测试文档
 pnpm-workspace.yaml             client/server workspace 与公共版本 catalog
 tsconfig.base.json             前后端共用 TypeScript 严格规则

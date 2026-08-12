@@ -50,13 +50,16 @@ flowchart LR
 | --- | --- |
 | `client/src/app/App.tsx` | 页面组合和高层事件连接，不承载底层协议逻辑 |
 | `client/src/components/*` | 展示、交互、ARIA 与 shadcn 组件组合 |
-| `client/src/hooks/useChatAppController.ts` | 页面用例编排与跨组件状态 |
+| `client/src/hooks/useChatAppController.ts` | 单一页面装配入口：运行配置、聊天流、搜索、主题和各专责 hook 组合 |
+| `client/src/hooks/useConversationOperations.ts` | 新建、切换、重命名、删除、清空和侧栏操作互斥 |
+| `client/src/hooks/useConversationTransfer.ts` | 单会话 Markdown 导出、全量 JSON 导出和备份导入 |
+| `client/src/hooks/useConversationInsights.ts` | 上下文预览、会话摘要及切换/生成竞态保护 |
 | `client/src/hooks/useConversations.ts` | 会话列表、详情、选择序列和 CRUD |
 | `client/src/hooks/useChatStream.ts` | requestId、AbortController、首包/流空闲超时、取消和恢复 |
 | `client/src/hooks/useAutoScroll.ts` | 用户滚动意图、MutationObserver 和 rAF 跟随 |
 | `client/src/reducers/*` | 不可变 conversation/stream 状态转换 |
 | `client/src/api/*` | HTTP 错误读取、下载和 NDJSON 拆包 |
-| `client/src/utils/streamProtocol.ts` | NDJSON v2 运行时校验 |
+| `client/src/utils/streamProtocol.ts` | 基于共享事件联合执行 NDJSON v2 运行时校验 |
 | `client/src/utils/markdownRenderer.ts` | 禁用 HTML/图片、净化、高亮和安全外链 |
 | `client/src/utils/modelOptions.ts` | 运行时模型能力目录、损坏目录降级和参数约束 |
 
@@ -68,6 +71,7 @@ flowchart LR
 - 根 `tsconfig.base.json` 共享 `strict`、`noEmit`、`verbatimModuleSyntax`、side-effect import 和大小写一致性等通用规则。
 - `client/tsconfig.*.json` 只保留 DOM/JSX、Bundler 解析和 Vite 类型；`server/tsconfig.json` 只保留 NodeNext、TS 扩展名导入和 erasable syntax 规则。
 - workspace 只保留根 `pnpm-lock.yaml`，安装、CI 和生产审计都从仓库根目录执行。
+- `shared/chatStreamProtocol.ts` 只承载 NDJSON v2 常量和判别联合，不引入运行时框架；client/server 均从该模块导入。
 
 ## 后端边界
 
@@ -86,7 +90,12 @@ flowchart LR
 | `server/utils/llm/modelCatalog.ts` | 公共模型能力与禁用状态 |
 | `server/utils/llm/adapters/*` | provider body、SSE 语义与 continuation |
 | `server/utils/requestRegistry.ts` | requestId 与单会话活动请求互斥 |
-| `server/utils/conversationStore.ts` | file/SQLite 规范化、迁移和 CRUD |
+| `server/utils/conversationStore.ts` | 稳定 facade；按运行配置选择 file/SQLite 实现并保持既有导出 |
+| `server/utils/conversationStore/contracts.ts` | 存储公共契约和默认标题 |
+| `server/utils/conversationStore/normalization.ts` | ID、消息、时间、摘要、标题和副本规范化 |
+| `server/utils/conversationStore/migration.ts` | file/legacy aggregate 的共享迁移读取 |
+| `server/utils/conversationStore/fileStore.ts` | 原子 JSON 文件、同会话 mutation queue 和 legacy file 迁移 |
+| `server/utils/conversationStore/sqliteStore.ts` | SQLite schema/WAL、JSON 迁移、CRUD 和连接关闭 |
 
 Provider 特有字段只存在于 adapter。控制器不拼 prompt，工具注册表不内嵌天气/计算器实现。
 

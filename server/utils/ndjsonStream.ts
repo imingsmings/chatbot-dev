@@ -1,37 +1,9 @@
 import type { Response } from 'express'
-
-const CHAT_STREAM_PROTOCOL_HEADER = 'X-Chat-Stream-Protocol'
-const CHAT_STREAM_PROTOCOL_VERSION = '2'
-
-type StreamEvent =
-  | {
-      type: 'delta'
-      content: string
-    }
-  | {
-      type: 'reasoning_delta'
-      content: string
-    }
-  | {
-      type: 'done'
-      reasoningDurationMs?: number
-    }
-  | {
-      type: 'error'
-      message: string
-    }
-  | {
-      type: 'tool_start'
-      toolCallId?: string
-      name: string
-    }
-  | {
-      type: 'tool_result'
-      toolCallId?: string
-      name: string
-      summary: string
-      success: boolean
-    }
+import {
+  CHAT_STREAM_PROTOCOL_HEADER,
+  CHAT_STREAM_PROTOCOL_VERSION,
+  type ChatStreamEvent
+} from '../../shared/chatStreamProtocol.ts'
 
 function setNdjsonStreamHeaders(res: Response): void {
   res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8')
@@ -41,7 +13,7 @@ function setNdjsonStreamHeaders(res: Response): void {
   res.setHeader(CHAT_STREAM_PROTOCOL_HEADER, CHAT_STREAM_PROTOCOL_VERSION)
 }
 
-function writeStreamEvent(res: Response, event: StreamEvent): boolean {
+function writeStreamEvent(res: Response, event: ChatStreamEvent): boolean {
   if (res.destroyed || res.writableEnded) {
     return false
   }
@@ -67,5 +39,5 @@ export {
 }
 
 export type {
-  StreamEvent
+  ChatStreamEvent as StreamEvent
 }

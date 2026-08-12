@@ -56,13 +56,15 @@
 | --- | --- | --- |
 | P0 | `pnpm run test:cdp:p0` | ask/stop/cancel、会话 API、工具、核心 UI |
 | P1 | `pnpm run test:cdp:p1` | UI、Markdown、高亮、边界状态 |
-| UI | `pnpm run test:cdp:ui` | 复制、重试、滚动、草稿、主题、移动端、错误恢复 |
+| UI | `pnpm run test:cdp:ui` | 四个独立入口：会话操作、流式恢复、滚动/布局、模型菜单 |
 | Context | `pnpm run test:cdp:context-debug` | 实际上下文、统计、移动布局 |
 | Search | `pnpm run test:cdp:conversation-search` | 输入、跳转、空/错/竞态 |
 | Export | `pnpm run test:cdp:conversation-export` | 下载、文件名、JSON 备份 |
 | Roadmap | `pnpm run test:cdp:roadmap` | 摘要、导入、模型参数、模板、工具状态、长 Markdown |
 | Sidebar | `pnpm run test:cdp:sidebar-state` | 操作等待态、连点互斥和失败恢复 |
-| All mock | `pnpm run test:cdp:all-mock` | 上述去重后的完整集合 |
+| All mock | `pnpm run test:cdp:all-mock` | 上述去重后的 13-script 完整集合 |
+
+UI 四个入口位于 `tests/cdp/scenarios/ui/`。它们通过 `CDP_UI_GROUP` 选择原有断言分组，并统一复用 `helpers/browser.mjs`、`helpers/cdpClient.mjs` 和 `helpers/services.mjs`；任一失败会直接显示所属场景，不必从单个大型 UI 输出中反查。
 
 ### UI 必测边界
 

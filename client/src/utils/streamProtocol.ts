@@ -1,35 +1,14 @@
-export const CHAT_STREAM_PROTOCOL_HEADER = 'X-Chat-Stream-Protocol'
-export const CHAT_STREAM_PROTOCOL_VERSION = '2'
+export {
+  CHAT_STREAM_PROTOCOL_HEADER,
+  CHAT_STREAM_PROTOCOL_VERSION,
+  type ChatStreamEvent,
+} from '../../../shared/chatStreamProtocol'
 
-export type ChatStreamEvent =
-  | {
-      type: 'delta'
-      content: string
-    }
-  | {
-      type: 'reasoning_delta'
-      content: string
-    }
-  | {
-      type: 'done'
-      reasoningDurationMs?: number
-    }
-  | {
-      type: 'error'
-      message: string
-    }
-  | {
-      type: 'tool_start'
-      toolCallId?: string
-      name: string
-    }
-  | {
-      type: 'tool_result'
-      toolCallId?: string
-      name: string
-      summary: string
-      success: boolean
-    }
+import {
+  CHAT_STREAM_PROTOCOL_HEADER,
+  CHAT_STREAM_PROTOCOL_VERSION,
+  type ChatStreamEvent,
+} from '../../../shared/chatStreamProtocol'
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null

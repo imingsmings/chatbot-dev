@@ -1,119 +1,18 @@
-import { spawn } from 'node:child_process'
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { mkdir, writeFile } from 'node:fs/promises'
 import path from 'node:path'
-import { stopProcess } from './helpers/services.mjs'
+import { getPageTarget, launchChrome } from './helpers/browser.mjs'
+import { CdpClient, evaluate } from './helpers/cdpClient.mjs'
+import { delay, stopProcess } from './helpers/services.mjs'
 
 const APP_URL = process.env.APP_URL || 'http://localhost:5173/'
 const APP_ORIGIN = new URL(APP_URL).origin
-const CHROME_PATH =
-  process.env.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
 const DEBUG_PORT = Number(process.env.DEBUG_PORT || 9333)
 const OUT_DIR = path.resolve(process.cwd(), '.tmp/cdp-screenshots')
 const CAPTURE_SCREENSHOTS = process.env.CDP_SCREENSHOTS === '1'
-const CDP_COMMAND_TIMEOUT_MS = 10000
+const UI_GROUP = process.env.CDP_UI_GROUP || 'all'
 
-class CdpClient {
-  constructor(wsUrl) {
-    this.ws = new WebSocket(wsUrl)
-    this.nextId = 1
-    this.pending = new Map()
-    this.events = new Map()
-
-    this.ready = new Promise((resolve, reject) => {
-      this.ws.addEventListener('open', resolve, { once: true })
-      this.ws.addEventListener('error', reject, { once: true })
-    })
-
-    this.ws.addEventListener('message', (event) => {
-      const payload = JSON.parse(event.data)
-
-      if (payload.id) {
-        const request = this.pending.get(payload.id)
-        if (!request) return
-        this.pending.delete(payload.id)
-
-        if (payload.error) {
-          request.reject(
-            new Error(
-              `${request.method}${request.expression ? ` (${request.expression.slice(0, 180)})` : ''}: ${payload.error.message}: ${payload.error.data || ''}`,
-            ),
-          )
-        } else {
-          request.resolve(payload.result || {})
-        }
-
-        return
-      }
-
-      const listeners = this.events.get(payload.method)
-      if (listeners) {
-        for (const listener of listeners) {
-          listener(payload.params || {})
-        }
-      }
-    })
-  }
-
-  async send(method, params = {}) {
-    await this.ready
-    const id = this.nextId++
-    this.ws.send(JSON.stringify({ id, method, params }))
-
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.pending.delete(id)
-        const context =
-          method === 'Runtime.evaluate' && params.expression
-            ? `: ${params.expression.slice(0, 180)}`
-            : ''
-        reject(new Error(`CDP command timed out: ${method}${context}`))
-      }, CDP_COMMAND_TIMEOUT_MS)
-      this.pending.set(id, {
-        method,
-        expression: method === 'Runtime.evaluate' ? params.expression : '',
-        resolve: (value) => {
-          clearTimeout(timer)
-          resolve(value)
-        },
-        reject: (error) => {
-          clearTimeout(timer)
-          reject(error)
-        },
-      })
-    })
-  }
-
-  on(method, callback) {
-    const listeners = this.events.get(method) || []
-    listeners.push(callback)
-    this.events.set(method, listeners)
-  }
-
-  close() {
-    this.ws.close()
-  }
-}
-
-function delay(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms))
-}
-
-async function waitForHttp(url, timeoutMs = 15000) {
-  const start = Date.now()
-
-  while (Date.now() - start < timeoutMs) {
-    try {
-      const response = await fetch(url)
-      if (response.ok) return
-    } catch {
-      // keep polling
-    }
-
-    await delay(200)
-  }
-
-  throw new Error(`Timed out waiting for ${url}`)
+function shouldRun(group) {
+  return UI_GROUP === 'all' || UI_GROUP === group
 }
 
 async function waitFor(client, expression, timeoutMs = 6000) {
@@ -150,25 +49,6 @@ async function navigateAndWait(client, url) {
   const loaded = waitForEvent(client, 'Page.loadEventFired')
   await client.send('Page.navigate', { url })
   await loaded
-}
-
-async function evaluate(client, expression) {
-  const result = await client.send('Runtime.evaluate', {
-    expression,
-    awaitPromise: true,
-    returnByValue: true,
-  })
-
-  if (result.exceptionDetails) {
-    const detail =
-      result.exceptionDetails.exception?.description ||
-      result.exceptionDetails.exception?.value ||
-      result.exceptionDetails.text ||
-      'Runtime evaluation failed'
-    throw new Error(detail)
-  }
-
-  return result.result?.value
 }
 
 async function screenshot(client, name) {
@@ -882,31 +762,15 @@ const mockScript = `
 
 async function main() {
   await mkdir(OUT_DIR, { recursive: true })
-
-  const profileDir = await mkdtemp(path.join(tmpdir(), 'chatbot-cdp-'))
-  const chrome = spawn(CHROME_PATH, [
-    '--headless=new',
-    '--disable-gpu',
-    '--hide-scrollbars=false',
-    '--no-first-run',
-    '--no-default-browser-check',
-    `--remote-debugging-port=${DEBUG_PORT}`,
-    `--user-data-dir=${profileDir}`,
-    '--window-size=1280,900',
-    'about:blank',
-  ], {
-    stdio: ['ignore', 'ignore', 'pipe'],
+  const { chrome } = await launchChrome({
+    url: 'about:blank',
+    debugPort: DEBUG_PORT,
+    profilePrefix: `chatbot-cdp-${UI_GROUP}-`,
+    windowSize: '1280,900',
   })
 
-  chrome.stderr.on('data', () => {})
-
   try {
-    await waitForHttp(`http://127.0.0.1:${DEBUG_PORT}/json/version`)
-
-    const targets = await (await fetch(`http://127.0.0.1:${DEBUG_PORT}/json/list`)).json()
-    const target =
-      targets.find((item) => item.type === 'page' && item.url === 'about:blank') ||
-      targets.find((item) => item.type === 'page')
+    const target = await getPageTarget(DEBUG_PORT, 'about:blank')
     const client = new CdpClient(target.webSocketDebuggerUrl)
 
     await client.send('Page.enable')
@@ -925,8 +789,10 @@ async function main() {
     await client.send('Page.navigate', { url: APP_URL })
 
     await resetPage(client)
+    const groupResults = {}
 
-    console.log('UI stage: initialization, sidebar, dialogs, and API failures')
+    if (shouldRun('conversation-operations')) {
+      console.log('UI stage: initialization, sidebar, dialogs, and API failures')
     const initialState = await evaluate(
       client,
       `(() => {
@@ -1223,9 +1089,12 @@ async function main() {
       throw new Error(`Delete last conversation failed: ${JSON.stringify(deleteLastState)}`)
     }
 
+    }
+
     await resetPage(client)
 
-    console.log('UI stage: reasoning panel and stream protocol')
+    if (shouldRun('model-menu')) {
+      console.log('UI stage: reasoning panel and stream protocol')
     await setPlan(client, [{
       kind: 'success',
       reasoningChunks: ['先分析问题。', '再给出结论。'],
@@ -1492,11 +1361,20 @@ async function main() {
     await waitIdle(client)
     await ask(client, '非法 done event')
     await waitFor(client, `document.body.innerText.includes('服务端返回了无效的完成事件')`)
-    await waitIdle(client)
+      await waitIdle(client)
+      Object.assign(groupResults, {
+        reasoningState,
+        reasoningAbortCount,
+        reasoningExpanded,
+        reasoningCollapsed,
+        reasoningMarkdownState,
+      })
+    }
 
     await resetPage(client)
 
-    console.log('UI stage: stop/copy/recovery')
+    if (shouldRun('stream-recovery')) {
+      console.log('UI stage: stop/copy/recovery')
     await setPlan(client, [{
       kind: 'success',
       chunks: ['正在生成第一段。', '正在生成第二段。', '这段会保持生成状态。'],
@@ -1547,10 +1425,13 @@ async function main() {
     await ask(client, '停止后继续发送')
     await waitFor(client, `document.body.innerText.includes('停止后新的请求成功。')`)
     await waitIdle(client)
-    await screenshot(client, '01-continue-after-stop')
+      await screenshot(client, '01-continue-after-stop')
+      Object.assign(groupResults, { streamingActionState, stoppedActionState })
+    }
 
-    console.log('UI stage: retry and scroll')
-    await resetPage(client)
+    if (shouldRun('layout-scroll')) {
+      console.log('UI stage: retry and scroll')
+      await resetPage(client)
     await setPlan(client, [{
       kind: 'success',
       chunks: ['重复停止第一段。', '重复停止第二段。'],
@@ -1743,7 +1624,20 @@ async function main() {
     await clickText(client, 'button', '停止')
     await waitFor(client, `document.body.innerText.includes('已停止生成')`)
 
-    await resetPage(client)
+      Object.assign(groupResults, {
+        retryState,
+        scrollBefore,
+        bottomGapAtBottom,
+        bottomGapFollow,
+        codeBlockFollowState,
+        bottomGapBefore,
+        scrollDuring,
+        bottomGap,
+      })
+    }
+
+    if (shouldRun('conversation-operations')) {
+      await resetPage(client)
     await setPlan(client, [{
       kind: 'success',
       chunks: ['新建前正在生成。', '这条请求应该被中断。'],
@@ -2021,17 +1915,30 @@ async function main() {
         textareaDisabled: document.querySelector('textarea').disabled,
       }))()`,
     )
-    if (
-      !composerState.blankSendDisabled ||
-      composerState.enterSubmitCount !== composerState.blankAskCount + 1 ||
-      composerState.shiftEnterSubmitCount !== composerState.enterSubmitCount ||
-      composerState.tallHeight <= composerState.finalHeight
-    ) {
-      throw new Error('Composer behavior assertions failed')
+      if (
+        !composerState.blankSendDisabled ||
+        composerState.enterSubmitCount !== composerState.blankAskCount + 1 ||
+        composerState.shiftEnterSubmitCount !== composerState.enterSubmitCount ||
+        composerState.tallHeight <= composerState.finalHeight
+      ) {
+        throw new Error('Composer behavior assertions failed')
+      }
+      Object.assign(groupResults, {
+        newChatAbortCount,
+        switchAbortCount,
+        newChatDraftValue,
+        switchDraftValue,
+        deleteDraftState,
+        clearDraftState,
+        userOperationState,
+        conversationOperationState,
+        composerState,
+      })
     }
 
-    console.log('UI stage: suggestions and theme')
-    await resetPage(client)
+    if (shouldRun('stream-recovery')) {
+      console.log('UI stage: suggestions and theme')
+      await resetPage(client)
     await clickFirstSuggestion(client)
     const suggestionState = await evaluate(
       client,
@@ -2124,12 +2031,21 @@ async function main() {
         activeCount: document.querySelectorAll('.conversation-item-shell.active').length,
       }))()`,
     )
-    if (!reloadRecoveryState.hasMessage || reloadRecoveryState.draftValue !== '' || reloadRecoveryState.activeCount !== 1) {
-      throw new Error(`Reload recovery failed: ${JSON.stringify(reloadRecoveryState)}`)
+      if (!reloadRecoveryState.hasMessage || reloadRecoveryState.draftValue !== '' || reloadRecoveryState.activeCount !== 1) {
+        throw new Error(`Reload recovery failed: ${JSON.stringify(reloadRecoveryState)}`)
+      }
+      Object.assign(groupResults, {
+        suggestionState,
+        suggestionDuringGeneration,
+        themePersistenceState,
+        themeStreamingState,
+        reloadRecoveryState,
+      })
     }
 
-    console.log('UI stage: mobile layout and frontend errors')
-    await client.send('Emulation.setDeviceMetricsOverride', {
+    if (shouldRun('layout-scroll')) {
+      console.log('UI stage: mobile layout and frontend errors')
+      await client.send('Emulation.setDeviceMetricsOverride', {
       width: 390,
       height: 844,
       deviceScaleFactor: 2,
@@ -2214,15 +2130,18 @@ async function main() {
     ) {
       throw new Error(`Mobile reasoning layout failed: ${JSON.stringify(mobileReasoningState)}`)
     }
-    await client.send('Emulation.setDeviceMetricsOverride', {
-      width: 1280,
-      height: 900,
-      deviceScaleFactor: 1,
-      mobile: false,
-    })
+      await client.send('Emulation.setDeviceMetricsOverride', {
+        width: 1280,
+        height: 900,
+        deviceScaleFactor: 1,
+        mobile: false,
+      })
+      Object.assign(groupResults, { mobileState, mobileReasoningState })
+    }
 
-    console.log('UI stage: send failures, timeout, done handling, and fast actions')
-    await resetPage(client)
+    if (shouldRun('stream-recovery')) {
+      console.log('UI stage: send failures, timeout, done handling, and fast actions')
+      await resetPage(client)
     await setPlan(client, [
       { kind: 'httpError', status: 500 },
       { kind: 'networkError', message: 'Failed to fetch' },
@@ -2317,50 +2236,16 @@ async function main() {
     await ask(client, '前端没有 done')
     await waitFor(client, `document.body.innerText.includes('响应未完整结束')`)
     await waitIdle(client)
-    await ask(client, '前端异常后恢复')
-    await waitFor(client, `document.body.innerText.includes('异常后恢复成功。')`)
+      await ask(client, '前端异常后恢复')
+      await waitFor(client, `document.body.innerText.includes('异常后恢复成功。')`)
+      Object.assign(groupResults, { extraAfterDoneState, fastSubmitState, timeoutRecoveryState })
+    }
 
-    console.log(JSON.stringify({
-      retryState,
-      scrollBefore,
-      bottomGapAtBottom,
-      bottomGapFollow,
-      codeBlockFollowState,
-      bottomGapBefore,
-      scrollDuring,
-      bottomGap,
-      newChatAbortCount,
-      switchAbortCount,
-      streamingActionState,
-      stoppedActionState,
-      newChatDraftValue,
-      switchDraftValue,
-      deleteDraftState,
-      clearDraftState,
-      userOperationState,
-      conversationOperationState,
-      composerState,
-      suggestionState,
-      suggestionDuringGeneration,
-      themePersistenceState,
-      themeStreamingState,
-      reloadRecoveryState,
-      mobileState,
-      mobileReasoningState,
-      reasoningState,
-      reasoningAbortCount,
-      reasoningExpanded,
-      reasoningCollapsed,
-      reasoningMarkdownState,
-      extraAfterDoneState,
-      fastSubmitState,
-      timeoutRecoveryState,
-    }, null, 2))
+    console.log(JSON.stringify({ group: UI_GROUP, ...groupResults }, null, 2))
 
     client.close()
   } finally {
     await stopProcess(chrome)
-    await rm(profileDir, { recursive: true, force: true })
   }
 }
 

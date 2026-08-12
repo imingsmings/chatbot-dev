@@ -10,6 +10,29 @@ const BACKEND_URL = process.env.BACKEND_URL || 'http://127.0.0.1:7001/'
 const CAPTURE_SCREENSHOTS = process.env.CDP_SCREENSHOTS === '1' ? '1' : '0'
 const ABORT_APP_URL = process.env.CDP_ABORT_APP_URL || 'http://localhost:5184/'
 
+const UI_SCENARIOS = [
+  {
+    name: 'UI conversation operation scenarios',
+    script: 'tests/cdp/scenarios/ui/conversation-operations.mjs',
+    needsVite: true,
+  },
+  {
+    name: 'UI stream recovery scenarios',
+    script: 'tests/cdp/scenarios/ui/stream-recovery.mjs',
+    needsVite: true,
+  },
+  {
+    name: 'UI scroll and layout scenarios',
+    script: 'tests/cdp/scenarios/ui/layout-scroll.mjs',
+    needsVite: true,
+  },
+  {
+    name: 'UI model menu scenarios',
+    script: 'tests/cdp/scenarios/ui/model-menu.mjs',
+    needsVite: true,
+  },
+]
+
 function readNonNegativeInteger(name, fallback) {
   const value = Number(process.env[name])
   return Number.isInteger(value) && value >= 0 ? value : fallback
@@ -31,10 +54,10 @@ const SUITES = {
       },
     },
     { name: 'P0 API and tool scenarios', script: 'tests/cdp/p0-api-tool.mjs' },
-    { name: 'UI core scenarios', script: 'tests/cdp/ui-scenarios.mjs', needsVite: true },
+    ...UI_SCENARIOS,
   ],
   p1: [
-    { name: 'UI interaction scenarios', script: 'tests/cdp/ui-scenarios.mjs', needsVite: true },
+    ...UI_SCENARIOS,
     { name: 'Markdown rendering scenarios', script: 'tests/cdp/markdown-rendering.mjs', needsVite: true },
     { name: 'Highlight rendering scenarios', script: 'tests/cdp/highlight-rendering.mjs', needsVite: true },
     { name: 'P1 storage/title boundary scenarios', script: 'tests/cdp/p0-api-tool.mjs' },
@@ -46,7 +69,7 @@ const SUITES = {
     { name: 'Highlight rendering scenarios', script: 'tests/cdp/highlight-rendering.mjs', needsVite: true },
   ],
   ui: [
-    { name: 'UI interaction scenarios', script: 'tests/cdp/ui-scenarios.mjs', needsVite: true },
+    ...UI_SCENARIOS,
   ],
   'context-debug': [
     { name: 'Context debug scenarios', script: 'tests/cdp/context-debug.mjs', needsVite: true },
@@ -94,7 +117,11 @@ const SUITES = {
 
 SUITES['all-mock'] = [
   ...SUITES.p0,
-  ...SUITES.p1.filter((item) => item.script !== 'tests/cdp/ui-scenarios.mjs' && item.script !== 'tests/cdp/p0-api-tool.mjs'),
+  ...SUITES.p1.filter(
+    (item) =>
+      !UI_SCENARIOS.some((uiScenario) => uiScenario.script === item.script) &&
+      item.script !== 'tests/cdp/p0-api-tool.mjs',
+  ),
   ...SUITES['context-debug'],
   ...SUITES['conversation-search'],
   ...SUITES['conversation-export'],
