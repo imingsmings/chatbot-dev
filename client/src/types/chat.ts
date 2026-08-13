@@ -42,6 +42,15 @@ export type ModelRequestOptions = {
   reasoningEffort?: string
 }
 
+export type ConversationModelOptions = {
+  provider: LlmProviderId
+  model: string
+  reasoningEnabled: boolean
+  reasoningEffort: string
+  temperature?: number
+  maxTokens?: number
+}
+
 export type ToolActivity = {
   id: string
   name: string
@@ -122,6 +131,7 @@ export type ConversationDetail = ConversationSummary & {
   titleManuallyEdited?: boolean
   messages: StoredMessage[]
   summary?: ConversationContextSummary
+  modelOptions?: ConversationModelOptions
 }
 
 export type PromptMessageRole = StoredMessage['role'] | 'system' | 'tool'

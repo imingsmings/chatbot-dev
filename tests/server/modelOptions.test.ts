@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict'
 import { after, test } from 'node:test'
-import { parseModelRequestOptions, resolveModelOptions } from '../../server/utils/modelOptions.ts'
+import {
+  normalizeConversationModelOptions,
+  parseConversationModelOptions,
+  parseModelRequestOptions,
+  resolveModelOptions,
+} from '../../server/utils/modelOptions.ts'
 import { validateStartupConfig, validateWeatherConfig } from '../../server/utils/runtimeConfig.ts'
 
 const originalEnv = { ...process.env }
@@ -60,6 +65,45 @@ test('OpenAI request options infer the provider and enforce model capabilities',
     () => parseModelRequestOptions({ model: 'gpt-5.6-luna', maxTokens: 128001 }),
     /maxTokens/
   )
+})
+
+test('conversation model options require and normalize a complete snapshot', () => {
+  process.env.LLM_PROVIDER = 'deepseek'
+  process.env.LLM_MODEL = 'deepseek-v4-flash'
+  process.env.LLM_DISABLED_MODELS = ''
+  assert.deepEqual(parseConversationModelOptions({
+    provider: 'deepseek',
+    model: 'deepseek-v4-pro',
+    reasoningEnabled: true,
+    reasoningEffort: 'high',
+    temperature: 0.2,
+    maxTokens: 4096,
+  }), {
+    provider: 'deepseek',
+    model: 'deepseek-v4-pro',
+    reasoningEnabled: true,
+    reasoningEffort: 'high',
+    temperature: 0.2,
+    maxTokens: 4096,
+  })
+  assert.throws(
+    () => parseConversationModelOptions({ provider: 'deepseek', model: 'deepseek-v4-pro' }),
+    /缺少 reasoningEnabled/,
+  )
+  assert.equal(normalizeConversationModelOptions({
+    provider: 'deepseek',
+    model: 'unknown-model',
+    reasoningEnabled: true,
+    reasoningEffort: 'max',
+  }), undefined)
+
+  process.env.LLM_MODEL = 'private-compatible-model'
+  assert.equal(parseConversationModelOptions({
+    provider: 'deepseek',
+    model: 'private-compatible-model',
+    reasoningEnabled: false,
+    reasoningEffort: 'max',
+  }).model, 'private-compatible-model')
 })
 
 test('request options override environment defaults independently', () => {

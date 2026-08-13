@@ -7,6 +7,7 @@ import {
 } from './llm/modelCatalog.ts'
 import { getProviderConfig, readDefaultProvider } from './llm/providerConfig.ts'
 import type { EffectiveModelOptions, LlmProviderId, ModelRequestOptions } from '../types/llm.ts'
+import type { ConversationModelOptions } from '../types/conversation.ts'
 
 const TRUE_VALUES = new Set(['1', 'true', 'yes', 'on', 'enabled'])
 const FALSE_VALUES = new Set(['0', 'false', 'no', 'off', 'disabled'])
@@ -200,11 +201,69 @@ function resolveModelOptions(overrides: ModelRequestOptions = {}): EffectiveMode
   return options
 }
 
+function toConversationModelOptions(options: EffectiveModelOptions): ConversationModelOptions {
+  return {
+    provider: options.provider,
+    model: options.model,
+    reasoningEnabled: options.reasoningEnabled,
+    reasoningEffort: options.reasoningEffort,
+    ...(options.temperature === undefined ? {} : { temperature: options.temperature }),
+    ...(options.maxTokens === undefined ? {} : { maxTokens: options.maxTokens })
+  }
+}
+
+function parseConversationModelOptions(value: unknown): ConversationModelOptions {
+  if (!isRecord(value)) {
+    throw new Error('会话模型配置必须是对象')
+  }
+
+  for (const field of ['provider', 'model', 'reasoningEnabled', 'reasoningEffort'] as const) {
+    if (value[field] === undefined || value[field] === null) {
+      throw new Error(`会话模型配置缺少 ${field}`)
+    }
+  }
+
+  const rawProvider = value.provider
+  const rawModel = value.model
+  const provider = typeof rawProvider === 'string' && isLlmProviderId(rawProvider.trim().toLowerCase())
+    ? rawProvider.trim().toLowerCase() as LlmProviderId
+    : undefined
+  const configuredDefaultModel = provider ? getProviderConfig(provider).defaultModel : undefined
+  const requestValue =
+    provider &&
+    typeof rawModel === 'string' &&
+    rawModel.trim() === configuredDefaultModel &&
+    !findModelDescriptor(rawModel.trim())
+      ? { ...value, provider, model: undefined }
+      : value
+  const requestOptions = parseModelRequestOptions(requestValue)
+  if (configuredDefaultModel && requestValue !== value) {
+    requestOptions.model = configuredDefaultModel
+  }
+  return toConversationModelOptions(resolveModelOptions(requestOptions))
+}
+
+function normalizeConversationModelOptions(value: unknown): ConversationModelOptions | undefined {
+  try {
+    return parseConversationModelOptions(value)
+  } catch {
+    return undefined
+  }
+}
+
+function readDefaultConversationModelOptions(): ConversationModelOptions {
+  return toConversationModelOptions(readDefaultModelOptions())
+}
+
 export {
   type EffectiveModelOptions,
   MAX_MODEL_TOKENS,
+  normalizeConversationModelOptions,
+  parseConversationModelOptions,
   parseModelRequestOptions,
+  readDefaultConversationModelOptions,
   readDefaultModelOptions,
   resolveModelOptions,
+  toConversationModelOptions,
   validateEffectiveModelOptions
 }

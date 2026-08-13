@@ -31,6 +31,11 @@ const UI_SCENARIOS = [
     script: 'tests/cdp/scenarios/ui/model-menu.mjs',
     needsVite: true,
   },
+  {
+    name: 'UI conversation model option persistence',
+    script: 'tests/cdp/scenarios/ui/model-options-persistence.mjs',
+    needsVite: true,
+  },
 ]
 
 function readNonNegativeInteger(name, fallback) {
@@ -92,6 +97,13 @@ const SUITES = {
   ],
   'docker-ui': [
     { name: 'Docker-hosted UI validation', script: 'tests/cdp/docker-ui.mjs' },
+  ],
+  'model-options-persistence': [
+    {
+      name: 'UI conversation model option persistence',
+      script: 'tests/cdp/scenarios/ui/model-options-persistence.mjs',
+      needsVite: true,
+    },
   ],
   real: [
     { name: 'Real UI scenarios', script: 'tests/cdp/real-scenarios.mjs', needsVite: true, needsBackend: true },

@@ -5,8 +5,10 @@ import {
   MAX_MODEL_TOKENS,
   getInitialModelOptions,
   getModelDescriptor,
+  isModelOptionsUsable,
   normalizeDeepSeekModelId,
   parseModelSettingsDraft,
+  resolveConversationModelOptions,
   selectModelOptions,
 } from '../../../client/src/utils/modelOptions'
 import type { RuntimeInfo } from '../../../client/src/types/chat'
@@ -185,6 +187,52 @@ describe('framework-neutral core logic', () => {
       provider: 'openai',
       model: 'gpt-5.6-sol',
     }).id).toBe('gpt-5.6-luna')
+  })
+
+  it('restores valid conversation options and falls back from disabled or unavailable selections', () => {
+    expect(resolveConversationModelOptions(runtime, {
+      provider: 'deepseek',
+      model: 'deepseek-v4-flash',
+      temperature: 0.2,
+      maxTokens: 4096,
+      reasoningEnabled: false,
+      reasoningEffort: 'high',
+    })).toEqual({
+      provider: 'deepseek',
+      model: 'deepseek-v4-flash',
+      temperature: 0.2,
+      maxTokens: 4096,
+      reasoningEnabled: false,
+      reasoningEffort: 'high',
+    })
+
+    expect(resolveConversationModelOptions(runtime, {
+      provider: 'openai',
+      model: 'gpt-5.6-sol',
+      reasoningEnabled: true,
+      reasoningEffort: 'high',
+    })).toEqual(getInitialModelOptions(runtime))
+
+    const unavailableRuntime = structuredClone(runtime)
+    unavailableRuntime.providers![1]!.configured = false
+    unavailableRuntime.providers![1]!.endpointConfigured = false
+    unavailableRuntime.providers![1]!.apiKeyConfigured = false
+    expect(resolveConversationModelOptions(unavailableRuntime, {
+      provider: 'openai',
+      model: 'gpt-5.6-luna',
+      reasoningEnabled: true,
+      reasoningEffort: 'high',
+    }).provider).toBe('deepseek')
+    expect(isModelOptionsUsable(unavailableRuntime, {
+      provider: 'deepseek',
+      model: 'deepseek-v4-flash',
+    })).toBe(true)
+
+    unavailableRuntime.providers![0]!.configured = false
+    expect(isModelOptionsUsable(unavailableRuntime, {
+      provider: 'deepseek',
+      model: 'deepseek-v4-flash',
+    })).toBe(false)
   })
 
   it('falls back to a usable catalog when runtime providers contain no models', () => {

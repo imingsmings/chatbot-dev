@@ -25,6 +25,7 @@ export function App() {
   const composerDisabled =
     controller.isResponding ||
     controller.isStopping ||
+    controller.isModelOptionsSaving ||
     controller.isConversationTransitioning ||
     !controller.currentConversationId
 
@@ -85,7 +86,11 @@ export function App() {
             <AppActionsMenu
               canGenerateSummary={controller.canGenerateSummary}
               canPreviewContext={controller.canPreviewContext}
-              disabled={controller.isStopping || controller.isConversationTransitioning}
+              disabled={
+                controller.isStopping ||
+                controller.isModelOptionsSaving ||
+                controller.isConversationTransitioning
+              }
               isContextPreviewLoading={controller.isContextPreviewLoading}
               onOpenChange={(open) => controller.setMenuOpen({ kind: 'app' }, open)}
               onOpenSettings={() => controller.setIsModelSettingsOpen(true)}
@@ -112,7 +117,7 @@ export function App() {
             </output>
           ) : controller.messages.length === 0 ? (
             <EmptyState
-              disabled={controller.isConversationTransitioning || controller.isStopping}
+              disabled={controller.isConversationTransitioning || controller.isStopping || controller.isModelOptionsSaving}
               onUseSuggestion={controller.useSuggestion}
               suggestions={controller.suggestions}
               title={controller.currentConversationTitle}
@@ -123,6 +128,7 @@ export function App() {
               isResponding={
                 controller.isResponding ||
                 controller.isStopping ||
+                controller.isModelOptionsSaving ||
                 controller.isConversationTransitioning
               }
               messages={controller.messages}
@@ -183,12 +189,14 @@ export function App() {
       <ModelSettingsModal
         onClose={() => controller.setIsModelSettingsOpen(false)}
         onSave={(options) => {
-          controller.setModelOptions(options)
-          controller.setIsModelSettingsOpen(false)
+          void controller.setModelOptions(options).then((saved) => {
+            if (saved) controller.setIsModelSettingsOpen(false)
+          })
         }}
         open={controller.isModelSettingsOpen}
         options={controller.modelOptions}
         runtime={controller.runtimeInfo}
+        saving={controller.isModelOptionsSaving}
       />
       <ConversationSummaryModal
         loading={controller.isSummaryLoading}

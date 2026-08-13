@@ -5,7 +5,8 @@ import {
   getConversation,
   importConversation,
   listConversations,
-  renameConversation
+  renameConversation,
+  updateConversationModelOptions
 } from '../utils/conversationStore.ts'
 import { MAX_CONVERSATION_TITLE_LENGTH } from '../config/productLimits.ts'
 import { createId, now } from '../utils/conversationStore/normalization.ts'
@@ -13,8 +14,10 @@ import type {
   Conversation,
   ConversationSearchResult,
   ConversationSummary,
-  ConversationTitleUpdateResult
+  ConversationTitleUpdateResult,
+  ConversationModelOptions
 } from '../types/conversation.ts'
+import { readDefaultConversationModelOptions } from '../utils/modelOptions.ts'
 
 const SEARCH_SNIPPET_RADIUS = 42
 const BRANCH_TITLE_SUFFIX = '（分支）'
@@ -56,7 +59,7 @@ async function listConversationSummaries(): Promise<ConversationSummary[]> {
 }
 
 async function createNewConversation(title: unknown): Promise<Conversation> {
-  return createConversation(title)
+  return createConversation(title, readDefaultConversationModelOptions())
 }
 
 function createBranchTitle(title: string): string {
@@ -88,7 +91,8 @@ async function createConversationBranch(
       createdAt: timestamp,
       updatedAt: timestamp,
       titleManuallyEdited: true,
-      messages: source.messages.slice(0, messageIndex)
+      messages: source.messages.slice(0, messageIndex),
+      modelOptions: source.modelOptions ? { ...source.modelOptions } : undefined
     }
     const imported = await importConversation(branch, 'skip')
     if (!imported.conversationId) {
@@ -192,6 +196,13 @@ async function clearConversationMessages(id: string): Promise<Conversation | nul
   return clearConversation(id)
 }
 
+async function saveConversationModelOptions(
+  id: string,
+  options: ConversationModelOptions
+): Promise<Conversation | null> {
+  return updateConversationModelOptions(id, options)
+}
+
 async function clearAllConversations(): Promise<void> {
   const conversations = await listConversations()
   await Promise.all(conversations.map((conversation) => clearConversation(conversation.id)))
@@ -205,6 +216,7 @@ export {
   findConversation,
   listConversationSummaries,
   removeConversation,
+  saveConversationModelOptions,
   searchConversationSummaries,
   updateConversationTitle
 }

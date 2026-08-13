@@ -116,6 +116,45 @@ const mockScript = `
     const pathname = parsed.pathname.replace(/^\\/api/, '');
     const method = (init.method || 'GET').toUpperCase();
 
+    if (pathname === '/runtime-config' && method === 'GET') {
+      return json({
+        runtime: {
+          provider: 'deepseek',
+          model: 'context-debug-model',
+          storageBackend: 'file',
+          endpointConfigured: true,
+          apiKeyConfigured: true,
+          providers: [{
+            id: 'deepseek',
+            label: 'DeepSeek',
+            configured: true,
+            endpointConfigured: true,
+            apiKeyConfigured: true,
+            defaultModel: 'context-debug-model',
+            models: [{
+              provider: 'deepseek',
+              id: 'context-debug-model',
+              label: 'Context Debug Model',
+              capabilities: {
+                tools: true,
+                reasoning: true,
+                reasoningSummary: false,
+                reasoningEfforts: ['low', 'medium', 'high', 'max'],
+                temperature: true,
+                maxOutputTokens: 65536,
+              },
+            }],
+          }],
+          defaults: {
+            temperature: null,
+            maxTokens: null,
+            reasoningEnabled: true,
+            reasoningEffort: 'max',
+          },
+        },
+      });
+    }
+
     if (pathname === '/conversations' && method === 'GET') {
       return json({
         conversations: [...conversations.values()]
@@ -134,7 +173,11 @@ const mockScript = `
       if (!conversation) return json({ message: 'not found' }, 404);
       const body = JSON.parse(init.body || '{}');
       const question = typeof body.question === 'string' ? body.question : '';
-      contextPreviewRequests.push({ conversationId: conversation.id, question });
+      contextPreviewRequests.push({
+        conversationId: conversation.id,
+        question,
+        options: body.options,
+      });
       return json({ context: buildContextPreview(conversation, question) });
     }
 
@@ -240,6 +283,7 @@ async function readModalState(client) {
         ].every((value) => text.includes(value)),
         requestCount: state.contextPreviewRequests.length,
         requestQuestion: state.contextPreviewRequests.at(-1)?.question,
+        requestOptions: state.contextPreviewRequests.at(-1)?.options,
         storedMessageCount: state.conversations[0]?.messages.length,
         noPageOverflow: document.documentElement.scrollWidth <= window.innerWidth,
         modalFitsViewport: modal ? modal.getBoundingClientRect().width <= window.innerWidth : false
@@ -287,6 +331,15 @@ async function main() {
     assert(desktopState.hasStandardValues, 'context debug values exposed raw internal values')
     assert(desktopState.requestCount === 1, 'context preview endpoint should be called once')
     assert(desktopState.requestQuestion === 'CURRENT_DEBUG_QUESTION', 'preview endpoint did not receive current draft question')
+    assert(
+      JSON.stringify(desktopState.requestOptions) === JSON.stringify({
+        provider: 'deepseek',
+        model: 'context-debug-model',
+        reasoningEnabled: true,
+        reasoningEffort: 'max',
+      }),
+      'context preview did not receive the current conversation model options',
+    )
     assert(desktopState.storedMessageCount === 3, 'context preview should not mutate stored conversation messages')
 
     await clickButtonByText(client, 'Close')

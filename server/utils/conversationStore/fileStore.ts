@@ -7,6 +7,7 @@ import type {
   ConversationContextSummary,
   ConversationImportConflictStrategy,
   ConversationImportItemResult,
+  ConversationModelOptions,
   StoredMessage
 } from '../../types/conversation.ts'
 import { DEFAULT_TITLE, type ConversationStore } from './contracts.ts'
@@ -205,7 +206,10 @@ async function getConversation(id: string): Promise<Conversation | null> {
   return conversation ? cloneConversation(conversation) : null
 }
 
-async function createConversation(title: unknown = DEFAULT_TITLE): Promise<Conversation> {
+async function createConversation(
+  title: unknown = DEFAULT_TITLE,
+  modelOptions?: ConversationModelOptions
+): Promise<Conversation> {
   await migrateLegacyStore()
 
   const timestamp = now()
@@ -216,7 +220,8 @@ async function createConversation(title: unknown = DEFAULT_TITLE): Promise<Conve
     createdAt: timestamp,
     updatedAt: timestamp,
     titleManuallyEdited: normalizedTitle !== DEFAULT_TITLE,
-    messages: []
+    messages: [],
+    ...(modelOptions ? { modelOptions: { ...modelOptions } } : {})
   }
 
   await writeConversationFile(conversation)
@@ -269,6 +274,21 @@ async function updateSummary(
       delete conversation.summary
     }
     conversation.updatedAt = now()
+    await writeConversationFile(conversation)
+    return cloneConversation(conversation)
+  })
+}
+
+async function updateModelOptions(
+  id: string,
+  options: ConversationModelOptions
+): Promise<Conversation | null> {
+  await migrateLegacyStore()
+  return withConversationMutation(id, async () => {
+    const conversation = await readConversationFileRaw(id)
+    if (!conversation) return null
+
+    conversation.modelOptions = { ...options }
     await writeConversationFile(conversation)
     return cloneConversation(conversation)
   })
@@ -351,6 +371,7 @@ export function createFileConversationStore(): ConversationStore {
     renameConversation,
     appendMessages,
     updateSummary,
+    updateModelOptions,
     importConversation,
     clearConversation,
     deleteConversation

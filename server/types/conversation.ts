@@ -21,6 +21,15 @@ export type ConversationContextSummary = {
   updatedAt: string
 }
 
+export type ConversationModelOptions = {
+  provider: 'deepseek' | 'openai'
+  model: string
+  reasoningEnabled: boolean
+  reasoningEffort: string
+  temperature?: number
+  maxTokens?: number
+}
+
 export type PromptMessage = {
   role: PromptMessageRole
   content: string | null
@@ -37,6 +46,7 @@ export type Conversation = {
   titleManuallyEdited: boolean
   messages: StoredMessage[]
   summary?: ConversationContextSummary
+  modelOptions?: ConversationModelOptions
 }
 
 export type ConversationSummary = {

@@ -55,6 +55,7 @@ flowchart LR
 | `client/src/hooks/useMessageBranching.ts` | 编辑/重新生成的目标定位、分支创建、新会话显式发送和失败恢复 |
 | `client/src/hooks/useConversationTransfer.ts` | 单会话 Markdown 导出、全量 JSON 导出和备份导入 |
 | `client/src/hooks/useConversationInsights.ts` | 上下文预览、会话摘要及切换/生成竞态保护 |
+| `client/src/hooks/useConversationModelOptions.ts` | 会话配置恢复、可用模型回退、乐观保存、失败回滚、快速点击和过期响应隔离 |
 | `client/src/hooks/useConversations.ts` | 会话列表、详情、选择序列和 CRUD |
 | `client/src/hooks/useChatStream.ts` | requestId、AbortController、首包/流空闲超时、取消完成握手和持久化详情回拉 |
 | `client/src/hooks/useAutoScroll.ts` | 用户滚动意图、MutationObserver 和 rAF 跟随 |
@@ -62,7 +63,7 @@ flowchart LR
 | `client/src/api/*` | HTTP 错误读取、下载和 NDJSON 拆包 |
 | `client/src/utils/streamProtocol.ts` | 基于共享事件联合执行 NDJSON v2 运行时校验 |
 | `client/src/utils/markdownRenderer.ts` | 禁用 HTML/图片、净化、高亮和安全外链 |
-| `client/src/utils/modelOptions.ts` | 运行时模型能力目录、损坏目录降级和参数约束 |
+| `client/src/utils/modelOptions.ts` | 运行时模型能力目录、会话配置恢复、损坏/失效模型降级、可发送性和参数约束 |
 
 前端不解析 provider SSE、不读取 API key，也不直接操作持久化文件。
 
@@ -82,10 +83,10 @@ flowchart LR
 | `server/config/deploymentConfig.ts` | HOST/PORT、生产默认值、`~/` 路径和 TLS 证书/私钥校验 |
 | `server/config/clientHosting.ts` | `client/dist` 校验、静态缓存与 HTML SPA 回退 |
 | `server/controllers/*` | HTTP 输入、长度边界、状态码和流响应 |
-| `server/services/chatService.ts` | 上下文、模型、工具两阶段、生成元数据聚合和完成/手动停止持久化 |
+| `server/services/chatService.ts` | ask 前绑定完整会话模型配置、上下文、工具两阶段、生成元数据聚合和完成/手动停止持久化 |
 | `server/services/contextService.ts` | 摘要覆盖边界、安全截断、消息数和字符预算 |
 | `server/services/conversationSummaryService.ts` | 覆盖边界后的增量滚动摘要、输入预算及会话变化检测 |
-| `server/services/conversationService.ts` | 会话列表/标题/搜索，以及只复制目标消息前缀的普通会话分支 |
+| `server/services/conversationService.ts` | 会话列表/标题/搜索、模型配置保存，以及继承配置但只复制目标消息前缀的普通会话分支 |
 | `server/services/toolService.ts` | 工具参数校验、失败隔离、耗时和生命周期事件 |
 | `server/services/healthService.ts` | 启动级配置校验和当前会话 store 的实际读写探针；仅输出稳定状态 |
 | `server/tools/*` | 单工具 schema、validator 和 handler |
@@ -95,10 +96,10 @@ flowchart LR
 | `server/utils/requestRegistry.ts` | requestId 与单会话活动请求互斥、取消信号和请求完成通知 |
 | `server/utils/conversationStore.ts` | 稳定 facade；按运行配置选择 file/SQLite 实现并保持既有导出 |
 | `server/utils/conversationStore/contracts.ts` | 存储公共契约和默认标题 |
-| `server/utils/conversationStore/normalization.ts` | ID、消息、时间、摘要、标题和副本规范化 |
+| `server/utils/conversationStore/normalization.ts` | ID、消息、时间、摘要、标题、模型配置安全降级和深副本规范化 |
 | `server/utils/conversationStore/migration.ts` | file/legacy aggregate 的共享迁移读取 |
 | `server/utils/conversationStore/fileStore.ts` | 原子 JSON 文件、同会话 mutation queue 和 legacy file 迁移 |
-| `server/utils/conversationStore/sqliteStore.ts` | SQLite schema/WAL、JSON 迁移、CRUD 和连接关闭 |
+| `server/utils/conversationStore/sqliteStore.ts` | SQLite schema/WAL、幂等 `model_options` 迁移、JSON 迁移、CRUD 和连接关闭 |
 
 Provider 特有字段只存在于 adapter。控制器不拼 prompt，工具注册表不内嵌天气/计算器实现。
 
@@ -175,6 +176,7 @@ sequenceDiagram
   C->>E: POST /conversations/:id/ask + requestId
   E->>E: 校验 + 注册单会话活动请求
   E->>S: Conversation + AbortSignal
+  S->>D: 旧会话在 Provider 前绑定完整模型配置
   S->>S: 摘要 + 最近历史 + 当前问题
   S->>P: provider request + tools
   P-->>S: provider SSE
@@ -185,6 +187,8 @@ sequenceDiagram
   C->>E: GET conversation detail
   E-->>C: persisted messages + indices
 ```
+
+ask、摘要和上下文预览都使用当前会话 UI 提交的完整模型参数。旧会话首次 ask 会在调用 Provider 前绑定该快照，即使 Provider 随后失败也可刷新恢复；上下文预览保持只读。独立 model-options PATCH 与 ask/摘要共享单会话互斥。
 
 完整模型回答写入 user + `completed` assistant；只有用户显式停止且已经收到正文时，才写入 user + `stopped` assistant。DeepSeek 必须读到 `[DONE]`，OpenAI Responses 必须读到 `response.completed`；正文、reasoning 或工具参数之后异常 EOF 仍通过现有 NDJSON `error` 结束，不发送 `done`，也不落库。若会话在生成期间被删除，同样返回流错误而不是把“成功”但未落盘的结果交给前端。
 
@@ -209,7 +213,7 @@ sequenceDiagram
   S-->>C: 既有 NDJSON v2 流
 ```
 
-- 分支不引入 parentId、branch tree 或新的持久化 schema；它与手工新建/导入的会话使用同一 file/SQLite 结构。
+- 分支不引入 parentId 或 branch tree；它与手工新建/导入的会话使用同一 file/SQLite 结构，并继承父会话的模型配置快照。
 - 目标索引必须指向已保存的 user message。前缀复制保留 reasoning、generation 和 tool trace，目标用户消息及其后全部消息不复制，summary 不继承。
 - 编辑保存和重新生成都先持久化空分支，再复用既有 ask；若模型请求失败，父会话不变，新分支保留为可重试状态。
 - error assistant 继续走原地重试，避免把未落库的 optimistic user message 当作可分支历史。
@@ -273,6 +277,7 @@ flowchart LR
 ### File store
 
 - 每个会话一份 JSON。
+- 合法 `modelOptions` 随会话 JSON 保存；损坏、未知或已禁用配置只降级该字段，不影响消息读取。
 - 同一会话的 read-modify-write 进入串行 mutation queue，避免并发追加互相覆盖。
 - 写入先落到同目录唯一临时文件，再 rename 替换，避免进程中断留下半份 JSON。
 - 从文件读取时以文件名 ID 为准，防止 payload ID 串写其他文件。
@@ -283,7 +288,7 @@ flowchart LR
 
 - 默认会话存储；可显式设置 `CONVERSATION_STORE=file` 回退到单会话 JSON 文件。
 - WAL 模式；同步事务保证 migration 和批量写边界。
-- messages/summary 以 JSON 保存，包含可选 generation/tool trace/status，对外保持与 file store 相同语义。
+- messages/summary 以 JSON 保存，模型配置使用可空 `model_options` JSON 列；包含可选 generation/tool trace/status，对外保持与 file store 相同语义。
 - 旧 JSON 迁移通过 metadata 标记实现幂等。
 - 健康检查在当前数据库执行 `BEGIN IMMEDIATE`、探针写入/读回和 `ROLLBACK`，验证真实 DB 路径和事务写能力且不留下数据。
 

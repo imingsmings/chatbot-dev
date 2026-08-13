@@ -17,6 +17,7 @@
 - DeepSeek V4 Flash 与 DeepSeek V4 Pro；当前 `deepseek-v4-pro` 别名对应 DeepSeek-V4-Pro-0813。
 - OpenAI Responses 模型目录。
 - 按模型能力显示和发送 temperature、max tokens、reasoning enabled/effort。
+- 每个会话保存独立的 provider、model、reasoning、temperature 和 max tokens；刷新、切换、清空、分支和重启后恢复，失效模型安全回退。
 - 运行时目录异常或为空时使用安全的 DeepSeek fallback，不崩溃。
 - 流式正文、reasoning、耗时、停止、错误和后续恢复；DeepSeek/OpenAI 完成事件缺失时不发送成功 `done` 且不落库。
 - 同一会话禁止并发 ask；客户端快速连续提交只发出一次。
@@ -44,7 +45,7 @@
 - 单会话 Markdown 导出。
 - 全量 JSON schema v1 备份。
 - 导入前完整校验；支持 skip、duplicate、overwrite。
-- file/SQLite 均保留 reasoning 和 summary。
+- file/SQLite、schema v1 备份和 duplicate/overwrite/skip 导入均保留合法的会话模型配置、reasoning 和 summary。
 - 自动化使用临时数据目录，不删除用户已有会话。
 
 ## Markdown 与交互

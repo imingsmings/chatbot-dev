@@ -259,6 +259,7 @@ export function useConversations(options: UseConversationsOptions = {}) {
     createBranchConversation,
     createNewConversation,
     currentConversationId: state.currentConversationId,
+    currentConversationModelOptions: state.currentConversationModelOptions,
     currentConversationSummary: state.currentConversationSummary,
     currentConversationTitle,
     dispatch,

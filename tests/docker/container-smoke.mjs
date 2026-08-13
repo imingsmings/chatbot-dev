@@ -294,8 +294,31 @@ async function main() {
       body: { title: `Docker smoke ${Date.now()}` },
     })
     assert.equal(created.status, 201)
-    conversationId = JSON.parse(created.text).conversation.id
+    const createdConversation = JSON.parse(created.text).conversation
+    conversationId = createdConversation.id
     assert.match(conversationId, /^conv_/)
+    assert.deepEqual(createdConversation.modelOptions, {
+      provider: 'deepseek',
+      model: 'deepseek-v4-flash',
+      reasoningEnabled: true,
+      reasoningEffort: 'max',
+    })
+    const persistedModelOptions = {
+      provider: 'deepseek',
+      model: 'deepseek-v4-flash',
+      reasoningEnabled: true,
+      reasoningEffort: 'low',
+      temperature: 0.2,
+      maxTokens: 2048,
+    }
+    const modelOptionsUpdate = await request(
+      port,
+      `/api/conversations/${conversationId}/model-options`,
+      { method: 'PATCH', body: { options: persistedModelOptions } },
+    )
+    assert.equal(modelOptionsUpdate.status, 200)
+    assert.deepEqual(JSON.parse(modelOptionsUpdate.text).conversation.modelOptions, persistedModelOptions)
+    assert.equal(JSON.parse(modelOptionsUpdate.text).conversation.updatedAt, createdConversation.updatedAt)
 
     const semanticConversationId = `conv_docker_backup_${Date.now()}`
     const semanticBackup = {
@@ -308,6 +331,14 @@ async function main() {
         createdAt: '2026-08-12T00:00:00.000Z',
         updatedAt: '2026-08-12T00:01:00.000Z',
         titleManuallyEdited: true,
+        modelOptions: {
+          provider: 'deepseek',
+          model: 'deepseek-v4-flash',
+          reasoningEnabled: true,
+          reasoningEffort: 'medium',
+          temperature: 0.4,
+          maxTokens: 4096,
+        },
         summary: {
           content: 'preserved summary',
           sourceMessageCount: 2,
@@ -367,6 +398,7 @@ async function main() {
     const persisted = await request(port, `/api/conversations/${conversationId}`)
     assert.equal(persisted.status, 200)
     assert.equal(JSON.parse(persisted.text).conversation.id, conversationId)
+    assert.deepEqual(JSON.parse(persisted.text).conversation.modelOptions, persistedModelOptions)
 
     await compose('stop', '--timeout', '15', 'chatbot')
     const exitCode = (await run('docker', [
@@ -466,12 +498,12 @@ async function main() {
         'React build served over HTTPS',
         'runtime config, storage-aware health, and JSON 404 valid',
         'unwritable storage reports 503 and recovers',
-        'SQLite conversation persisted across restart',
+        'SQLite conversation and model options persisted across restart',
         'SIGTERM shutdown exited with code 0',
         'backup refuses a volume mounted by a running container',
         'stopped-volume backup includes checksums and SQLite data directory',
         'checksum mismatch and existing restore target fail safely',
-        'new-volume restore preserves conversations and R12 message metadata exactly',
+        'new-volume restore preserves conversations, model options, and R12 message metadata exactly',
         'source volume remains intact after restored-volume switch',
       ],
     }, null, 2))

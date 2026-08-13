@@ -2,6 +2,7 @@ import type {
   ChatMessage,
   ConversationContextSummary,
   ConversationDetail,
+  ConversationModelOptions,
   ConversationSummary,
 } from '#types/chat'
 
@@ -9,6 +10,7 @@ export type ConversationState = {
   conversations: ConversationSummary[]
   currentConversationId: string | null
   currentConversationSummary?: ConversationContextSummary
+  currentConversationModelOptions?: ConversationModelOptions
   messages: ChatMessage[]
 }
 
@@ -107,6 +109,7 @@ export function conversationReducer(
         conversations: upsertConversation(state.conversations, action.conversation),
         currentConversationId: action.conversation.id,
         currentConversationSummary: action.conversation.summary,
+        currentConversationModelOptions: action.conversation.modelOptions,
         messages: mapStoredMessages(action.conversation),
       }
     case 'upsert-conversation':
@@ -122,6 +125,10 @@ export function conversationReducer(
           action.conversation.id === state.currentConversationId
             ? action.conversation.summary
             : state.currentConversationSummary,
+        currentConversationModelOptions:
+          action.conversation.id === state.currentConversationId
+            ? action.conversation.modelOptions
+            : state.currentConversationModelOptions,
       }
     case 'remove-conversation': {
       const conversations = state.conversations.filter(
@@ -139,6 +146,7 @@ export function conversationReducer(
         conversations,
         currentConversationId: null,
         currentConversationSummary: undefined,
+        currentConversationModelOptions: undefined,
         messages: [],
       }
     }
@@ -147,6 +155,7 @@ export function conversationReducer(
         conversations: upsertConversation(state.conversations, action.conversation),
         currentConversationId: action.conversation.id,
         currentConversationSummary: undefined,
+        currentConversationModelOptions: action.conversation.modelOptions,
         messages: [],
       }
     case 'set-messages':

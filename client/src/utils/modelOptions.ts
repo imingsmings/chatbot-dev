@@ -1,4 +1,5 @@
 import type {
+  ConversationModelOptions,
   DeepSeekModelId,
   ModelDescriptor,
   ModelRequestOptions,
@@ -83,13 +84,14 @@ function getModelDescriptor(
 ): ModelDescriptor {
   const providers = getRuntimeProviders(runtime)
   const requested = providers
+    .filter((provider) => provider.configured)
     .flatMap((provider) => provider.models)
     .find((model) => model.id === options.model && (!options.provider || model.provider === options.provider))
   if (requested && !requested.disabled) return requested
 
   const runtimeModel = providers
-    .flatMap((provider) => provider.models)
-    .find((model) => model.id === runtime?.model && model.provider === runtime.provider)
+    .find((provider) => provider.id === runtime?.provider && provider.configured)
+    ?.models.find((model) => model.id === runtime?.model)
   if (runtimeModel && !runtimeModel.disabled) return runtimeModel
 
   const configuredModel = providers
@@ -101,7 +103,7 @@ function getModelDescriptor(
     .find((model) => !model.disabled) ?? providers[0].models[0]
 }
 
-function getInitialModelOptions(runtime: RuntimeInfo): ModelRequestOptions {
+function getInitialModelOptions(runtime: RuntimeInfo): ConversationModelOptions {
   const model = getModelDescriptor(runtime, {
     provider: runtime.provider,
     model: runtime.model ?? undefined,
@@ -121,6 +123,62 @@ function getInitialModelOptions(runtime: RuntimeInfo): ModelRequestOptions {
       ? runtime.defaults.reasoningEffort
       : model.capabilities.reasoningEfforts.includes('medium') ? 'medium' : model.capabilities.reasoningEfforts[0],
   }
+}
+
+function resolveConversationModelOptions(
+  runtime: RuntimeInfo,
+  storedOptions?: ModelRequestOptions | null,
+): ConversationModelOptions {
+  const fallback = getInitialModelOptions(runtime)
+  if (!storedOptions) return fallback
+
+  const provider = getRuntimeProviders(runtime).find(
+    (item) => item.id === storedOptions.provider && item.configured,
+  )
+  const model = provider?.models.find(
+    (item) => item.id === storedOptions.model && !item.disabled,
+  )
+  if (
+    !model ||
+    typeof storedOptions.reasoningEnabled !== 'boolean' ||
+    typeof storedOptions.reasoningEffort !== 'string' ||
+    !model.capabilities.reasoningEfforts.includes(storedOptions.reasoningEffort) ||
+    (storedOptions.temperature !== undefined && (
+      !model.capabilities.temperature ||
+      !Number.isFinite(storedOptions.temperature) ||
+      storedOptions.temperature < 0 ||
+      storedOptions.temperature > 2
+    )) ||
+    (storedOptions.maxTokens !== undefined && (
+      !Number.isInteger(storedOptions.maxTokens) ||
+      storedOptions.maxTokens < 1 ||
+      storedOptions.maxTokens > model.capabilities.maxOutputTokens
+    ))
+  ) {
+    return fallback
+  }
+
+  return {
+    provider: model.provider,
+    model: model.id,
+    reasoningEnabled: storedOptions.reasoningEnabled,
+    reasoningEffort: storedOptions.reasoningEffort,
+    ...(storedOptions.temperature === undefined ? {} : { temperature: storedOptions.temperature }),
+    ...(storedOptions.maxTokens === undefined ? {} : { maxTokens: storedOptions.maxTokens }),
+  }
+}
+
+function isModelOptionsUsable(
+  runtime: RuntimeInfo | null,
+  options: ModelRequestOptions,
+): boolean {
+  if (!runtime) return false
+  return getRuntimeProviders(runtime).some(
+    (provider) =>
+      provider.configured &&
+      provider.id === options.provider &&
+      provider.models.some((model) => model.id === options.model && !model.disabled),
+  )
 }
 
 function selectModelOptions(
@@ -184,5 +242,7 @@ export {
   getInitialModelOptions,
   getModelDescriptor,
   getRuntimeProviders,
+  isModelOptionsUsable,
+  resolveConversationModelOptions,
   selectModelOptions,
 }

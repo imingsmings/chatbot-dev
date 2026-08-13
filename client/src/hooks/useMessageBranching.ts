@@ -16,6 +16,7 @@ type MessageBranchingOptions = {
   ) => Promise<ConversationDetail>
   currentConversationId: string | null
   isResponding: boolean
+  isModelOptionsSaving?: boolean
   isStopping: boolean
   messages: ChatMessage[]
   promptText: (options: {
@@ -74,6 +75,7 @@ export function useMessageBranching(options: MessageBranchingOptions) {
       message?.role !== 'user' ||
       message.persistedIndex === undefined ||
       options.isResponding ||
+      options.isModelOptionsSaving ||
       options.isStopping ||
       !options.beginSidebarOperation('branch', sourceConversationId)
     ) {
@@ -110,6 +112,7 @@ export function useMessageBranching(options: MessageBranchingOptions) {
       message.persistedIndex === undefined ||
       !['done', 'stopped'].includes(message.status) ||
       options.isResponding ||
+      options.isModelOptionsSaving ||
       options.isStopping
     ) {
       return

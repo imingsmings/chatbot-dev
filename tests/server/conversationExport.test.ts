@@ -84,6 +84,8 @@ test('exportConversationAsMarkdown exports a readable conversation with reasonin
   assert(exported.content.includes('这是导出的回答正文。'))
   assert(exported.content.includes('<summary>生成详情</summary>'))
   assert(exported.content.includes('- Provider：deepseek'))
+  assert(exported.content.includes('- 模型：deepseek-v4-flash'))
+  assert(exported.content.includes('- 推理强度：max'))
   assert(exported.content.includes('- 总 token：30'))
   assert(exported.content.includes('calculate · 成功 · 2ms：计算结果：42'))
   assert.deepEqual(after?.messages, before?.messages)
@@ -123,6 +125,7 @@ test('exportAllConversationsAsJson preserves full conversation data for backup',
   assert.equal(exportedConversation.messages[0]?.status, 'stopped')
   assert.equal(exportedConversation.messages[0]?.generation?.provider, 'openai')
   assert.equal(exportedConversation.messages[0]?.generation?.usage, undefined)
+  assert.deepEqual(exportedConversation.modelOptions, conversation.modelOptions)
 })
 
 test('conversation export controllers set attachment headers and 404 missing conversation', async () => {

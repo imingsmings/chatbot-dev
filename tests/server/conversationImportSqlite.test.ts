@@ -29,6 +29,13 @@ const baseBackup = {
     createdAt: '2026-07-30T00:00:00.000Z',
     updatedAt: '2026-07-31T00:00:00.000Z',
     titleManuallyEdited: true,
+    modelOptions: {
+      provider: 'deepseek',
+      model: 'deepseek-v4-pro',
+      reasoningEnabled: true,
+      reasoningEffort: 'max',
+      maxTokens: 8192
+    },
     messages: [{
       role: 'assistant',
       content: 'sqlite original',
@@ -56,6 +63,7 @@ test('SQLite import applies conflict strategies without losing reasoning data', 
   assert.equal((await getConversation('conv_import_sqlite'))?.messages[0]?.reasoningContent, 'reasoning')
   assert.equal((await getConversation('conv_import_sqlite'))?.messages[0]?.generation?.usage?.totalTokens, 12)
   assert.equal((await getConversation('conv_import_sqlite'))?.messages[0]?.toolTrace?.[0]?.name, 'getCurrentTime')
+  assert.equal((await getConversation('conv_import_sqlite'))?.modelOptions?.model, 'deepseek-v4-pro')
   assert.equal((await importConversationBackup(baseBackup, 'skip')).skipped, 1)
   assert.equal((await importConversationBackup(baseBackup, 'duplicate')).duplicated, 1)
   assert.equal((await listConversations()).length, 2)

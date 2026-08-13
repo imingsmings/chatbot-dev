@@ -324,6 +324,15 @@ const mockScript = `
       });
     }
 
+    const modelOptionsMatch = pathname.match(/^\\/conversations\\/([^/]+)\\/model-options$/);
+    if (modelOptionsMatch && method === 'PATCH') {
+      const conversation = conversations.get(decodeURIComponent(modelOptionsMatch[1]));
+      if (!conversation) return json({ message: 'not found' }, 404);
+      const body = JSON.parse(init.body || '{}');
+      conversation.modelOptions = structuredClone(body.options);
+      return json({ conversation });
+    }
+
     const detailMatch = pathname.match(/^\\/conversations\\/([^/]+)$/);
     if (detailMatch && method === 'GET') {
       const conversation = conversations.get(decodeURIComponent(detailMatch[1]));
@@ -438,7 +447,8 @@ async function main() {
       await waitForEval(
         client,
         `document.querySelector('.model-menu-trigger')?.getAttribute('aria-label')
-          ?.includes('GPT-5.6 Luna')`,
+          ?.includes('GPT-5.6 Luna') &&
+          document.querySelector('.model-menu-trigger')?.disabled === false`,
       )
       assertions.modelSwitch.selected = true
     }
@@ -477,6 +487,7 @@ async function main() {
       setValue(${JSON.stringify(`${expectedSettingsProvider} Effort`)}, 'high');
     })()`)
     await clickButton(client, 'Apply')
+    await waitForEval(client, `document.querySelector('.model-menu-trigger')?.disabled === false`)
 
     await clickAppAction(client, '模板')
     await waitForEval(client, `Boolean(document.querySelector('.template-modal'))`)

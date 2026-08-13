@@ -4,6 +4,7 @@ import type {
   ConversationContextSummary,
   ConversationImportConflictStrategy,
   ConversationImportItemResult,
+  ConversationModelOptions,
   ConversationSummary,
   StoredMessage
 } from '../types/conversation.ts'
@@ -34,8 +35,11 @@ async function getConversation(id: string): Promise<Conversation | null> {
   return getStore().getConversation(id)
 }
 
-async function createConversation(title: unknown = DEFAULT_TITLE): Promise<Conversation> {
-  return getStore().createConversation(title)
+async function createConversation(
+  title: unknown = DEFAULT_TITLE,
+  modelOptions?: ConversationModelOptions
+): Promise<Conversation> {
+  return getStore().createConversation(title, modelOptions)
 }
 
 async function renameConversation(id: string, title: unknown): Promise<Conversation | null> {
@@ -54,6 +58,13 @@ async function updateConversationSummary(
   summary: ConversationContextSummary | null
 ): Promise<Conversation | null> {
   return getStore().updateSummary(id, summary)
+}
+
+async function updateConversationModelOptions(
+  id: string,
+  options: ConversationModelOptions
+): Promise<Conversation | null> {
+  return getStore().updateModelOptions(id, options)
 }
 
 async function importConversation(
@@ -83,5 +94,6 @@ export {
   importConversation,
   listConversations,
   renameConversation,
+  updateConversationModelOptions,
   updateConversationSummary
 }

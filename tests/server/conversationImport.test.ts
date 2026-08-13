@@ -29,6 +29,14 @@ function backup(content = 'original') {
       createdAt: '2026-07-30T00:00:00.000Z',
       updatedAt: '2026-07-31T00:00:00.000Z',
       titleManuallyEdited: true,
+      modelOptions: {
+        provider: 'deepseek',
+        model: 'deepseek-v4-pro',
+        reasoningEnabled: true,
+        reasoningEffort: 'high',
+        temperature: 0.3,
+        maxTokens: 4096
+      },
       summary: {
         content: 'imported summary',
         sourceMessageCount: 1,
@@ -43,6 +51,7 @@ test('file import supports create, skip, duplicate and explicit overwrite', asyn
   const created = await importConversationBackup(backup())
   assert.equal(created.created, 1)
   assert.equal((await getConversation('conv_import_file'))?.summary?.content, 'imported summary')
+  assert.equal((await getConversation('conv_import_file'))?.modelOptions?.model, 'deepseek-v4-pro')
 
   const skipped = await importConversationBackup(backup('skipped'), 'skip')
   assert.equal(skipped.skipped, 1)
@@ -51,11 +60,23 @@ test('file import supports create, skip, duplicate and explicit overwrite', asyn
   const duplicated = await importConversationBackup(backup('duplicate'), 'duplicate')
   assert.equal(duplicated.duplicated, 1)
   assert.notEqual(duplicated.items[0].conversationId, 'conv_import_file')
+  assert.equal(
+    (await getConversation(duplicated.items[0].conversationId!))?.modelOptions?.reasoningEffort,
+    'high'
+  )
   assert.equal((await listConversations()).length, 2)
 
   const overwritten = await importConversationBackup(backup('overwritten'), 'overwrite')
   assert.equal(overwritten.overwritten, 1)
   assert.equal((await getConversation('conv_import_file'))?.messages[0]?.content, 'overwritten')
+})
+
+test('file import accepts legacy backups without model options', async () => {
+  const imported = backup('legacy without options')
+  imported.conversations[0].id = 'conv_import_legacy_without_options'
+  delete (imported.conversations[0] as { modelOptions?: unknown }).modelOptions
+  await importConversationBackup(imported)
+  assert.equal((await getConversation(imported.conversations[0].id))?.modelOptions, undefined)
 })
 
 test('file import clamps summary coverage to the imported message count', async () => {
@@ -162,6 +183,17 @@ test('file import rejects unsupported and malformed backups without partial writ
       }]
     }),
     /totalTokens 必须是非负整数/
+  )
+  await assert.rejects(
+    importConversationBackup({
+      ...backup(),
+      conversations: [{
+        ...backup().conversations[0],
+        id: 'conv_invalid_model_options_import',
+        modelOptions: { ...backup().conversations[0].modelOptions, maxTokens: 999_999 }
+      }]
+    }),
+    /modelOptions 不合法/
   )
 
   assert.equal((await listConversations()).length, countBeforeValidationFailures)

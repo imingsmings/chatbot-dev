@@ -13,7 +13,7 @@
 | 生产构建 | `pnpm run build:client` | Vite 8 bundle、chunk 拆分、无 Vue runtime |
 | 生产托管 | `tests/server/clientHosting.test.ts` | 构建 fail-fast、SPA、API 隔离、缓存和安全头 |
 | HTTPS 配置 | `tests/server/deploymentConfig.test.ts` | production defaults、路径、布尔/端口和证书异常 |
-| Docker 容器 | `pnpm run test:docker` | Compose、证书覆盖、HTTPS、health、SQLite、停止备份、新卷恢复、语义一致性和 SIGTERM |
+| Docker 容器 | `pnpm run test:docker` | Compose、证书覆盖、HTTPS、health、SQLite、会话模型配置跨重启、停止备份、新卷恢复、语义一致性和 SIGTERM |
 | Docker 页面 | `pnpm run test:cdp:docker-ui` | 容器 HTTPS 页面、侧栏、输入区、模型控件和横向溢出；截图可选 |
 | 浏览器回归 | `pnpm run test:cdp:all-mock` | 完整 React UI/API mock 矩阵 |
 | 真实接口全量 | `pnpm run test:cdp:all-real` | 两批隔离端口/临时 file store；OpenAI UI/上下文/Markdown/reasoning/工具/停止恢复 + DeepSeek Flash 四档 reasoning；需明确确认 |
@@ -23,8 +23,9 @@
 
 | 范围 | 关键断言 |
 | --- | --- |
-| conversation reducer | 不可变 upsert/sort；删除 active 立即清空 ID、summary、messages；服务端详情映射真实 `persistedIndex` 和生成元数据 |
+| conversation reducer | 不可变 upsert/sort；删除 active 立即清空 ID、summary、messages、模型配置；选择/应用/清空恢复配置；服务端详情映射真实 `persistedIndex` 和生成元数据 |
 | useConversations | Strict Mode 初始化去重；选择乱序；删除后继加载失败不保留已删除详情；创建分支后选中新会话 |
+| useConversationModelOptions | runtime/详情乱序、A/B 恢复、乐观保存、服务端规范化、快速点击、失败回滚/重试和切换后过期响应隔离 |
 | useChatStream | delta/reasoning/tool/done；显式新分支 ID；取消完成握手；成功/停止后详情回拉；首包/流空闲超时；协议错误后恢复；卸载清理 |
 | message branching | 多行编辑、取消/未修改、最近用户消息定位、分支创建失败恢复 |
 | stream protocol | v2 六类事件；拆包；未知/损坏 JSON；负耗时；空 tool/error 字段 |
@@ -45,7 +46,8 @@
 | request registry | requestId 校验、同会话单活动请求、abort 后保持占用、取消等待 `completeRequest`、完成后清理和复用 |
 | NDJSON | backpressure 不误判关闭；destroyed/writableEnded 不再写入 |
 | test process lifecycle | child exit 等待、脚本超时、进程组终止与临时目录清理 |
-| model options | 范围、能力、禁用模型、启动配置一致性 |
+| model options | 完整快照、范围/能力/禁用模型、运行时默认、旧会话回填、更新不改排序、file/SQLite 重开、SQLite 幂等增列、损坏字段安全降级 |
+| model-options API | 独立 PATCH 400/404/409/200；与 ask/摘要互斥；Provider 失败前仍完成首次绑定；上下文预览只读 |
 | provider config | OpenAI URL normalization、非 HTTP/HTTPS 拒绝、凭据不公开 |
 | adapters | DeepSeek `[DONE]` / OpenAI `response.completed` 完成门禁、partial/reasoning/tool EOF、reasoning summary、tool arguments 聚合、call_id continuation |
 | tools | 安全计算器、IANA 时间、天气本地日期、网络/HTTP 失败隔离 |
@@ -59,15 +61,16 @@
 | --- | --- | --- |
 | P0 | `pnpm run test:cdp:p0` | ask/stop/cancel、会话 API、工具、核心 UI |
 | P1 | `pnpm run test:cdp:p1` | UI、Markdown、高亮、边界状态 |
-| UI | `pnpm run test:cdp:ui` | 四个独立入口：会话操作、流式恢复、滚动/布局、模型菜单 |
+| UI | `pnpm run test:cdp:ui` | 五个独立入口：会话操作、流式恢复、滚动/布局、模型菜单、会话模型配置持久化 |
 | Context | `pnpm run test:cdp:context-debug` | 实际上下文、统计、移动布局 |
 | Search | `pnpm run test:cdp:conversation-search` | 输入、跳转、空/错/竞态 |
 | Export | `pnpm run test:cdp:conversation-export` | 下载、文件名、JSON 备份 |
 | Roadmap | `pnpm run test:cdp:roadmap` | 摘要、导入、模型参数、模板、工具状态、长 Markdown |
 | Sidebar | `pnpm run test:cdp:sidebar-state` | 操作等待态、连点互斥和失败恢复 |
-| All mock | `pnpm run test:cdp:all-mock` | 上述去重后的 13-script 完整集合 |
+| Model options | `pnpm run test:cdp:model-options-persistence` | A/B/刷新恢复、保存等待态、单 PATCH、失败回滚/重试、实际 ask 参数和失效模型回退 |
+| All mock | `pnpm run test:cdp:all-mock` | 上述去重后的 14-script 完整集合 |
 
-UI 四个入口位于 `tests/cdp/scenarios/ui/`，分别包含会话操作、流式恢复、滚动/布局和模型菜单的真实场景实现，并复用 `scenarios/ui/harness.mjs` 及底层 CDP helpers。`ui-scenarios.mjs` 只负责按入口调度；任一模块失败都会返回非零退出码并标明所属场景。
+UI 五个入口位于 `tests/cdp/scenarios/ui/`，分别包含会话操作、流式恢复、滚动/布局、模型菜单和会话模型配置持久化的真实场景实现，并复用 `scenarios/ui/harness.mjs` 及底层 CDP helpers。`ui-scenarios.mjs` 只负责按入口调度；任一模块失败都会返回非零退出码并标明所属场景。
 
 ### UI 必测边界
 
@@ -82,6 +85,7 @@ UI 四个入口位于 `tests/cdp/scenarios/ui/`，分别包含会话操作、流
 - 刷新后 generation、usage、裁剪工具轨迹和 `stopped` 状态可恢复；缺失 usage 显示未知，`stopped` 不进入上下文或摘要。
 - 明暗主题刷新保持；390px 无页面级横向溢出。
 - 图标按钮有可读 `aria-label`；Dialog/Dropdown 的 Escape、focus 和 disabled 状态正确。
+- 会话配置保存期间发送、摘要、上下文和重复保存入口不可触发；失败回滚后可重试，实际 ask/摘要/上下文请求使用当前会话配置。
 
 ## 变更到测试映射
 
@@ -92,6 +96,7 @@ UI 四个入口位于 `tests/cdp/scenarios/ui/`，分别包含会话操作、流
 | Markdown/高亮 | `test:client` + `test:cdp:markdown` + `test:cdp:highlight` |
 | 流式/取消/超时 | `test:unit` + `test:cdp:p0` + `test:cdp:ui` |
 | file/SQLite/导入 | `test:server` + P0/对应专项 CDP |
+| 会话模型配置 | `test:unit` + `test:cdp:model-options-persistence` + `test:docker`；真实 Provider 不因持久化本身重复调用 |
 | Provider/Function Calling | adapter/tool tests + P0；真实 provider 需另行确认 |
 | 构建/依赖/入口 | `check` + `build:client` + `all-mock` |
 | 托管/HTTPS | deployment/clientHosting tests + 生产 HTTPS 本机冒烟 |
@@ -124,3 +129,5 @@ pnpm run test:cdp:real-openai
 2026-08-13 的 R16 Mock、Docker、DeepSeek/OpenAI 真实接口与审查结果见 [R16 全链路一致性验收记录](r16-consistency-hardening-2026-08-13.md)。
 
 DeepSeek V4 Pro 0813 的启用、8 组真实模型参数矩阵和 Docker 验收见 [DeepSeek V4 Pro 0813 启用与验收记录](deepseek-v4-pro-0813-validation-2026-08-13.md)。
+
+R17 的 file/SQLite、API、React 竞态、14-script mock 和 Docker Volume 证据见 [R17 会话级模型配置持久化验收记录](r17-conversation-model-options-2026-08-13.md)。

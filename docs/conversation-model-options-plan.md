@@ -1,8 +1,8 @@
 # 会话级模型配置持久化方案
 
-状态：设计完成，尚未实施。
+状态：2026-08-13 实现完成并通过自动化验收。
 
-本文解决当前模型选项只存在于 React 页面状态的问题：刷新页面或切换会话后，模型和 reasoning effort 会重新使用运行时默认值。本文是后续实现与验收依据，不代表当前 file/SQLite 数据、API 或前端行为已经改变。
+本文记录会话级模型配置持久化的设计与最终实现。模型、provider、reasoning、temperature 和 max tokens 现在随会话保存在 file/SQLite 中，并贯穿分支、导入导出、刷新、Docker 重启与 Volume 恢复。
 
 ## 1. 目标与价值
 
@@ -12,9 +12,9 @@
 - 保存失败、快速连续点击和会话切换时，UI 不显示未落库或其他会话的配置。
 - 继续以每条 assistant 消息的 `generation` 记录实际使用模型；会话配置只表示下一次请求的默认选择，不改写历史生成记录。
 
-## 2. 当前问题
+## 2. 实施前问题
 
-当前初始化链路是：
+R17 实施前的初始化链路是：
 
 1. `useChatAppController` 请求 `/api/runtime-config`。
 2. `getInitialModelOptions(runtime)` 生成页面级 `modelOptions`。
@@ -246,6 +246,8 @@ currentConversationModelOptions?: ConversationModelOptions
 
 ## 9. 测试矩阵
 
+本节所列场景均已落实；最终门禁和结果见 [R17 会话级模型配置持久化验收记录](r17-conversation-model-options-2026-08-13.md)。
+
 ### 9.1 后端与存储
 
 - file/SQLite 新建后保存，关闭并重开 store 后配置一致。
@@ -287,7 +289,7 @@ currentConversationModelOptions?: ConversationModelOptions
 4. **浏览器与 Docker 回归**：A/B 会话、刷新、快速点击、失败恢复和 Volume 持久化。
 5. **文档收口**：实现完成后更新架构、功能清单、回归矩阵和 Roadmap 状态。
 
-每阶段应独立验证并提交。若某阶段失败，可回退该阶段提交；SQLite 新增可空列无需删除，旧代码会忽略它。
+各阶段已按顺序实现并验证。当前改动尚未提交；SQLite 新增可空列无需删除，旧代码会忽略它。
 
 ## 11. 验收标准
 
@@ -297,7 +299,7 @@ currentConversationModelOptions?: ConversationModelOptions
 - 保存中有明确等待态并阻止重复操作；失败可回滚和重试。
 - 旧数据无需一次性迁移，已禁用/删除模型安全降级。
 - file、SQLite、导入导出、Docker、React 单测和 CDP 门禁全部通过。
-- 实现完成前，Roadmap 只能标记为候选或待实施，不能标记为完成。
+- Roadmap、架构、功能清单、回归矩阵与 R17 验收记录已同步实现状态。
 
 ## 12. 非目标
 

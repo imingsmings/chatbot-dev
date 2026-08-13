@@ -15,6 +15,7 @@ import type {
   StoredMessage
 } from '../types/conversation.ts'
 import type { GenerationMetadata, StoredToolTrace, TokenUsage } from '../types/generation.ts'
+import { parseConversationModelOptions } from '../utils/modelOptions.ts'
 
 const VALID_CONVERSATION_ID = /^conv_[a-zA-Z0-9_-]+$/
 
@@ -258,6 +259,16 @@ function parseConversation(value: unknown, index: number): Conversation {
     conversation.summary = {
       ...summary,
       sourceMessageCount: Math.min(summary.sourceMessageCount, conversation.messages.length)
+    }
+  }
+
+  if (value.modelOptions !== undefined && value.modelOptions !== null) {
+    try {
+      conversation.modelOptions = parseConversationModelOptions(value.modelOptions)
+    } catch (error) {
+      throw new Error(
+        `conversations[${index}].modelOptions 不合法：${error instanceof Error ? error.message : '未知错误'}`
+      )
     }
   }
 

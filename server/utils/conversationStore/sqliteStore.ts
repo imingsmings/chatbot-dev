@@ -9,6 +9,7 @@ import type {
   ConversationContextSummary,
   ConversationImportConflictStrategy,
   ConversationImportItemResult,
+  ConversationModelOptions,
   StoredMessage
 } from '../../types/conversation.ts'
 import { DEFAULT_TITLE, type ConversationStore } from './contracts.ts'
@@ -46,6 +47,7 @@ type SqliteConversationRow = {
   title_manually_edited: number
   messages: string
   summary: string | null
+  model_options: string | null
 }
 
 let migrationPromise: Promise<void> | null = null
@@ -85,7 +87,8 @@ function getSqliteDb(): DatabaseSync {
       updated_at TEXT NOT NULL,
       title_manually_edited INTEGER NOT NULL,
       messages TEXT NOT NULL,
-      summary TEXT
+      summary TEXT,
+      model_options TEXT
     );
     CREATE TABLE IF NOT EXISTS storage_meta (
       key TEXT PRIMARY KEY,
@@ -96,6 +99,9 @@ function getSqliteDb(): DatabaseSync {
   const columns = db.prepare('PRAGMA table_info(conversations)').all() as Array<{ name: string }>
   if (!columns.some((column) => column.name === 'summary')) {
     db.exec('ALTER TABLE conversations ADD COLUMN summary TEXT')
+  }
+  if (!columns.some((column) => column.name === 'model_options')) {
+    db.exec('ALTER TABLE conversations ADD COLUMN model_options TEXT')
   }
   sqliteDb = db
   return sqliteDb
@@ -132,6 +138,15 @@ function withSqliteTransaction<T>(callback: () => T): T {
 }
 
 function conversationFromSqliteRow(row: SqliteConversationRow): Conversation {
+  let modelOptions: unknown
+  if (row.model_options) {
+    try {
+      modelOptions = JSON.parse(row.model_options) as unknown
+    } catch {
+      modelOptions = undefined
+    }
+  }
+
   return normalizeConversation(
     {
       id: row.id,
@@ -140,7 +155,8 @@ function conversationFromSqliteRow(row: SqliteConversationRow): Conversation {
       updatedAt: row.updated_at,
       titleManuallyEdited: Boolean(row.title_manually_edited),
       messages: JSON.parse(row.messages) as unknown,
-      summary: row.summary ? (JSON.parse(row.summary) as unknown) : undefined
+      summary: row.summary ? (JSON.parse(row.summary) as unknown) : undefined,
+      modelOptions
     },
     row.id
   )
@@ -149,15 +165,16 @@ function conversationFromSqliteRow(row: SqliteConversationRow): Conversation {
 function upsertConversation(conversation: Conversation): void {
   getSqliteDb()
     .prepare(`
-      INSERT INTO conversations (id, title, created_at, updated_at, title_manually_edited, messages, summary)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO conversations (id, title, created_at, updated_at, title_manually_edited, messages, summary, model_options)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         title = excluded.title,
         created_at = excluded.created_at,
         updated_at = excluded.updated_at,
         title_manually_edited = excluded.title_manually_edited,
         messages = excluded.messages,
-        summary = excluded.summary
+        summary = excluded.summary,
+        model_options = excluded.model_options
     `)
     .run(
       conversation.id,
@@ -166,15 +183,16 @@ function upsertConversation(conversation: Conversation): void {
       conversation.updatedAt,
       conversation.titleManuallyEdited ? 1 : 0,
       JSON.stringify(conversation.messages),
-      conversation.summary ? JSON.stringify(conversation.summary) : null
+      conversation.summary ? JSON.stringify(conversation.summary) : null,
+      conversation.modelOptions ? JSON.stringify(conversation.modelOptions) : null
     )
 }
 
 function insertConversationIfAbsent(conversation: Conversation): void {
   getSqliteDb()
     .prepare(`
-      INSERT OR IGNORE INTO conversations (id, title, created_at, updated_at, title_manually_edited, messages, summary)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT OR IGNORE INTO conversations (id, title, created_at, updated_at, title_manually_edited, messages, summary, model_options)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `)
     .run(
       conversation.id,
@@ -183,7 +201,8 @@ function insertConversationIfAbsent(conversation: Conversation): void {
       conversation.updatedAt,
       conversation.titleManuallyEdited ? 1 : 0,
       JSON.stringify(conversation.messages),
-      conversation.summary ? JSON.stringify(conversation.summary) : null
+      conversation.summary ? JSON.stringify(conversation.summary) : null,
+      conversation.modelOptions ? JSON.stringify(conversation.modelOptions) : null
     )
 }
 
@@ -279,7 +298,10 @@ async function getConversation(id: string): Promise<Conversation | null> {
   return conversation ? cloneConversation(conversation) : null
 }
 
-async function createConversation(title: unknown = DEFAULT_TITLE): Promise<Conversation> {
+async function createConversation(
+  title: unknown = DEFAULT_TITLE,
+  modelOptions?: ConversationModelOptions
+): Promise<Conversation> {
   await migrateJsonStore()
   const timestamp = now()
   const normalizedTitle = typeof title === 'string' && title.trim() ? title.trim() : DEFAULT_TITLE
@@ -289,7 +311,8 @@ async function createConversation(title: unknown = DEFAULT_TITLE): Promise<Conve
     createdAt: timestamp,
     updatedAt: timestamp,
     titleManuallyEdited: normalizedTitle !== DEFAULT_TITLE,
-    messages: []
+    messages: [],
+    ...(modelOptions ? { modelOptions: { ...modelOptions } } : {})
   }
   upsertConversation(conversation)
   return cloneConversation(conversation)
@@ -334,6 +357,19 @@ async function updateSummary(
     delete conversation.summary
   }
   conversation.updatedAt = now()
+  upsertConversation(conversation)
+  return cloneConversation(conversation)
+}
+
+async function updateModelOptions(
+  id: string,
+  options: ConversationModelOptions
+): Promise<Conversation | null> {
+  await migrateJsonStore()
+  const conversation = getConversationSync(id)
+  if (!conversation) return null
+
+  conversation.modelOptions = { ...options }
   upsertConversation(conversation)
   return cloneConversation(conversation)
 }
@@ -406,6 +442,7 @@ export function createSqliteConversationStore(): ConversationStore {
     renameConversation,
     appendMessages,
     updateSummary,
+    updateModelOptions,
     importConversation,
     clearConversation,
     deleteConversation,

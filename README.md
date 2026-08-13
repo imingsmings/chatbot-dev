@@ -143,6 +143,7 @@ tsconfig.base.json             前后端共用 TypeScript 严格规则
 | --- | --- | --- |
 | `GET/POST` | `/api/conversations` | 列表、新建 |
 | `GET/PATCH/DELETE` | `/api/conversations/:id` | 详情、重命名、删除 |
+| `PATCH` | `/api/conversations/:id/model-options` | 保存当前会话的完整模型配置 |
 | `POST` | `/api/conversations/:id/clear` | 清空消息和摘要 |
 | `POST` | `/api/conversations/:id/branches` | 从已保存用户消息前创建独立分支 |
 | `POST` | `/api/conversations/:id/ask` | NDJSON v2 流式问答 |
@@ -180,6 +181,7 @@ pnpm run test:docker           # Docker HTTPS、API、SQLite 持久性与 SIGTER
 - [Docker 验证记录（2026-08-10）](docs/docker-validation-2026-08-10.md)
 - [R11 流完整性与摘要覆盖验收记录（2026-08-12）](docs/r11-stream-context-2026-08-12.md)
 - [R16 全链路一致性验收记录（2026-08-13）](docs/r16-consistency-hardening-2026-08-13.md)
+- [R17 会话级模型配置持久化验收记录（2026-08-13）](docs/r17-conversation-model-options-2026-08-13.md)
 - [会话级模型配置持久化方案](docs/conversation-model-options-plan.md)
 - [全面 Code Review 与回归记录（2026-08-10）](docs/code-review-2026-08-10.md)
 - [TypeScript 7 / Express 5 工具链升级记录](docs/toolchain-upgrade-2026-08-09.md)

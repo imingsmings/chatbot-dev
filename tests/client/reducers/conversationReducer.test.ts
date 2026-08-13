@@ -62,6 +62,12 @@ describe('conversation reducer', () => {
         reasoningDurationMs: 320,
       },
     ])
+    conversation.modelOptions = {
+      provider: 'deepseek',
+      model: 'deepseek-v4-pro',
+      reasoningEnabled: true,
+      reasoningEffort: 'high',
+    }
 
     const next = conversationReducer(createInitialConversationState(), {
       type: 'select-conversation',
@@ -69,6 +75,7 @@ describe('conversation reducer', () => {
     })
 
     expect(next.currentConversationId).toBe('selected')
+    expect(next.currentConversationModelOptions).toEqual(conversation.modelOptions)
     expect(next.messages).toEqual(mapStoredMessages(conversation))
     expect(next.messages[1]).toMatchObject({
       id: 'selected-1-assistant',
@@ -176,7 +183,27 @@ describe('conversation reducer', () => {
 
     expect(removed.currentConversationId).toBeNull()
     expect(removed.currentConversationSummary).toBeUndefined()
+    expect(removed.currentConversationModelOptions).toBeUndefined()
     expect(removed.messages).toEqual([])
     expect(removed.conversations).toEqual([])
+  })
+
+  it('keeps model options when clearing the active conversation', () => {
+    const conversation = createConversation('clear-model-options', '2026-08-13T00:00:00.000Z')
+    conversation.modelOptions = {
+      provider: 'deepseek',
+      model: 'deepseek-v4-pro',
+      reasoningEnabled: true,
+      reasoningEffort: 'max',
+    }
+    const selected = conversationReducer(createInitialConversationState(), {
+      type: 'select-conversation',
+      conversation,
+    })
+    const cleared = conversationReducer(selected, {
+      type: 'clear-current-conversation',
+      conversation,
+    })
+    expect(cleared.currentConversationModelOptions).toEqual(conversation.modelOptions)
   })
 })

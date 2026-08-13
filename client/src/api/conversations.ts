@@ -2,6 +2,7 @@ import type {
   ContextPreview,
   ConversationDetail,
   ConversationImportResult,
+  ConversationModelOptions,
   ConversationSearchResult,
   ConversationSummary,
   ModelRequestOptions,
@@ -143,6 +144,19 @@ export async function updateConversationTitle(id: string, title: string) {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ title }),
+  })
+  const data = await readJson<{ conversation: ConversationDetail }>(response)
+  return data.conversation
+}
+
+export async function updateConversationModelOptions(
+  id: string,
+  options: ConversationModelOptions,
+) {
+  const response = await fetch(`/api/conversations/${encodeURIComponent(id)}/model-options`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ options }),
   })
   const data = await readJson<{ conversation: ConversationDetail }>(response)
   return data.conversation

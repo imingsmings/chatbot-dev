@@ -6,14 +6,15 @@ import { useAppDialog } from '#hooks/useAppDialog'
 import { useAutoScroll } from '#hooks/useAutoScroll'
 import { useChatStream } from '#hooks/useChatStream'
 import { useConversationInsights } from '#hooks/useConversationInsights'
+import { useConversationModelOptions } from '#hooks/useConversationModelOptions'
 import { useConversationOperations } from '#hooks/useConversationOperations'
 import { useConversationSearch } from '#hooks/useConversationSearch'
 import { useConversationTransfer } from '#hooks/useConversationTransfer'
 import { useConversations } from '#hooks/useConversations'
 import { useMessageBranching } from '#hooks/useMessageBranching'
 import { useTheme } from '#hooks/useTheme'
-import type { ModelRequestOptions, RuntimeInfo } from '#types/chat'
-import { getInitialModelOptions } from '#utils/modelOptions'
+import type { RuntimeInfo } from '#types/chat'
+import { isModelOptionsUsable } from '#utils/modelOptions'
 
 export type ActiveTopMenu =
   | { kind: 'app' }
@@ -35,7 +36,6 @@ export function useChatAppController() {
   const [isTemplateModalOpen, setIsTemplateModalOpen] = useState(false)
   const [isModelSettingsOpen, setIsModelSettingsOpen] = useState(false)
   const [runtimeInfo, setRuntimeInfo] = useState<RuntimeInfo | null>(null)
-  const [modelOptions, setModelOptions] = useState<ModelRequestOptions>({})
   const [activeTopMenu, setActiveTopMenu] = useState<ActiveTopMenu>(null)
   const initializationStartedRef = useRef(false)
   const chatBoxRef = useRef<HTMLElement | null>(null)
@@ -51,6 +51,7 @@ export function useChatAppController() {
     createBranchConversation,
     createNewConversation,
     currentConversationId,
+    currentConversationModelOptions,
     currentConversationSummary,
     currentConversationTitle,
     dispatch,
@@ -76,6 +77,19 @@ export function useChatAppController() {
   const resetInput = useCallback(() => setInput(''), [])
   const resizeComposer = useCallback(() => composerRef.current?.resizeComposer(), [])
   const focusComposer = useCallback(() => composerRef.current?.focus(), [])
+
+  const {
+    isModelOptionsSaving,
+    modelOptions,
+    saveModelOptions,
+  } = useConversationModelOptions({
+    applyConversationDetail,
+    currentConversationId,
+    currentConversationModelOptions,
+    runtime: runtimeInfo,
+    showError,
+  })
+  const modelOptionsAvailable = isModelOptionsUsable(runtimeInfo, modelOptions)
 
   const refreshActiveConversationSearch = useCallback(async () => {
     if (conversationSearchQuery.trim()) {
@@ -112,6 +126,7 @@ export function useChatAppController() {
     stopGenerating,
     submitQuestion,
   } = useChatStream({
+    canStartRequest: () => !isModelOptionsSaving && modelOptionsAvailable,
     clearComposer: resetInput,
     conversationId: currentConversationId,
     createConversation: createNewConversation,
@@ -169,6 +184,7 @@ export function useChatAppController() {
     createBranchConversation,
     currentConversationId,
     isResponding,
+    isModelOptionsSaving,
     isStopping,
     messages,
     promptText,
@@ -215,10 +231,12 @@ export function useChatAppController() {
     currentConversationId,
     input,
     isConversationTransitioning,
+    isModelOptionsSaving,
     isResponding,
     isStopping,
     messageCount: messages.length,
     modelOptions,
+    modelOptionsAvailable,
     refreshConversationListAndSearch,
     showError,
   })
@@ -232,7 +250,6 @@ export function useChatAppController() {
         try {
           const runtime = await getRuntimeConfiguration()
           setRuntimeInfo(runtime)
-          setModelOptions(getInitialModelOptions(runtime))
         } catch (error) {
           console.error('Failed to load runtime configuration:', error)
         }
@@ -256,6 +273,8 @@ export function useChatAppController() {
     input.trim().length > 0 &&
     !isResponding &&
     !isStopping &&
+    !isModelOptionsSaving &&
+    modelOptionsAvailable &&
     !isConversationTransitioning
 
   const applyPromptTemplate = useCallback(
@@ -282,9 +301,9 @@ export function useChatAppController() {
   )
 
   const handleSubmit = useCallback(async () => {
-    if (isStopping || isConversationTransitioning) return
+    if (isStopping || isConversationTransitioning || isModelOptionsSaving) return
     await submitQuestion(input.trim(), { appendUser: true, clearComposer: true })
-  }, [input, isConversationTransitioning, isStopping, submitQuestion])
+  }, [input, isConversationTransitioning, isModelOptionsSaving, isStopping, submitQuestion])
 
   const setMenuOpen = useCallback(
     (menu: Exclude<ActiveTopMenu, null>, open: boolean) => {
@@ -327,6 +346,7 @@ export function useChatAppController() {
     isConversationSearching,
     isConversationTransitioning,
     isModelSettingsOpen,
+    isModelOptionsSaving,
     isResponding,
     isStopping,
     isSummaryLoading,
@@ -346,7 +366,7 @@ export function useChatAppController() {
     setIsSummaryOpen,
     setIsTemplateModalOpen,
     setMenuOpen,
-    setModelOptions,
+    setModelOptions: saveModelOptions,
     showError,
     sidebarOperation,
     startNewChat,

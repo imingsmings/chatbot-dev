@@ -420,6 +420,45 @@ const injectedFetch = `
     const method = (init.method || 'GET').toUpperCase();
     const pathname = new URL(url, location.origin).pathname.replace(/^\\/api/, '');
 
+    if (pathname === '/runtime-config' && method === 'GET') {
+      return json({
+        runtime: {
+          provider: 'deepseek',
+          model: 'deepseek-v4-flash',
+          storageBackend: 'file',
+          endpointConfigured: true,
+          apiKeyConfigured: true,
+          providers: [{
+            id: 'deepseek',
+            label: 'DeepSeek',
+            configured: true,
+            endpointConfigured: true,
+            apiKeyConfigured: true,
+            defaultModel: 'deepseek-v4-flash',
+            models: [{
+              provider: 'deepseek',
+              id: 'deepseek-v4-flash',
+              label: 'DeepSeek V4 Flash',
+              capabilities: {
+                tools: true,
+                reasoning: true,
+                reasoningSummary: false,
+                reasoningEfforts: ['low', 'medium', 'high', 'max'],
+                temperature: true,
+                maxOutputTokens: 65536,
+              },
+            }],
+          }],
+          defaults: {
+            temperature: null,
+            maxTokens: null,
+            reasoningEnabled: false,
+            reasoningEffort: 'medium',
+          },
+        },
+      });
+    }
+
     if (pathname === '/conversations' && method === 'GET') {
       return json({ conversations: [...conversations.values()].map(summary) });
     }

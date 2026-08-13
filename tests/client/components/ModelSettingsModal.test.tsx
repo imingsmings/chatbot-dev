@@ -67,6 +67,27 @@ const deepSeekRuntime: RuntimeInfo = {
 }
 
 describe('ModelSettingsModal', () => {
+  it('disables repeated apply while the conversation options are saving', () => {
+    render(
+      <ModelSettingsModal
+        onClose={vi.fn<() => void>()}
+        onSave={vi.fn<(options: ModelRequestOptions) => void>()}
+        open
+        options={{
+          provider: 'deepseek',
+          model: 'deepseek-v4-flash',
+          reasoningEnabled: true,
+          reasoningEffort: 'medium',
+        }}
+        runtime={deepSeekRuntime}
+        saving
+      />,
+    )
+
+    expect(screen.getByRole('dialog')).toHaveAttribute('aria-busy', 'true')
+    expect(screen.getByRole('button', { name: 'Saving...' })).toBeDisabled()
+  })
+
   it('renders controls from OpenAI model capabilities and enforces its output limit', () => {
     const onSave = vi.fn<(options: ModelRequestOptions) => void>()
     render(

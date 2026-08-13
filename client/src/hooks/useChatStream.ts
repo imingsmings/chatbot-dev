@@ -28,6 +28,7 @@ export type SubmitQuestionOptions = {
 
 export type UseChatStreamOptions = {
   cancelRequest?: typeof cancelRequestApi
+  canStartRequest?: () => boolean
   clearComposer?: () => void
   conversationId: string | null
   copyResetMs?: number
@@ -225,7 +226,12 @@ export function useChatStream(options: UseChatStreamOptions) {
   const submitQuestion = useCallback(
     async (question: string, submitOptions: SubmitQuestionOptions) => {
       const normalizedQuestion = question.trim()
-      if (!normalizedQuestion || requestInFlightRef.current || isStoppingRef.current) {
+      if (
+        !normalizedQuestion ||
+        requestInFlightRef.current ||
+        isStoppingRef.current ||
+        optionsRef.current.canStartRequest?.() === false
+      ) {
         return
       }
 

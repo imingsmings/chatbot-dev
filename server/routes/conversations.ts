@@ -12,7 +12,8 @@ import {
   previewConversationContext,
   renameConversation,
   searchConversations,
-  summarizeConversation
+  summarizeConversation,
+  updateConversationModelOptions
 } from '../controllers/conversationController.ts'
 
 const router = express.Router()
@@ -27,6 +28,7 @@ router.post('/conversations/:id/context-preview', previewConversationContext)
 router.post('/conversations/:id/summary', summarizeConversation)
 router.get('/conversations/:id/export.md', exportConversationMarkdown)
 router.get('/conversations/:id', getConversation)
+router.patch('/conversations/:id/model-options', updateConversationModelOptions)
 router.patch('/conversations/:id', renameConversation)
 router.delete('/conversations/:id', deleteConversation)
 router.post('/conversations/:id/clear', clearConversation)

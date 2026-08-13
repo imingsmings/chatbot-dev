@@ -33,6 +33,13 @@ function sourceConversation(id: string): Conversation {
     createdAt: '2026-08-12T00:00:00.000Z',
     updatedAt: '2026-08-12T00:01:00.000Z',
     titleManuallyEdited: true,
+    modelOptions: {
+      provider: 'deepseek',
+      model: 'deepseek-v4-pro',
+      reasoningEnabled: true,
+      reasoningEffort: 'high',
+      maxTokens: 4096,
+    },
     messages: [
       { role: 'user', content: '第一问' },
       {
@@ -120,6 +127,7 @@ test('branch API copies only the prefix before the target user message', async (
     JSON.parse(JSON.stringify(originalBefore.messages.slice(0, 2))),
   )
   assert.equal(branch.summary, undefined)
+  assert.deepEqual(branch.modelOptions, source.modelOptions)
   assert.deepEqual(await getConversation(source.id), originalBefore)
   const persistedBranch = await getConversation(branch.id)
   assert(persistedBranch)

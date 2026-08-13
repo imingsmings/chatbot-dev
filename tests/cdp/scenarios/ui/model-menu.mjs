@@ -155,7 +155,12 @@ export async function runModelMenu(client) {
       modelMenuState.menuWidth > 286 ||
       modelMenuState.submenuWidth > 242 ||
       modelMenuState.edgeGap > 1 ||
-      JSON.stringify(modelMenuState.labels) !== JSON.stringify(['DeepSeek V4 Flash', 'DeepSeek V4 Pro']) ||
+      JSON.stringify(modelMenuState.labels) !== JSON.stringify([
+        'DeepSeek V4 Flash',
+        'DeepSeek V4 Pro',
+        'GPT-5.6 Luna',
+        'GPT-5.6 Sol',
+      ]) ||
       modelMenuState.selectedCount !== 1 ||
       modelMenuState.maxItemHeight > 36.5
     ) {

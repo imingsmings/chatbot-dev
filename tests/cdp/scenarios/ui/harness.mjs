@@ -316,10 +316,14 @@ async function setMockFlags(client, flags) {
 }
 
 async function typeText(client, text) {
+  await waitFor(client, `document.querySelector('.composer textarea') instanceof HTMLTextAreaElement`)
   await evaluate(
     client,
     `(() => {
-      const input = document.querySelector('textarea');
+      const input = document.querySelector('.composer textarea');
+      if (!(input instanceof HTMLTextAreaElement)) {
+        throw new Error('Cannot find composer textarea');
+      }
       Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')
         .set.call(input, ${JSON.stringify(text)});
       input.dispatchEvent(new Event('input', { bubbles: true }));
@@ -361,6 +365,8 @@ const mockScript = `
     failNextDelete: false,
     failNextClear: false,
     failNextBranch: false,
+    failNextModelOptions: false,
+    modelOptionsDelayMs: 0,
     cancelDelayMs: 0,
   };
   window.__abortCount = 0;
@@ -407,6 +413,7 @@ const mockScript = `
         createdAt: item.createdAt || timestamp,
         updatedAt: timestamp,
         messages: Array.isArray(item.messages) ? item.messages.map((message) => ({ ...message })) : [],
+        modelOptions: item.modelOptions ? { ...item.modelOptions } : undefined,
       };
       conversations.set(conversation.id, conversation);
     }
@@ -441,6 +448,17 @@ const mockScript = `
 
   function now() {
     return new Date().toISOString();
+  }
+
+  function defaultModelOptions() {
+    return {
+      provider: 'deepseek',
+      model: 'deepseek-v4-flash',
+      temperature: 0.7,
+      maxTokens: 4096,
+      reasoningEnabled: true,
+      reasoningEffort: 'medium',
+    };
   }
 
   function summary(conversation) {
@@ -479,6 +497,7 @@ const mockScript = `
       createdAt: timestamp,
       updatedAt: timestamp,
       messages: [],
+      modelOptions: defaultModelOptions(),
     };
     conversations.set(conversation.id, conversation);
     persistMockData();
@@ -490,7 +509,13 @@ const mockScript = `
     const parsed = new URL(url, window.location.origin);
     const pathname = parsed.pathname.replace(/^\\/api/, '');
     const method = (init.method || 'GET').toUpperCase();
-    requests.push({ method, pathname });
+    let requestBody = null;
+    try {
+      requestBody = init.body ? JSON.parse(init.body) : null;
+    } catch {
+      requestBody = init.body || null;
+    }
+    requests.push({ method, pathname, body: requestBody });
 
     if (pathname === '/runtime-config' && method === 'GET') {
       return json({
@@ -500,10 +525,85 @@ const mockScript = `
             avatarUrl: '/assets/jw.svg',
           },
           provider: 'deepseek',
-          model: 'mock-chat-model',
+          model: 'deepseek-v4-flash',
           storageBackend: 'file',
           endpointConfigured: true,
           apiKeyConfigured: true,
+          providers: [
+            {
+              id: 'deepseek',
+              label: 'DeepSeek',
+              configured: true,
+              endpointConfigured: true,
+              apiKeyConfigured: true,
+              defaultModel: 'deepseek-v4-flash',
+              models: [
+                {
+                  provider: 'deepseek',
+                  id: 'deepseek-v4-flash',
+                  label: 'DeepSeek V4 Flash',
+                  capabilities: {
+                    tools: true,
+                    reasoning: true,
+                    reasoningSummary: false,
+                    reasoningEfforts: ['low', 'medium', 'high', 'max'],
+                    temperature: true,
+                    maxOutputTokens: 65536,
+                  },
+                },
+                {
+                  provider: 'deepseek',
+                  id: 'deepseek-v4-pro',
+                  label: 'DeepSeek V4 Pro',
+                  capabilities: {
+                    tools: true,
+                    reasoning: true,
+                    reasoningSummary: false,
+                    reasoningEfforts: ['low', 'medium', 'high', 'max'],
+                    temperature: true,
+                    maxOutputTokens: 65536,
+                  },
+                },
+              ],
+            },
+            {
+              id: 'openai',
+              label: 'OpenAI',
+              configured: true,
+              endpointConfigured: true,
+              apiKeyConfigured: true,
+              defaultModel: 'gpt-5.6-luna',
+              models: [
+                {
+                  provider: 'openai',
+                  id: 'gpt-5.6-luna',
+                  label: 'GPT-5.6 Luna',
+                  capabilities: {
+                    tools: true,
+                    reasoning: true,
+                    reasoningSummary: true,
+                    reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
+                    temperature: false,
+                    maxOutputTokens: 128000,
+                  },
+                },
+                {
+                  provider: 'openai',
+                  id: 'gpt-5.6-sol',
+                  label: 'GPT-5.6 Sol',
+                  disabled: true,
+                  capabilities: {
+                    tools: true,
+                    reasoning: true,
+                    reasoningSummary: true,
+                    reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
+                    temperature: false,
+                    maxOutputTokens: 128000,
+                  },
+                },
+              ],
+            },
+          ],
           defaults: {
             temperature: 0.7,
             maxTokens: 4096,
@@ -538,6 +638,22 @@ const mockScript = `
       }
       const conversation = conversations.get(decodeURIComponent(detailMatch[1]));
       return conversation ? json({ conversation }) : json({ message: 'not found' }, 404);
+    }
+
+    const modelOptionsMatch = pathname.match(/^\\/conversations\\/([^/]+)\\/model-options$/);
+    if (modelOptionsMatch && method === 'PATCH') {
+      if (flags.modelOptionsDelayMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, flags.modelOptionsDelayMs));
+      }
+      if (consumeFlag('failNextModelOptions')) {
+        return json({ message: 'model options failed' }, 500);
+      }
+      const conversation = conversations.get(decodeURIComponent(modelOptionsMatch[1]));
+      if (!conversation) return json({ message: 'not found' }, 404);
+      const body = JSON.parse(init.body || '{}');
+      conversation.modelOptions = { ...body.options };
+      persistMockData();
+      return json({ conversation });
     }
 
     if (detailMatch && method === 'PATCH') {
@@ -596,6 +712,7 @@ const mockScript = `
       branch.messages = source.messages
         .slice(0, body.messageIndex)
         .map((message) => ({ ...message }));
+      branch.modelOptions = source.modelOptions ? { ...source.modelOptions } : defaultModelOptions();
       persistMockData();
       return json({ conversation: branch }, 201);
     }
@@ -635,6 +752,8 @@ const mockScript = `
     window.__askCount += 1;
     const body = JSON.parse(init.body || '{}');
     const question = body.question || '';
+    conversation.modelOptions = body.options ? { ...body.options } : defaultModelOptions();
+    persistMockData();
     const plan = plans.shift() || { kind: 'success', chunks: ['默认回复'], interval: 40 };
 
     if (plan.kind === 'httpError') {

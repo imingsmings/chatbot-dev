@@ -14,6 +14,7 @@ import type {
 import type { GenerationMetadata, StoredToolTrace, TokenUsage } from '../../types/generation.ts'
 import { DEFAULT_TITLE } from './contracts.ts'
 import { CONVERSATIONS_DIR } from './paths.ts'
+import { normalizeConversationModelOptions } from '../modelOptions.ts'
 
 export function now(): string {
   return new Date().toISOString()
@@ -222,6 +223,11 @@ export function normalizeConversation(conversation: unknown, expectedId?: string
     normalized.summary = summary
   }
 
+  const modelOptions = normalizeConversationModelOptions(rawConversation.modelOptions)
+  if (modelOptions) {
+    normalized.modelOptions = modelOptions
+  }
+
   return normalized
 }
 
@@ -238,7 +244,8 @@ export function cloneConversation(conversation: Conversation): Conversation {
         : undefined,
       toolTrace: message.toolTrace?.map((trace) => ({ ...trace }))
     })),
-    summary: conversation.summary ? { ...conversation.summary } : undefined
+    summary: conversation.summary ? { ...conversation.summary } : undefined,
+    modelOptions: conversation.modelOptions ? { ...conversation.modelOptions } : undefined
   }
 }
 

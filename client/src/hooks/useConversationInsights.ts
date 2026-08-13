@@ -16,6 +16,8 @@ export type ConversationInsightOptions = {
   currentConversationId: string | null
   input: string
   isConversationTransitioning: boolean
+  isModelOptionsSaving: boolean
+  modelOptionsAvailable: boolean
   isResponding: boolean
   isStopping: boolean
   messageCount: number
@@ -41,13 +43,23 @@ export function useConversationInsights(options: ConversationInsightOptions) {
     Boolean(options.currentConversationId) &&
     !options.isResponding &&
     !options.isStopping &&
+    !options.isModelOptionsSaving &&
+    options.modelOptionsAvailable &&
     !options.isConversationTransitioning
   const canGenerateSummary =
     canPreviewContext && options.messageCount > 0 && !isSummaryLoading
 
   const openContextPreview = useCallback(async () => {
     const conversationId = options.currentConversationId
-    if (!conversationId || options.isResponding || contextPreviewLoadingRef.current) return
+    if (
+      !conversationId ||
+      options.isResponding ||
+      options.isStopping ||
+      options.isModelOptionsSaving ||
+      !options.modelOptionsAvailable ||
+      options.isConversationTransitioning ||
+      contextPreviewLoadingRef.current
+    ) return
     options.closeTopMenu()
     contextPreviewLoadingRef.current = true
     setIsContextPreviewLoading(true)
@@ -80,6 +92,8 @@ export function useConversationInsights(options: ConversationInsightOptions) {
       !conversationId ||
       isRespondingRef.current ||
       options.isStopping ||
+      options.isModelOptionsSaving ||
+      !options.modelOptionsAvailable ||
       options.isConversationTransitioning ||
       summaryLoadingRef.current
     ) {

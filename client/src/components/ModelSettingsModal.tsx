@@ -13,6 +13,7 @@ import {
 } from '#utils/modelOptions'
 
 type ModelSettingsModalProps = {
+  saving?: boolean
   open: boolean
   options: ModelRequestOptions
   runtime: RuntimeInfo | null
@@ -21,6 +22,7 @@ type ModelSettingsModalProps = {
 }
 
 export function ModelSettingsModal({
+  saving = false,
   open,
   options,
   runtime,
@@ -66,7 +68,7 @@ export function ModelSettingsModal({
 
   return (
     <DialogRoot onOpenChange={(nextOpen) => !nextOpen && onClose()} open={open}>
-      <DialogContent className="settings-modal">
+      <DialogContent aria-busy={saving || undefined} className="settings-modal">
         <header className="modal-header flex shrink-0 items-center justify-between border-b border-[var(--border-soft)] px-[17px] py-[15px]">
           <DialogTitle>Model Parameters</DialogTitle>
           <DialogClose
@@ -146,7 +148,7 @@ export function ModelSettingsModal({
         </div>
         <footer className="modal-footer flex shrink-0 items-center justify-end gap-2 border-t border-[var(--border-soft)] px-[17px] py-[15px]">
           <DialogClose onClick={onClose} render={<Button className="modal-btn secondary h-[34px] rounded-[7px] border-[var(--border-strong)] bg-[var(--surface-raised)] px-3.5 text-xs font-semibold text-[var(--text-primary)] hover:bg-[var(--surface-muted)]" variant="outline" />}>Cancel</DialogClose>
-          <Button className="modal-btn primary h-[34px] rounded-[7px] bg-[var(--text-primary)] px-3.5 text-xs font-semibold text-[var(--app-bg)] hover:brightness-90" onClick={save} type="button">Apply</Button>
+          <Button className="modal-btn primary h-[34px] rounded-[7px] bg-[var(--text-primary)] px-3.5 text-xs font-semibold text-[var(--app-bg)] hover:brightness-90" disabled={saving} onClick={save} type="button">{saving ? 'Saving...' : 'Apply'}</Button>
         </footer>
       </DialogContent>
     </DialogRoot>

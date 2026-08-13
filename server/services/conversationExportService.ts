@@ -118,6 +118,20 @@ function buildConversationMarkdown(conversation: Conversation): string {
     `- 创建时间：${conversation.createdAt}`,
     `- 更新时间：${conversation.updatedAt}`,
     `- 消息数：${conversation.messages.length}`,
+    ...(conversation.modelOptions
+      ? [
+          `- Provider：${conversation.modelOptions.provider}`,
+          `- 模型：${conversation.modelOptions.model}`,
+          `- 推理：${conversation.modelOptions.reasoningEnabled ? '开启' : '关闭'}`,
+          `- 推理强度：${conversation.modelOptions.reasoningEffort}`,
+          ...(conversation.modelOptions.temperature === undefined
+            ? []
+            : [`- Temperature：${conversation.modelOptions.temperature}`]),
+          ...(conversation.modelOptions.maxTokens === undefined
+            ? []
+            : [`- 最大输出 Tokens：${conversation.modelOptions.maxTokens}`])
+        ]
+      : []),
     '',
     '---',
     ''

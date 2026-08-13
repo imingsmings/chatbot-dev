@@ -7,7 +7,8 @@ import {
   listConversationSummaries,
   removeConversation,
   searchConversationSummaries,
-  updateConversationTitle
+  updateConversationTitle,
+  saveConversationModelOptions
 } from '../services/conversationService.ts'
 import { buildContextPreview } from '../services/contextDebugService.ts'
 import {
@@ -16,7 +17,7 @@ import {
 } from '../services/conversationExportService.ts'
 import { importConversationBackup } from '../services/conversationImportService.ts'
 import { generateConversationSummary } from '../services/conversationSummaryService.ts'
-import { parseModelRequestOptions } from '../utils/modelOptions.ts'
+import { parseConversationModelOptions, parseModelRequestOptions } from '../utils/modelOptions.ts'
 import {
   completeRequest,
   registerRequest,
@@ -56,6 +57,10 @@ type ImportConversationBody = {
 }
 
 type GenerateSummaryBody = {
+  options?: unknown
+}
+
+type UpdateModelOptionsBody = {
   options?: unknown
 }
 
@@ -358,6 +363,47 @@ const summarizeConversation: RequestHandler<ConversationParams, unknown, Generat
   }
 }
 
+const updateConversationModelOptions: RequestHandler<
+  ConversationParams,
+  unknown,
+  UpdateModelOptionsBody
+> = async (req, res, next) => {
+  let options
+  try {
+    options = parseConversationModelOptions(req.body.options)
+  } catch (err) {
+    res.status(400).json({
+      message: err instanceof Error ? err.message : '会话模型配置不合法'
+    })
+    return
+  }
+
+  const controller = new AbortController()
+  const requestId = `model_options_${crypto.randomUUID()}`
+  if (!registerRequest({
+    requestId,
+    conversationId: req.params.id,
+    controller,
+    cancel: () => controller.abort()
+  })) {
+    res.status(409).json({ message: '当前会话正在处理中' })
+    return
+  }
+
+  try {
+    const conversation = await saveConversationModelOptions(req.params.id, options)
+    if (!conversation) {
+      writeNotFound(res)
+      return
+    }
+    res.json({ conversation })
+  } catch (err) {
+    next(err)
+  } finally {
+    completeRequest(requestId, controller)
+  }
+}
+
 const renameConversation: RequestHandler<ConversationParams, unknown, RenameConversationBody> = async (
   req,
   res,
@@ -438,5 +484,6 @@ export {
   previewConversationContext,
   renameConversation,
   searchConversations,
-  summarizeConversation
+  summarizeConversation,
+  updateConversationModelOptions
 }
