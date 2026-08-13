@@ -12,6 +12,20 @@ export type PromptTemplate = {
   variables: PromptTemplateVariable[]
 }
 
+const PROMPT_VARIABLE_PATTERN = /\{([\p{L}_][\p{L}\p{N}_-]{0,39})\}/gu
+
+export function extractPromptTemplateVariables(content: string): PromptTemplateVariable[] {
+  const names = [...content.matchAll(PROMPT_VARIABLE_PATTERN)].map((match) => match[1])
+  const uniqueNames = [...new Set(names)]
+
+  return uniqueNames.map((name) => ({
+    name,
+    label: name,
+    placeholder: `填写 ${name}`,
+    multiline: content.split('\n').some((line) => line.trim() === `{${name}}`),
+  }))
+}
+
 export const promptTemplates: PromptTemplate[] = [
   {
     id: 'explain-code',
@@ -111,7 +125,7 @@ export function renderPromptTemplate(
   template: PromptTemplate,
   values: Record<string, string>,
 ): string {
-  return template.content.replace(/\{([a-zA-Z][a-zA-Z0-9_]*)\}/g, (_, name: string) => {
+  return template.content.replace(PROMPT_VARIABLE_PATTERN, (_, name: string) => {
     return values[name] ?? ''
   })
 }

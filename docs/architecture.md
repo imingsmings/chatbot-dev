@@ -56,6 +56,7 @@ flowchart LR
 | `client/src/hooks/useConversationTransfer.ts` | 单会话 Markdown 导出、全量 JSON 导出和备份导入 |
 | `client/src/hooks/useConversationInsights.ts` | 上下文预览、会话摘要及切换/生成竞态保护 |
 | `client/src/hooks/useConversationModelOptions.ts` | 会话配置恢复、可用模型回退、乐观保存、失败回滚、快速点击和过期响应隔离 |
+| `client/src/hooks/usePromptTemplates.ts` | 自定义 Prompt 模板的浏览器本地状态、localStorage 提交和跨标签页同步 |
 | `client/src/hooks/useConversations.ts` | 会话列表、详情、选择序列和 CRUD |
 | `client/src/hooks/useChatStream.ts` | requestId、AbortController、首包/流空闲超时、取消完成握手和持久化详情回拉 |
 | `client/src/hooks/useAutoScroll.ts` | 用户滚动意图、MutationObserver 和 rAF 跟随 |
@@ -64,6 +65,7 @@ flowchart LR
 | `client/src/utils/streamProtocol.ts` | 基于共享事件联合执行 NDJSON v2 运行时校验 |
 | `client/src/utils/markdownRenderer.ts` | 禁用 HTML/图片、净化、高亮和安全外链 |
 | `client/src/utils/modelOptions.ts` | 运行时模型能力目录、会话配置恢复、损坏/失效模型降级、可发送性和参数约束 |
+| `client/src/utils/customPromptTemplates.ts` | 自定义模板 schema v1、限制校验、非覆盖导入、导出和内置模板适配 |
 
 前端不解析 provider SSE、不读取 API key，也不直接操作持久化文件。
 

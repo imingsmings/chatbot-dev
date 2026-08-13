@@ -28,7 +28,8 @@ Vue 客户端已在 2026-08-09 完成下线，`client/` 现在是唯一的 React
 - reasoning 展示、耗时、持久化和历史恢复。
 - 天气、当前时间和安全表达式计算器 Function Calling。
 - 摘要覆盖边界后的消息/字符上下文窗口、有输入预算的增量摘要和带覆盖范围统计的实际上下文预览。
-- Prompt 模板、Markdown 净化、代码高亮/复制和安全外链。
+- 6 个内置 Prompt 模板，以及浏览器本地自定义模板 CRUD、JSON 导入导出和变量替换。
+- Markdown 净化、代码高亮/复制和安全外链。
 - 前端 fetch abort、cancel API、后端 registry 与上游 AbortSignal 全链路停止；确认清理后回拉持久化详情。
 - 明暗主题、响应式布局、滚动跟随及流式代码块自动滚动。
 
@@ -182,6 +183,7 @@ pnpm run test:docker           # Docker HTTPS、API、SQLite 持久性与 SIGTER
 - [R11 流完整性与摘要覆盖验收记录（2026-08-12）](docs/r11-stream-context-2026-08-12.md)
 - [R16 全链路一致性验收记录（2026-08-13）](docs/r16-consistency-hardening-2026-08-13.md)
 - [R17 会话级模型配置持久化验收记录（2026-08-13）](docs/r17-conversation-model-options-2026-08-13.md)
+- [R18 自定义 Prompt 模板验收记录（2026-08-13）](docs/r18-custom-prompt-templates-2026-08-13.md)
 - [会话级模型配置持久化方案](docs/conversation-model-options-plan.md)
 - [全面 Code Review 与回归记录（2026-08-10）](docs/code-review-2026-08-10.md)
 - [TypeScript 7 / Express 5 工具链升级记录](docs/toolchain-upgrade-2026-08-09.md)

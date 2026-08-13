@@ -36,6 +36,11 @@ const UI_SCENARIOS = [
     script: 'tests/cdp/scenarios/ui/model-options-persistence.mjs',
     needsVite: true,
   },
+  {
+    name: 'UI custom prompt template management',
+    script: 'tests/cdp/scenarios/ui/prompt-templates.mjs',
+    needsVite: true,
+  },
 ]
 
 function readNonNegativeInteger(name, fallback) {
@@ -102,6 +107,13 @@ const SUITES = {
     {
       name: 'UI conversation model option persistence',
       script: 'tests/cdp/scenarios/ui/model-options-persistence.mjs',
+      needsVite: true,
+    },
+  ],
+  'prompt-templates': [
+    {
+      name: 'UI custom prompt template management',
+      script: 'tests/cdp/scenarios/ui/prompt-templates.mjs',
       needsVite: true,
     },
   ],

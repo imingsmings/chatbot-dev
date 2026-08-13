@@ -32,6 +32,7 @@
 | model catalog | provider/model 能力；disabled；空/损坏运行目录 fallback |
 | Markdown | HTML/图片禁用；外链安全；代码语言与净化；stream/complete 模式 |
 | UI components | 模型设置能力约束、摘要可用性、有效消息操作、对话框/主题等生命周期 |
+| custom prompt templates | Unicode 变量、schema v1、localStorage 恢复、CRUD、损坏数据、非覆盖导入和导出 |
 
 ## 后端单元边界
 
@@ -61,16 +62,17 @@
 | --- | --- | --- |
 | P0 | `pnpm run test:cdp:p0` | ask/stop/cancel、会话 API、工具、核心 UI |
 | P1 | `pnpm run test:cdp:p1` | UI、Markdown、高亮、边界状态 |
-| UI | `pnpm run test:cdp:ui` | 五个独立入口：会话操作、流式恢复、滚动/布局、模型菜单、会话模型配置持久化 |
+| UI | `pnpm run test:cdp:ui` | 六个独立入口：会话操作、流式恢复、滚动/布局、模型菜单、会话模型配置、自定义模板 |
 | Context | `pnpm run test:cdp:context-debug` | 实际上下文、统计、移动布局 |
 | Search | `pnpm run test:cdp:conversation-search` | 输入、跳转、空/错/竞态 |
 | Export | `pnpm run test:cdp:conversation-export` | 下载、文件名、JSON 备份 |
 | Roadmap | `pnpm run test:cdp:roadmap` | 摘要、导入、模型参数、模板、工具状态、长 Markdown |
 | Sidebar | `pnpm run test:cdp:sidebar-state` | 操作等待态、连点互斥和失败恢复 |
 | Model options | `pnpm run test:cdp:model-options-persistence` | A/B/刷新恢复、保存等待态、单 PATCH、失败回滚/重试、实际 ask 参数和失效模型回退 |
-| All mock | `pnpm run test:cdp:all-mock` | 上述去重后的 14-script 完整集合 |
+| Prompt templates | `pnpm run test:cdp:prompt-templates` | 新增、编辑、二次确认删除、刷新持久化、变量填充、导入导出、损坏文件和 390px 布局 |
+| All mock | `pnpm run test:cdp:all-mock` | 上述去重后的 15-script 完整集合 |
 
-UI 五个入口位于 `tests/cdp/scenarios/ui/`，分别包含会话操作、流式恢复、滚动/布局、模型菜单和会话模型配置持久化的真实场景实现，并复用 `scenarios/ui/harness.mjs` 及底层 CDP helpers。`ui-scenarios.mjs` 只负责按入口调度；任一模块失败都会返回非零退出码并标明所属场景。
+UI 六个入口位于 `tests/cdp/scenarios/ui/`，分别包含会话操作、流式恢复、滚动/布局、模型菜单、会话模型配置持久化和自定义模板管理的真实场景实现，并复用 `scenarios/ui/harness.mjs` 及底层 CDP helpers。`ui-scenarios.mjs` 只负责按入口调度；任一模块失败都会返回非零退出码并标明所属场景。
 
 ### UI 必测边界
 
@@ -86,6 +88,7 @@ UI 五个入口位于 `tests/cdp/scenarios/ui/`，分别包含会话操作、流
 - 明暗主题刷新保持；390px 无页面级横向溢出。
 - 图标按钮有可读 `aria-label`；Dialog/Dropdown 的 Escape、focus 和 disabled 状态正确。
 - 会话配置保存期间发送、摘要、上下文和重复保存入口不可触发；失败回滚后可重试，实际 ask/摘要/上下文请求使用当前会话配置。
+- 自定义模板 CRUD、刷新恢复、变量填充、非覆盖导入、导出下载、损坏文件保持原数据和删除二次确认均有可重复浏览器断言。
 
 ## 变更到测试映射
 
@@ -97,6 +100,7 @@ UI 五个入口位于 `tests/cdp/scenarios/ui/`，分别包含会话操作、流
 | 流式/取消/超时 | `test:unit` + `test:cdp:p0` + `test:cdp:ui` |
 | file/SQLite/导入 | `test:server` + P0/对应专项 CDP |
 | 会话模型配置 | `test:unit` + `test:cdp:model-options-persistence` + `test:docker`；真实 Provider 不因持久化本身重复调用 |
+| 自定义 Prompt 模板 | `check` + `test:client` + `test:cdp:prompt-templates`；不涉及服务端或 Provider |
 | Provider/Function Calling | adapter/tool tests + P0；真实 provider 需另行确认 |
 | 构建/依赖/入口 | `check` + `build:client` + `all-mock` |
 | 托管/HTTPS | deployment/clientHosting tests + 生产 HTTPS 本机冒烟 |

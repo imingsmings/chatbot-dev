@@ -1,8 +1,9 @@
 import { spawn } from 'node:child_process'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { readFile, mkdtemp, rm } from 'node:fs/promises'
 import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
+import { parseEnv } from 'node:util'
 
 const REAL_SUITES = new Set([
   'all-real',
@@ -29,6 +30,29 @@ function allocatePort() {
   })
 }
 
+function readPositiveInteger(value, fallback) {
+  const number = Number(value)
+  return Number.isInteger(number) && number > 0 ? number : fallback
+}
+
+async function resolveRealModelWaitTimeoutMs() {
+  const explicitWaitTimeout = readPositiveInteger(
+    process.env.CDP_REAL_MODEL_WAIT_TIMEOUT_MS,
+    null,
+  )
+  if (explicitWaitTimeout) return explicitWaitTimeout
+
+  let configuredLlmTimeout = readPositiveInteger(process.env.LLM_TIMEOUT_MS, 30_000)
+  try {
+    const serverEnv = parseEnv(await readFile(path.join(process.cwd(), 'server/.env'), 'utf8'))
+    configuredLlmTimeout = readPositiveInteger(serverEnv.LLM_TIMEOUT_MS, configuredLlmTimeout)
+  } catch (error) {
+    if (error?.code !== 'ENOENT') throw error
+  }
+
+  return Math.max(240_000, configuredLlmTimeout + 15_000)
+}
+
 async function main() {
   const requestedSuite = process.env.CDP_REAL_SUITE || 'all-real'
   if (!REAL_SUITES.has(requestedSuite)) {
@@ -44,6 +68,7 @@ async function main() {
         suite: requestedSuite,
         provider: requestedSuite === 'real-model-options' ? 'deepseek' : 'openai',
       }]
+  const realModelWaitTimeoutMs = await resolveRealModelWaitTimeoutMs()
   let child
   let forwardedSignal
   const forwardSignal = (signal) => {
@@ -72,6 +97,9 @@ async function main() {
       const appUrl = `http://127.0.0.1:${vitePort}/`
 
       console.log(`Running isolated ${run.suite} suite with ${run.provider} as the default provider`)
+      if (run.suite === 'real-model-options') {
+        console.log(`Real model response wait timeout: ${realModelWaitTimeoutMs}ms`)
+      }
       try {
         child = spawn('node', ['tests/cdp/run-cdp-regression.mjs', run.suite], {
           cwd: process.cwd(),
@@ -94,6 +122,9 @@ async function main() {
             VITE_PORT: String(vitePort),
             BACKEND_URL: backendUrl,
             VITE_API_TARGET: backendUrl.replace(/\/$/, ''),
+            ...(run.suite === 'real-model-options'
+              ? { CDP_REAL_MODEL_WAIT_TIMEOUT_MS: String(realModelWaitTimeoutMs) }
+              : {}),
           },
           detached: process.platform !== 'win32',
           stdio: 'inherit',

@@ -33,10 +33,10 @@ pnpm --dir client build
 ```text
 src/app/          页面组合
 src/components/   业务与 UI primitives
-src/hooks/        会话、流、搜索、滚动、主题生命周期
+src/hooks/        会话、流、搜索、滚动、主题和本地模板生命周期
 src/reducers/     conversation/stream 纯状态
 src/api/          HTTP 与 NDJSON reader
-src/utils/        Markdown、协议、模型目录、模板
+src/utils/        Markdown、协议、模型目录、内置/自定义模板 schema
 ../tests/client/  React unit/component/hook 测试及 Vitest setup
 ```
 
