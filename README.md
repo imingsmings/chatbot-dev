@@ -180,6 +180,7 @@ pnpm run test:docker           # Docker HTTPS、API、SQLite 持久性与 SIGTER
 - [Docker 验证记录（2026-08-10）](docs/docker-validation-2026-08-10.md)
 - [R11 流完整性与摘要覆盖验收记录（2026-08-12）](docs/r11-stream-context-2026-08-12.md)
 - [R16 全链路一致性验收记录（2026-08-13）](docs/r16-consistency-hardening-2026-08-13.md)
+- [会话级模型配置持久化方案](docs/conversation-model-options-plan.md)
 - [全面 Code Review 与回归记录（2026-08-10）](docs/code-review-2026-08-10.md)
 - [TypeScript 7 / Express 5 工具链升级记录](docs/toolchain-upgrade-2026-08-09.md)
 - [阶段交付审查（2026-08-09）](docs/release-readiness-2026-08-09.md)
