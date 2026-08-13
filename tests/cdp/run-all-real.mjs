@@ -37,7 +37,7 @@ async function main() {
 
   const runs = requestedSuite === 'all-real'
     ? [
-        { suite: 'all-real', provider: 'openai' },
+        { suite: 'all-real', provider: 'deepseek', model: 'deepseek-v4-pro' },
         { suite: 'real-model-options', provider: 'deepseek' },
       ]
     : [{
@@ -78,6 +78,12 @@ async function main() {
           env: {
             ...process.env,
             LLM_PROVIDER: run.provider,
+            ...(run.model ? {
+              LLM_MODEL: run.model,
+              ...(run.provider === 'deepseek'
+                ? { DEEPSEEK_MODEL: run.model }
+                : { OPENAI_MODEL: run.model }),
+            } : {}),
             HOST: '127.0.0.1',
             PORT: String(backendPort),
             HTTPS_ENABLED: 'false',

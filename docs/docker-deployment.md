@@ -65,7 +65,7 @@ LLM_PROVIDER=deepseek
 DEEPSEEK_ENDPOINT=https://api.deepseek.com/chat/completions
 DEEPSEEK_MODEL=deepseek-v4-flash
 DEEPSEEK_API_KEY=本机实际密钥
-LLM_DISABLED_MODELS=deepseek-v4-pro,gpt-5.6-sol
+LLM_DISABLED_MODELS=gpt-5.6-sol
 CONVERSATION_STORE=sqlite
 ```
 

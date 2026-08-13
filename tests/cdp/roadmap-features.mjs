@@ -103,7 +103,6 @@ const mockScript = `
                   provider: 'deepseek',
                   id: 'deepseek-v4-pro',
                   label: 'DeepSeek V4 Pro',
-                  disabled: true,
                   capabilities: {
                     tools: true,
                     reasoning: true,
@@ -415,12 +414,13 @@ async function main() {
             (button.disabled || button.getAttribute('aria-disabled') === 'true' || button.hasAttribute('data-disabled')));
         };
         const option = buttons.find((item) => item.textContent.includes('DeepSeek V4 Flash'));
-        const disabledOption = buttons.find((item) => item.textContent.includes('DeepSeek V4 Pro'));
+        const proOption = buttons.find((item) => item.textContent.includes('DeepSeek V4 Pro'));
+        const disabledOption = buttons.find((item) => item.textContent.includes('GPT-5.6 Sol'));
         const headingStyle = headings[0] ? getComputedStyle(headings[0]) : null;
         const optionStyle = option ? getComputedStyle(option) : null;
         const disabledStyle = disabledOption ? getComputedStyle(disabledOption) : null;
         return {
-          deepseekPro: state('DeepSeek V4 Pro'),
+          deepseekProEnabled: Boolean(proOption && !state('DeepSeek V4 Pro')),
           openaiSol: state('GPT-5.6 Sol'),
           providerGroups: groups.length === 2,
           providerLabels: headings.map((heading) => heading.textContent.trim()).join('|') === 'DeepSeek|OpenAI',

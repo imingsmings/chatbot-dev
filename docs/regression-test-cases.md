@@ -117,8 +117,10 @@ pnpm run test:cdp:real-model-options
 pnpm run test:cdp:real-openai
 ```
 
-三个专项命令和 `all-real` 都通过 `run-all-real.mjs` 分配随机端口和临时 file store；`all-real` 先以 OpenAI 为默认 provider 跑 UI/上下文/Markdown/Responses，再以 DeepSeek 为默认 provider 跑 Flash 的 Off/Low/Medium/High。已禁用的 V4 Pro 和 GPT-5.6 Sol 只验证禁用状态，不发送真实请求。
+三个专项命令和 `all-real` 都通过 `run-all-real.mjs` 分配随机端口和临时 file store；`all-real` 以 DeepSeek V4 Pro 为默认模型跑 UI/上下文/Markdown，并覆盖 OpenAI Responses；随后以 DeepSeek 为默认 provider 跑 Flash 与 Pro 的 Off/Low/Medium/High。已禁用的 GPT-5.6 Sol 只验证禁用状态，不发送真实请求。
 
 真实测试必须说明模型、场景、可能费用、截图与否，并清理全部测试会话。未明确要求截图时保持 `CDP_SCREENSHOTS=0`。
 
 2026-08-13 的 R16 Mock、Docker、DeepSeek/OpenAI 真实接口与审查结果见 [R16 全链路一致性验收记录](r16-consistency-hardening-2026-08-13.md)。
+
+DeepSeek V4 Pro 0813 的启用、8 组真实模型参数矩阵和 Docker 验收见 [DeepSeek V4 Pro 0813 启用与验收记录](deepseek-v4-pro-0813-validation-2026-08-13.md)。

@@ -14,7 +14,7 @@
 
 ## 模型与生成
 
-- DeepSeek V4 Flash；V4 Pro 当前在运行时目录中禁用。
+- DeepSeek V4 Flash 与 DeepSeek V4 Pro；当前 `deepseek-v4-pro` 别名对应 DeepSeek-V4-Pro-0813。
 - OpenAI Responses 模型目录。
 - 按模型能力显示和发送 temperature、max tokens、reasoning enabled/effort。
 - 运行时目录异常或为空时使用安全的 DeepSeek fallback，不崩溃。
