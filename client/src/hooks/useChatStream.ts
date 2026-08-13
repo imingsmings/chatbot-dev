@@ -10,11 +10,13 @@ import {
   createInitialChatStreamState,
   finalizeChatStreamState,
   interruptChatStreamState,
-  reduceChatStreamEvent,
+  reduceChatStreamEvents,
   type ChatStreamState,
 } from '../reducers/chatStreamReducer'
 import type { ConversationAction } from '../reducers/conversationReducer'
 import type { ChatMessage, ConversationDetail, ModelRequestOptions } from '#types/chat'
+import { recordChatPerformance } from '#utils/chatPerformanceDiagnostics'
+import { createChatStreamEventBuffer } from '#utils/chatStreamEventBuffer'
 
 const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 15_000
 const DEFAULT_COPY_RESET_MS = 1_600
@@ -109,6 +111,7 @@ export function useChatStream(options: UseChatStreamOptions) {
   const currentRequestIdRef = useRef<string | null>(null)
   const abortReasonRef = useRef<AbortReason>(null)
   const activeStreamStateRef = useRef<ChatStreamState | null>(null)
+  const activeEventBufferRef = useRef<ReturnType<typeof createChatStreamEventBuffer> | null>(null)
   const cancellationCompletionRef = useRef<Promise<boolean> | null>(null)
   const idleTimerRef = useRef<number | null>(null)
   const copiedTimerRef = useRef<number | null>(null)
@@ -195,6 +198,12 @@ export function useChatStream(options: UseChatStreamOptions) {
       return
     }
 
+    recordChatPerformance('assistant-update', {
+      messageId: id,
+      reasoningLength: state.reasoningText.length,
+      status: state.status,
+      textLength: state.text.length,
+    })
     optionsRef.current.dispatch({
       type: 'replace-message',
       message: toAssistantMessage(id, state),
@@ -243,6 +252,7 @@ export function useChatStream(options: UseChatStreamOptions) {
       let assistantId: string | null = null
       let controller: AbortController | null = null
       let requestId: string | null = null
+      let eventBuffer: ReturnType<typeof createChatStreamEventBuffer> | null = null
       let conversationId = submitOptions.conversationId ?? optionsRef.current.conversationId
 
       try {
@@ -308,6 +318,18 @@ export function useChatStream(options: UseChatStreamOptions) {
           options: currentOptions.getModelOptions(),
         })
 
+        eventBuffer = createChatStreamEventBuffer({
+          onFlush: (events) => {
+            const previousState = activeStreamStateRef.current
+            if (!previousState || !assistantId) return
+
+            const nextState = reduceChatStreamEvents(previousState, events)
+            activeStreamStateRef.current = nextState
+            replaceAssistantMessage(assistantId, nextState)
+          },
+        })
+        activeEventBufferRef.current = eventBuffer
+
         await readChatStream({
           response,
           onChunk: () => {
@@ -316,24 +338,12 @@ export function useChatStream(options: UseChatStreamOptions) {
             }
           },
           onEvent: (event) => {
-            const previousState = activeStreamStateRef.current
-            if (!previousState || !assistantId) {
-              return
-            }
-
-            const nextState = reduceChatStreamEvent(
-              previousState,
-              event,
-              (optionsRef.current.now ?? Date.now)(),
-            )
-            activeStreamStateRef.current = nextState
-            replaceAssistantMessage(assistantId, nextState)
+            recordChatPerformance('stream-event', { type: event.type })
+            eventBuffer?.push(event, (optionsRef.current.now ?? Date.now)())
 
             if (event.type === 'error') {
               throw new Error(event.message || '模型响应失败')
             }
-
-            followNewContent(optionsRef.current.shouldFollowNewContent?.() ?? true)
           },
         })
         clearIdleTimer()
@@ -356,11 +366,14 @@ export function useChatStream(options: UseChatStreamOptions) {
         }
       } catch (error) {
         const abortReason = abortReasonRef.current
-        const streamState = activeStreamStateRef.current
 
         if (abortReason === 'unmount' || abortReason === 'transition' || !mountedRef.current) {
+          eventBuffer?.dispose()
           return
         }
+
+        eventBuffer?.flush()
+        const streamState = activeStreamStateRef.current
 
         if (!assistantId || !streamState) {
           logError('Failed to prepare model request:', error)
@@ -411,6 +424,10 @@ export function useChatStream(options: UseChatStreamOptions) {
         }
 
         activeStreamStateRef.current = null
+        eventBuffer?.dispose()
+        if (activeEventBufferRef.current === eventBuffer) {
+          activeEventBufferRef.current = null
+        }
         cancellationCompletionRef.current = null
         requestInFlightRef.current = false
 
@@ -443,6 +460,11 @@ export function useChatStream(options: UseChatStreamOptions) {
 
     try {
       abortReasonRef.current = reason
+      if (reason === 'manual') {
+        activeEventBufferRef.current?.flush()
+      } else {
+        activeEventBufferRef.current?.dispose()
+      }
 
       const cancellationCompletion = requestId
         ? cancelWithDeadline(requestId, reason)
@@ -528,6 +550,8 @@ export function useChatStream(options: UseChatStreamOptions) {
       mountedRef.current = false
       clearIdleTimer()
       clearCopiedTimer()
+      activeEventBufferRef.current?.dispose()
+      activeEventBufferRef.current = null
 
       const controller = currentAbortControllerRef.current
       const requestId = currentRequestIdRef.current

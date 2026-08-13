@@ -201,7 +201,13 @@ export async function runLayoutScroll(client) {
     await setPlan(client, [
       { kind: 'success', chunks: makeLongChunks('新流式回复', 40), interval: 120, done: false },
     ])
-    await evaluate(client, `document.querySelector('.chat-scroll').scrollTop = 0`)
+    await evaluate(client, `(() => {
+      const el = document.querySelector('.chat-scroll');
+      el.dispatchEvent(new WheelEvent('wheel', { bubbles: true, deltaY: -100 }));
+      el.scrollTop = 0;
+      el.dispatchEvent(new Event('scroll'));
+    })()`)
+    await waitFor(client, `Boolean(document.querySelector('button[aria-label="滚动到底部"]'))`)
     const scrollBefore = await evaluate(client, `Math.round(document.querySelector('.chat-scroll').scrollTop)`)
     const bottomGapBefore = await evaluate(client, `(() => {
       const el = document.querySelector('.chat-scroll');
@@ -220,6 +226,30 @@ export async function runLayoutScroll(client) {
       )
     }
     await screenshot(client, '04-scroll-does-not-force-bottom')
+    await evaluate(client, `document.querySelector('button[aria-label="滚动到底部"]')?.click()`)
+    await waitFor(
+      client,
+      `(() => {
+        const el = document.querySelector('.chat-scroll');
+        return el &&
+          Math.abs(el.scrollHeight - el.scrollTop - el.clientHeight) <= 24 &&
+          !document.querySelector('button[aria-label="滚动到底部"]');
+      })()`,
+    )
+    await delay(650)
+    const quickBottomFollowState = await evaluate(
+      client,
+      `(() => {
+        const el = document.querySelector('.chat-scroll');
+        return {
+          bottomGap: Math.round(Math.abs(el.scrollHeight - el.scrollTop - el.clientHeight)),
+          buttonVisible: Boolean(document.querySelector('button[aria-label="滚动到底部"]')),
+        };
+      })()`,
+    )
+    if (quickBottomFollowState.bottomGap > 96 || quickBottomFollowState.buttonVisible) {
+      throw new Error(`Quick-bottom follow recovery failed: ${JSON.stringify(quickBottomFollowState)}`)
+    }
     await clickText(client, 'button', '停止')
     await waitFor(client, `document.body.innerText.includes('已停止生成')`)
 
@@ -232,6 +262,7 @@ export async function runLayoutScroll(client) {
         bottomGapBefore,
         scrollDuring,
         bottomGap,
+        quickBottomFollowState,
       })
       console.log('UI stage: mobile layout and frontend errors')
       await client.send('Emulation.setDeviceMetricsOverride', {
@@ -253,9 +284,32 @@ export async function runLayoutScroll(client) {
       client,
       `(() => {
         const chatScroll = document.querySelector('.chat-scroll');
-        chatScroll?.scrollTo({ top: chatScroll.scrollHeight });
+        chatScroll?.dispatchEvent(new WheelEvent('wheel', { bubbles: true, deltaY: -100 }));
+        if (chatScroll) chatScroll.scrollTop = 0;
+        chatScroll?.dispatchEvent(new Event('scroll'));
       })()`,
     )
+    await waitFor(client, `Boolean(document.querySelector('button[aria-label="滚动到底部"]'))`)
+    const mobileQuickBottomState = await evaluate(
+      client,
+      `(() => {
+        const shell = document.querySelector('.chat-scroll-shell').getBoundingClientRect();
+        const button = document.querySelector('button[aria-label="滚动到底部"]').getBoundingClientRect();
+        return {
+          containedHorizontally: button.left >= shell.left && button.right <= shell.right,
+          containedVertically: button.top >= shell.top && button.bottom <= shell.bottom,
+          viewportOverflowX: document.documentElement.scrollWidth > window.innerWidth,
+        };
+      })()`,
+    )
+    if (
+      !mobileQuickBottomState.containedHorizontally ||
+      !mobileQuickBottomState.containedVertically ||
+      mobileQuickBottomState.viewportOverflowX
+    ) {
+      throw new Error(`Mobile quick-bottom layout failed: ${JSON.stringify(mobileQuickBottomState)}`)
+    }
+    await evaluate(client, `document.querySelector('button[aria-label="滚动到底部"]')?.click()`)
     await waitFor(
       client,
       `(() => {
@@ -325,7 +379,7 @@ export async function runLayoutScroll(client) {
         deviceScaleFactor: 1,
         mobile: false,
       })
-      Object.assign(groupResults, { mobileState, mobileReasoningState })
+      Object.assign(groupResults, { mobileState, mobileReasoningState, mobileQuickBottomState })
   return groupResults
 }
 

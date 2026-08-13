@@ -16,7 +16,7 @@
 | Docker 容器 | `pnpm run test:docker` | Compose、证书覆盖、HTTPS、health、SQLite、会话模型配置跨重启、停止备份、新卷恢复、语义一致性和 SIGTERM |
 | Docker 页面 | `pnpm run test:cdp:docker-ui` | 容器 HTTPS 页面、侧栏、输入区、模型控件和横向溢出；截图可选 |
 | 浏览器回归 | `pnpm run test:cdp:all-mock` | 完整 React UI/API mock 矩阵 |
-| 真实接口全量 | `pnpm run test:cdp:all-real` | 两批隔离端口/临时 file store；OpenAI UI/上下文/Markdown/reasoning/工具/停止恢复 + DeepSeek Flash 四档 reasoning；需明确确认 |
+| 真实接口全量 | `pnpm run test:cdp:all-real` | 两批隔离端口/临时 file store；DeepSeek V4 Pro UI/上下文/Markdown + OpenAI Responses reasoning/工具/停止恢复 + DeepSeek Flash/Pro 8 组模型参数；需明确确认 |
 | 生产依赖审计 | `pnpm run audit:production` | 根 workspace 全部生产依赖，要求 0 已知漏洞 |
 
 ## React 单元边界
@@ -62,7 +62,8 @@
 | --- | --- | --- |
 | P0 | `pnpm run test:cdp:p0` | ask/stop/cancel、会话 API、工具、核心 UI |
 | P1 | `pnpm run test:cdp:p1` | UI、Markdown、高亮、边界状态 |
-| UI | `pnpm run test:cdp:ui` | 六个独立入口：会话操作、流式恢复、滚动/布局、模型菜单、会话模型配置、自定义模板 |
+| UI | `pnpm run test:cdp:ui` | 七个独立入口：会话操作、流式恢复、滚动/布局、流性能、模型菜单、会话模型配置、自定义模板 |
+| Stream performance | `pnpm run test:cdp:stream-performance` | 4KB/24KB/80KB、200 条历史、更新次数、可见延迟、long task、历史行渲染和滚动次数 |
 | Context | `pnpm run test:cdp:context-debug` | 实际上下文、统计、移动布局 |
 | Search | `pnpm run test:cdp:conversation-search` | 输入、跳转、空/错/竞态 |
 | Export | `pnpm run test:cdp:conversation-export` | 下载、文件名、JSON 备份 |
@@ -70,9 +71,9 @@
 | Sidebar | `pnpm run test:cdp:sidebar-state` | 操作等待态、连点互斥和失败恢复 |
 | Model options | `pnpm run test:cdp:model-options-persistence` | A/B/刷新恢复、保存等待态、单 PATCH、失败回滚/重试、实际 ask 参数和失效模型回退 |
 | Prompt templates | `pnpm run test:cdp:prompt-templates` | 新增、编辑、二次确认删除、刷新持久化、变量填充、导入导出、损坏文件和 390px 布局 |
-| All mock | `pnpm run test:cdp:all-mock` | 上述去重后的 15-script 完整集合 |
+| All mock | `pnpm run test:cdp:all-mock` | 上述去重后的 16-script 完整集合 |
 
-UI 六个入口位于 `tests/cdp/scenarios/ui/`，分别包含会话操作、流式恢复、滚动/布局、模型菜单、会话模型配置持久化和自定义模板管理的真实场景实现，并复用 `scenarios/ui/harness.mjs` 及底层 CDP helpers。`ui-scenarios.mjs` 只负责按入口调度；任一模块失败都会返回非零退出码并标明所属场景。
+UI 七个入口位于 `tests/cdp/scenarios/ui/`，分别包含会话操作、流式恢复、滚动/布局、流性能、模型菜单、会话模型配置持久化和自定义模板管理的真实场景实现，并复用 `scenarios/ui/harness.mjs` 及底层 CDP helpers。`ui-scenarios.mjs` 只负责按入口调度；任一模块失败都会返回非零退出码并标明所属场景。
 
 ### UI 必测边界
 
@@ -81,7 +82,7 @@ UI 六个入口位于 `tests/cdp/scenarios/ui/`，分别包含会话操作、流
 - 删除/清空当前会话清理草稿和页面状态。
 - 编辑历史用户消息和重新生成回答均创建新分支；父会话逐条不变，连续分支保留各自回答，失败不留下额外会话。
 - 只有带服务端 `persistedIndex` 的消息显示编辑/重新生成；流成功或停止后 optimistic 行与服务端详情完全对齐。
-- 用户接近底部时跟随正文/reasoning/代码块；上滚查看历史时保持位置。
+- 用户接近底部时跟随正文/reasoning/代码块；上滚查看历史时保持位置并显示快速到底按钮，点击后恢复当前流的持续跟随。
 - 代码块最后增长时 bottom gap 保持在阈值内。
 - 停止、HTTP 失败、网络断开、损坏 NDJSON、缺少 done、Provider 不完整错误和超时后均可恢复；只有有正文的用户手动停止落为 `stopped`，其他中断部分正文仅保留在当前 UI 且不落库。
 - 刷新后 generation、usage、裁剪工具轨迹和 `stopped` 状态可恢复；缺失 usage 显示未知，`stopped` 不进入上下文或摘要。
@@ -98,6 +99,7 @@ UI 六个入口位于 `tests/cdp/scenarios/ui/`，分别包含会话操作、流
 | UI/交互/布局/滚动 | 上述 + `test:cdp:ui` |
 | Markdown/高亮 | `test:client` + `test:cdp:markdown` + `test:cdp:highlight` |
 | 流式/取消/超时 | `test:unit` + `test:cdp:p0` + `test:cdp:ui` |
+| 流式渲染性能 | 上述 + `test:cdp:stream-performance`；同机 5 次中位数与最差值门禁 |
 | file/SQLite/导入 | `test:server` + P0/对应专项 CDP |
 | 会话模型配置 | `test:unit` + `test:cdp:model-options-persistence` + `test:docker`；真实 Provider 不因持久化本身重复调用 |
 | 自定义 Prompt 模板 | `check` + `test:client` + `test:cdp:prompt-templates`；不涉及服务端或 Provider |

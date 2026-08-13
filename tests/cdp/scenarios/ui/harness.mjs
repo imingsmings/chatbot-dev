@@ -768,6 +768,7 @@ const mockScript = `
       start(controller) {
         let index = 0;
         let reasoningIndex = 0;
+        let toolEventIndex = 0;
         let answer = '';
         let reasoning = '';
         let timer;
@@ -818,6 +819,13 @@ const mockScript = `
             controller.enqueue(line({ type: 'reasoning_delta', content: chunk }));
             reasoningIndex += 1;
             timer = window.setTimeout(push, plan.reasoningInterval ?? plan.interval ?? 80);
+            return;
+          }
+
+          if (toolEventIndex < (plan.toolEvents || []).length) {
+            controller.enqueue(line(plan.toolEvents[toolEventIndex]));
+            toolEventIndex += 1;
+            timer = window.setTimeout(push, plan.toolInterval ?? plan.interval ?? 80);
             return;
           }
 

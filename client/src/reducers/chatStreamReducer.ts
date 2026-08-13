@@ -1,5 +1,6 @@
 import type { MessageStatus, ToolActivity } from '#types/chat'
 import type { ChatStreamEvent } from '#utils/streamProtocol'
+import type { TimedChatStreamEvent } from '#utils/chatStreamEventBuffer'
 import { settleRunningToolActivities } from '#utils/toolActivities'
 
 export type ChatStreamState = {
@@ -167,4 +168,14 @@ export function reduceChatStreamEvent(
         ),
       }
   }
+}
+
+export function reduceChatStreamEvents(
+  state: ChatStreamState,
+  events: TimedChatStreamEvent[],
+): ChatStreamState {
+  return events.reduce(
+    (current, item) => reduceChatStreamEvent(current, item.event, item.receivedAt),
+    state,
+  )
 }

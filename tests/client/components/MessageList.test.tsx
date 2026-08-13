@@ -1,7 +1,11 @@
 import { fireEvent, render, screen } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { MessageList } from '../../../client/src/components/MessageList'
+
+afterEach(() => {
+  delete window.__chatbotPerformanceDiagnostics
+})
 
 describe('MessageList', () => {
   it('shows only implemented actions for a completed assistant message', () => {
@@ -120,5 +124,51 @@ describe('MessageList', () => {
     expect(screen.queryByRole('button', { name: '重新生成回答' })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '重试' }))
     expect(onRetryMessage).toHaveBeenCalledWith(1)
+  })
+
+  it('does not rerender unchanged history rows when the streaming row changes', () => {
+    window.__chatbotPerformanceDiagnostics = { enabled: true, marks: [] }
+    const history = [
+      { id: 'user-1', persistedIndex: 0, role: 'user' as const, status: 'done' as const, text: '问题' },
+      { id: 'assistant-1', persistedIndex: 1, role: 'assistant' as const, status: 'done' as const, text: '历史回答' },
+    ]
+    const actions = {
+      onCopyMessage: vi.fn(),
+      onEditMessage: vi.fn(),
+      onRegenerateMessage: vi.fn(),
+      onRetryMessage: vi.fn(),
+    }
+    const { rerender } = render(
+      <MessageList
+        {...actions}
+        copiedMessageId={null}
+        isResponding
+        messages={[
+          ...history,
+          { id: 'assistant-stream', role: 'assistant', status: 'streaming', text: 'A' },
+        ]}
+      />,
+    )
+    window.__chatbotPerformanceDiagnostics.marks = []
+
+    rerender(
+      <MessageList
+        copiedMessageId={null}
+        isResponding
+        messages={[
+          ...history,
+          { id: 'assistant-stream', role: 'assistant', status: 'streaming', text: 'AB' },
+        ]}
+        onCopyMessage={vi.fn()}
+        onEditMessage={vi.fn()}
+        onRegenerateMessage={vi.fn()}
+        onRetryMessage={vi.fn()}
+      />,
+    )
+
+    const renderedMessageIds = window.__chatbotPerformanceDiagnostics.marks
+      .filter((mark) => mark.name === 'message-row-render')
+      .map((mark) => mark.detail?.messageId)
+    expect(renderedMessageIds).toEqual(['assistant-stream'])
   })
 })

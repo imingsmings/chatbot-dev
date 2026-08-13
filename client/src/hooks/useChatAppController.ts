@@ -39,6 +39,7 @@ export function useChatAppController() {
   const [activeTopMenu, setActiveTopMenu] = useState<ActiveTopMenu>(null)
   const initializationStartedRef = useRef(false)
   const chatBoxRef = useRef<HTMLElement | null>(null)
+  const chatContentRef = useRef<HTMLDivElement | null>(null)
   const composerRef = useRef<ChatComposerHandle | null>(null)
 
   const { closeDialog, confirmAction, dialog, openDialog, promptText, showError } =
@@ -70,8 +71,8 @@ export function useChatAppController() {
     results: conversationSearchResults,
     search: searchConversations,
   } = useConversationSearch()
-  const { followNewContent, scrollChatToBottom, shouldFollowNewContent } =
-    useAutoScroll(chatBoxRef)
+  const { followNewContent, isAtBottom, scrollChatToBottom, shouldFollowNewContent } =
+    useAutoScroll(chatBoxRef, chatContentRef)
 
   const closeTopMenu = useCallback(() => setActiveTopMenu(null), [])
   const resetInput = useCallback(() => setInput(''), [])
@@ -319,6 +320,7 @@ export function useChatAppController() {
     canGenerateSummary,
     canSubmit,
     chatBoxRef,
+    chatContentRef,
     closeDialog,
     composerRef,
     contextPreview,
@@ -343,6 +345,7 @@ export function useChatAppController() {
     input,
     isContextPreviewLoading,
     isContextPreviewOpen,
+    isAtBottom,
     isConversationSearching,
     isConversationTransitioning,
     isModelSettingsOpen,
@@ -358,6 +361,7 @@ export function useChatAppController() {
     openImportPicker,
     retryMessage,
     runtimeInfo,
+    scrollChatToBottom,
     selectConversation,
     setActiveTopMenu,
     setInput,

@@ -4,6 +4,7 @@ import {
   createInitialChatStreamState,
   finalizeChatStreamState,
   reduceChatStreamEvent,
+  reduceChatStreamEvents,
 } from '../../../client/src/reducers/chatStreamReducer'
 
 describe('chat stream reducer', () => {
@@ -132,5 +133,23 @@ describe('chat stream reducer', () => {
 
     expect(reduceChatStreamEvent(initial, { type: 'delta', content: '' })).toBe(initial)
     expect(reduceChatStreamEvent(initial, { type: 'reasoning_delta', content: '' })).toBe(initial)
+  })
+
+  it('reduces a timed batch in event order and preserves reasoning timestamps', () => {
+    const result = reduceChatStreamEvents(createInitialChatStreamState(), [
+      { event: { type: 'reasoning_delta', content: '先分析' }, receivedAt: 1_000 },
+      { event: { type: 'delta', content: '答' }, receivedAt: 1_240 },
+      { event: { type: 'delta', content: '案' }, receivedAt: 1_250 },
+      { event: { type: 'done' }, receivedAt: 1_260 },
+    ])
+
+    expect(result).toMatchObject({
+      reasoningText: '先分析',
+      reasoningStartedAt: 1_000,
+      reasoningDurationMs: 240,
+      status: 'streaming',
+      streamDone: true,
+      text: '答案',
+    })
   })
 })

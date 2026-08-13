@@ -24,14 +24,14 @@ Vue 客户端已在 2026-08-09 完成下线，`client/` 现在是唯一的 React
 - 标题/消息搜索，单会话 Markdown 导出，全量 JSON 备份与导入。
 - file/SQLite 本地存储及旧 JSON 到 SQLite 幂等迁移。
 - DeepSeek / OpenAI provider、模型和推理强度的请求级切换。
-- provider SSE 到应用 NDJSON v2 的稳定流式协议；异常 EOF 不发送成功 `done` 且不落库。
+- provider SSE 到应用 NDJSON v2 的稳定流式协议；客户端有界合并文本事件，异常 EOF 不发送成功 `done` 且不落库。
 - reasoning 展示、耗时、持久化和历史恢复。
 - 天气、当前时间和安全表达式计算器 Function Calling。
 - 摘要覆盖边界后的消息/字符上下文窗口、有输入预算的增量摘要和带覆盖范围统计的实际上下文预览。
 - 6 个内置 Prompt 模板，以及浏览器本地自定义模板 CRUD、JSON 导入导出和变量替换。
 - Markdown 净化、代码高亮/复制和安全外链。
 - 前端 fetch abort、cancel API、后端 registry 与上游 AbortSignal 全链路停止；确认清理后回拉持久化详情。
-- 明暗主题、响应式布局、滚动跟随及流式代码块自动滚动。
+- 明暗主题、响应式布局、尺寸驱动滚动跟随、离开底部后的快速到底按钮及流式代码块自动滚动。
 
 完整功能与边界见 [功能清单](docs/features.md)。
 
@@ -165,7 +165,7 @@ pnpm run test:unit             # 全部后端 Node tests + React Vitest
 pnpm run build                 # 全部静态检查 + React 生产构建
 pnpm run audit:production      # 整个 workspace 生产依赖审计
 pnpm run test:cdp:all-mock     # React-only 全量 mock 浏览器回归
-pnpm run test:cdp:all-real     # OpenAI 全链路 + DeepSeek Flash reasoning 矩阵；真实接口，需明确确认
+pnpm run test:cdp:all-real     # DeepSeek Pro UI 链路 + OpenAI Responses + DeepSeek Flash/Pro 8 组矩阵；需明确确认
 pnpm run test:docker           # Docker HTTPS、API、SQLite 持久性与 SIGTERM 冒烟
 ```
 
@@ -184,6 +184,8 @@ pnpm run test:docker           # Docker HTTPS、API、SQLite 持久性与 SIGTER
 - [R16 全链路一致性验收记录（2026-08-13）](docs/r16-consistency-hardening-2026-08-13.md)
 - [R17 会话级模型配置持久化验收记录（2026-08-13）](docs/r17-conversation-model-options-2026-08-13.md)
 - [R18 自定义 Prompt 模板验收记录（2026-08-13）](docs/r18-custom-prompt-templates-2026-08-13.md)
+- [R19 流式渲染与快速到底验收记录（2026-08-13）](docs/r19-streaming-rendering-2026-08-13.md)
+- [流式渲染平滑度优化方案](docs/streaming-rendering-optimization-plan.md)
 - [会话级模型配置持久化方案](docs/conversation-model-options-plan.md)
 - [全面 Code Review 与回归记录（2026-08-10）](docs/code-review-2026-08-10.md)
 - [TypeScript 7 / Express 5 工具链升级记录](docs/toolchain-upgrade-2026-08-09.md)

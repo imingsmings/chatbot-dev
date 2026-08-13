@@ -12,15 +12,60 @@ import {
   waitIdle,
 } from './harness.mjs'
 
+async function clickSelector(client, selector) {
+  const point = await evaluate(client, `(() => {
+    const element = document.querySelector(${JSON.stringify(selector)});
+    if (!element || element.disabled) return null;
+    element.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    const rect = element.getBoundingClientRect();
+    return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+  })()`)
+  if (!point) throw new Error(`Cannot click selector: ${selector}`)
+
+  await client.send('Input.dispatchMouseEvent', {
+    type: 'mouseMoved',
+    x: point.x,
+    y: point.y,
+  })
+  await client.send('Input.dispatchMouseEvent', {
+    type: 'mousePressed',
+    x: point.x,
+    y: point.y,
+    button: 'left',
+    clickCount: 1,
+  })
+  await client.send('Input.dispatchMouseEvent', {
+    type: 'mouseReleased',
+    x: point.x,
+    y: point.y,
+    button: 'left',
+    clickCount: 1,
+  })
+}
+
+async function hoverSelector(client, selector) {
+  const point = await evaluate(client, `(() => {
+    const element = document.querySelector(${JSON.stringify(selector)});
+    if (!element || element.disabled) return null;
+    element.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    const rect = element.getBoundingClientRect();
+    return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+  })()`)
+  if (!point) throw new Error(`Cannot hover selector: ${selector}`)
+  await client.send('Input.dispatchMouseEvent', {
+    type: 'mouseMoved',
+    x: point.x,
+    y: point.y,
+  })
+}
+
 async function selectEffort(client, effort) {
-  await evaluate(client, `document.querySelector('.model-menu-trigger')?.click()`)
-  await waitFor(client, `Boolean(document.querySelector('.model-options-menu'))`)
-  await evaluate(client, `document.querySelector('button[aria-label="Select Effort"]')?.click()`)
-  await waitFor(client, `Boolean(document.querySelector('.effort-submenu'))`)
-  await evaluate(
-    client,
-    `document.querySelector(${JSON.stringify(`button[aria-label="Select Effort ${effort}"]`)})?.click()`,
-  )
+  await waitFor(client, `document.querySelector('.model-menu-trigger')?.disabled === false`)
+  await clickSelector(client, '.model-menu-trigger')
+  await waitFor(client, `Boolean(document.querySelector('.model-options-menu'))`, 10_000)
+  await hoverSelector(client, 'button[aria-label="Select Effort"]')
+  await waitFor(client, `Boolean(document.querySelector('.effort-submenu'))`, 10_000)
+  await clickSelector(client, `button[aria-label="Select Effort ${effort}"]`)
 }
 
 function triggerIncludes(model, effort) {

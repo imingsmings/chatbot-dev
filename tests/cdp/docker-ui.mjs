@@ -1,17 +1,41 @@
 import { mkdir } from 'node:fs/promises'
+import https from 'node:https'
 import path from 'node:path'
 import { screenshot, waitForEval } from './helpers/appActions.mjs'
 import { launchChrome, getPageTarget } from './helpers/browser.mjs'
 import { CdpClient, evaluate } from './helpers/cdpClient.mjs'
-import { stopProcess, waitForHttp } from './helpers/services.mjs'
+import { delay, stopProcess } from './helpers/services.mjs'
 
 const APP_URL = process.env.APP_URL || 'https://127.0.0.1:7443/'
 const DEBUG_PORT = Number(process.env.DEBUG_PORT || 9445)
 const CAPTURE_SCREENSHOTS = process.env.CDP_SCREENSHOTS === '1'
 const OUT_DIR = path.resolve(process.cwd(), '.tmp/docker-screenshots')
 
+function probeLocalHttps(url) {
+  return new Promise((resolve) => {
+    const request = https.get(url, { rejectUnauthorized: false }, (response) => {
+      response.resume()
+      resolve((response.statusCode ?? 0) >= 200 && (response.statusCode ?? 0) < 400)
+    })
+    request.once('error', () => resolve(false))
+    request.setTimeout(1_000, () => {
+      resolve(false)
+      request.destroy()
+    })
+  })
+}
+
+async function waitForLocalHttps(url, timeoutMs) {
+  const startedAt = Date.now()
+  while (Date.now() - startedAt < timeoutMs) {
+    if (await probeLocalHttps(url)) return true
+    await delay(200)
+  }
+  return false
+}
+
 async function main() {
-  if (!await waitForHttp(APP_URL, 15_000)) {
+  if (!await waitForLocalHttps(APP_URL, 15_000)) {
     throw new Error(`Docker-hosted app is not reachable at ${APP_URL}`)
   }
 

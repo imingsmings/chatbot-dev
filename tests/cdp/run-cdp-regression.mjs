@@ -27,6 +27,11 @@ const UI_SCENARIOS = [
     needsVite: true,
   },
   {
+    name: 'UI stream performance scenarios',
+    script: 'tests/cdp/scenarios/ui/stream-performance.mjs',
+    needsVite: true,
+  },
+  {
     name: 'UI model menu scenarios',
     script: 'tests/cdp/scenarios/ui/model-menu.mjs',
     needsVite: true,
@@ -114,6 +119,13 @@ const SUITES = {
     {
       name: 'UI custom prompt template management',
       script: 'tests/cdp/scenarios/ui/prompt-templates.mjs',
+      needsVite: true,
+    },
+  ],
+  'stream-performance': [
+    {
+      name: 'UI stream performance scenarios',
+      script: 'tests/cdp/scenarios/ui/stream-performance.mjs',
       needsVite: true,
     },
   ],

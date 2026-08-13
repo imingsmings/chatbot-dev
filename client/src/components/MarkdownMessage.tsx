@@ -4,8 +4,10 @@ import 'highlight.js/styles/github-dark.css'
 import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react'
 
 import { renderMarkdown } from '#utils/markdownRenderer'
+import { recordChatPerformance } from '#utils/chatPerformanceDiagnostics'
 
-const RENDER_THROTTLE_MS = 160
+const RESPONSIVE_STREAM_RENDER_THROTTLE_MS = 80
+const LONG_STREAM_RENDER_THROTTLE_MS = 160
 
 type MarkdownMessageProps = {
   className?: string
@@ -35,7 +37,9 @@ export function MarkdownMessage({ className = '', content, streaming = false }: 
       return
     }
 
-    const throttle = content.length > 40_000 ? 420 : content.length > 12_000 ? 260 : RENDER_THROTTLE_MS
+    const throttle = content.length > 40_000
+      ? LONG_STREAM_RENDER_THROTTLE_MS
+      : RESPONSIVE_STREAM_RENDER_THROTTLE_MS
     const delay = Math.max(throttle - (performance.now() - lastRenderedAtRef.current), 0)
     if (delay === 0) {
       renderNow()
@@ -51,10 +55,16 @@ export function MarkdownMessage({ className = '', content, streaming = false }: 
     }
   }, [content, streaming])
 
-  const html = useMemo(
-    () => renderMarkdown(renderedContent, { highlightCode: !streaming }),
-    [renderedContent, streaming],
-  )
+  const html = useMemo(() => {
+    const startedAt = performance.now()
+    const result = renderMarkdown(renderedContent, { highlightCode: !streaming })
+    recordChatPerformance('markdown-render', {
+      contentLength: renderedContent.length,
+      durationMs: performance.now() - startedAt,
+      streaming,
+    })
+    return result
+  }, [renderedContent, streaming])
 
   async function handleClick(event: MouseEvent<HTMLDivElement>) {
     const target = event.target as HTMLElement

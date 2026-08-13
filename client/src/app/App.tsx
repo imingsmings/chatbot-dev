@@ -1,4 +1,4 @@
-import { ChevronDownIcon, MoonIcon, SunIcon } from 'lucide-react'
+import { ArrowDownIcon, ChevronDownIcon, MoonIcon, SunIcon } from 'lucide-react'
 
 import { AppActionsMenu } from '#components/AppActionsMenu'
 import { AppDialog } from '#components/AppDialog'
@@ -104,41 +104,58 @@ export function App() {
           </div>
         </header>
 
-        <section
-          className="chat-scroll min-h-0 overflow-y-auto overscroll-contain px-7 pt-5 pb-[34px] max-[820px]:px-3.5 max-[820px]:pt-3.5 max-[820px]:pb-5"
-          ref={controller.chatBoxRef}
-        >
-          {controller.sidebarOperation?.type === 'initialize' ? (
-            <output
-              aria-live="polite"
-              className="initial-loading-state grid min-h-full place-items-center text-[13px] text-[var(--text-secondary)]"
+        <div className="chat-scroll-shell relative min-h-0">
+          <section
+            className="chat-scroll h-full min-h-0 overflow-y-auto overscroll-contain px-7 pt-5 pb-[34px] max-[820px]:px-3.5 max-[820px]:pt-3.5 max-[820px]:pb-5"
+            ref={controller.chatBoxRef}
+          >
+            <div className="chat-scroll-content min-h-full" ref={controller.chatContentRef}>
+              {controller.sidebarOperation?.type === 'initialize' ? (
+                <output
+                  aria-live="polite"
+                  className="initial-loading-state grid min-h-full place-items-center text-[13px] text-[var(--text-secondary)]"
+                >
+                  正在加载会话...
+                </output>
+              ) : controller.messages.length === 0 ? (
+                <EmptyState
+                  disabled={controller.isConversationTransitioning || controller.isStopping || controller.isModelOptionsSaving}
+                  onUseSuggestion={controller.useSuggestion}
+                  suggestions={controller.suggestions}
+                  title={controller.currentConversationTitle}
+                />
+              ) : (
+                <MessageList
+                  copiedMessageId={controller.copiedMessageId}
+                  isResponding={
+                    controller.isResponding ||
+                    controller.isStopping ||
+                    controller.isModelOptionsSaving ||
+                    controller.isConversationTransitioning
+                  }
+                  messages={controller.messages}
+                  onCopyMessage={controller.copyMessage}
+                  onEditMessage={controller.handleEditMessage}
+                  onRegenerateMessage={controller.handleRegenerateMessage}
+                  onRetryMessage={controller.retryMessage}
+                />
+              )}
+            </div>
+          </section>
+          {!controller.isAtBottom && controller.messages.length > 0 ? (
+            <Button
+              aria-label="滚动到底部"
+              className="scroll-to-bottom-btn absolute bottom-4 left-1/2 z-10 size-9 -translate-x-1/2 rounded-full border border-[var(--border-strong)] bg-[var(--surface-raised)] text-[var(--text-secondary)] shadow-lg hover:bg-[var(--surface-hover)] hover:text-[var(--text-primary)] max-[820px]:bottom-3"
+              onClick={controller.scrollChatToBottom}
+              size="icon"
+              type="button"
+              variant="outline"
             >
-              正在加载会话...
-            </output>
-          ) : controller.messages.length === 0 ? (
-            <EmptyState
-              disabled={controller.isConversationTransitioning || controller.isStopping || controller.isModelOptionsSaving}
-              onUseSuggestion={controller.useSuggestion}
-              suggestions={controller.suggestions}
-              title={controller.currentConversationTitle}
-            />
-          ) : (
-            <MessageList
-              copiedMessageId={controller.copiedMessageId}
-              isResponding={
-                controller.isResponding ||
-                controller.isStopping ||
-                controller.isModelOptionsSaving ||
-                controller.isConversationTransitioning
-              }
-              messages={controller.messages}
-              onCopyMessage={(message) => void controller.copyMessage(message)}
-              onEditMessage={(index) => void controller.handleEditMessage(index)}
-              onRegenerateMessage={(index) => void controller.handleRegenerateMessage(index)}
-              onRetryMessage={(index) => void controller.retryMessage(index)}
-            />
-          )}
-        </section>
+              <ArrowDownIcon aria-hidden="true" size={17} />
+              <span className="sr-only">滚动到底部</span>
+            </Button>
+          ) : null}
+        </div>
 
         <ChatComposer
           canGenerateSummary={controller.canGenerateSummary}

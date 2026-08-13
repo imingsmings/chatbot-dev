@@ -211,11 +211,11 @@ async function scrollAssistantToText(client, text) {
   await evaluate(
     client,
     `(() => {
-      const row = [...document.querySelectorAll('.message-row.assistant')]
-        .find((node) => node.innerText.includes(${JSON.stringify(text)}));
-      if (!row) throw new Error('Cannot find assistant text: ${text}');
-      let target = row;
-      const walker = document.createTreeWalker(row, NodeFilter.SHOW_ELEMENT);
+      const message = [...document.querySelectorAll('.message-row.assistant .markdown-message')]
+        .find((node) => node.textContent.includes(${JSON.stringify(text)}));
+      if (!message) throw new Error('Cannot find assistant text: ${text}');
+      let target = message;
+      const walker = document.createTreeWalker(message, NodeFilter.SHOW_ELEMENT);
       while (walker.nextNode()) {
         const node = walker.currentNode;
         const hasText = node.innerText && node.innerText.includes(${JSON.stringify(text)});
@@ -370,8 +370,8 @@ async function main() {
     await ask(client, mainPrompt)
     await waitFor(
       client,
-      `[...document.querySelectorAll('.message-row.assistant')]
-        .some((node) => node.innerText.includes('MD-BASIC') && node.innerText.includes('MD-SAFETY'))`,
+      `[...document.querySelectorAll('.message-row.assistant .markdown-message')]
+        .some((node) => node.textContent.includes('MD-BASIC') && node.textContent.includes('MD-SAFETY'))`,
     )
     await waitIdle(client)
 
@@ -379,7 +379,7 @@ async function main() {
     assertions.basic = await evaluate(
       client,
       `(() => {
-        const row = [...document.querySelectorAll('.message-row.assistant')].find((node) => node.innerText.includes('MD-BASIC'));
+        const row = [...document.querySelectorAll('.message-row.assistant .markdown-message')].find((node) => node.textContent.includes('MD-BASIC'));
         return {
           h1: !!row.querySelector('h1'),
           h2: !!row.querySelector('h2'),
@@ -397,7 +397,7 @@ async function main() {
     assertions.lists = await evaluate(
       client,
       `(() => {
-        const row = [...document.querySelectorAll('.message-row.assistant')].find((node) => node.innerText.includes('MD-LISTS'));
+        const row = [...document.querySelectorAll('.message-row.assistant .markdown-message')].find((node) => node.textContent.includes('MD-LISTS'));
         return {
           ul: row.querySelectorAll('ul').length,
           ol: row.querySelectorAll('ol').length,
@@ -412,7 +412,7 @@ async function main() {
     assertions.code = await evaluate(
       client,
       `(() => {
-        const row = [...document.querySelectorAll('.message-row.assistant')].find((node) => node.innerText.includes('MD-CODE'));
+        const row = [...document.querySelectorAll('.message-row.assistant .markdown-message')].find((node) => node.textContent.includes('MD-CODE'));
         const pre = row.querySelector('pre');
         return {
           inlineCode: !!row.querySelector('p code'),
@@ -428,7 +428,7 @@ async function main() {
     assertions.table = await evaluate(
       client,
       `(() => {
-        const row = [...document.querySelectorAll('.message-row.assistant')].find((node) => node.innerText.includes('MD-TABLE'));
+        const row = [...document.querySelectorAll('.message-row.assistant .markdown-message')].find((node) => node.textContent.includes('MD-TABLE'));
         const table = row.querySelector('table');
         return {
           table: !!table,
@@ -445,7 +445,7 @@ async function main() {
     assertions.quoteLinks = await evaluate(
       client,
       `(() => {
-        const row = [...document.querySelectorAll('.message-row.assistant')].find((node) => node.innerText.includes('MD-QUOTE-LINK'));
+        const row = [...document.querySelectorAll('.message-row.assistant .markdown-message')].find((node) => node.textContent.includes('MD-QUOTE-LINK'));
         const links = [...row.querySelectorAll('a')].map((node) => node.href);
         return {
           blockquote: !!row.querySelector('blockquote'),
@@ -461,7 +461,7 @@ async function main() {
     assertions.safety = await evaluate(
       client,
       `(() => {
-        const row = [...document.querySelectorAll('.message-row.assistant')].find((node) => node.innerText.includes('MD-SAFETY'));
+        const row = [...document.querySelectorAll('.message-row.assistant .markdown-message')].find((node) => node.textContent.includes('MD-SAFETY'));
         return {
           scriptTags: row.querySelectorAll('script').length,
           imgTags: row.querySelectorAll('img').length,
@@ -592,8 +592,8 @@ async function main() {
     await evaluate(
       client,
       `(() => {
-        const row = [...document.querySelectorAll('.message-row.assistant')]
-          .find((node) => node.innerText.includes('MD-TABLE'));
+        const row = [...document.querySelectorAll('.message-row.assistant .markdown-message')]
+          .find((node) => node.textContent.includes('MD-TABLE'));
         const table = row?.querySelector('table');
         if (!table) throw new Error('Cannot find mobile table');
         table.scrollIntoView({ block: 'center', inline: 'nearest' });
@@ -604,9 +604,9 @@ async function main() {
       client,
       `(() => {
         const shell = document.querySelector('.app-shell');
-        const row = [...document.querySelectorAll('.message-row.assistant')].find((node) => node.innerText.includes('MD-TABLE'));
+        const row = [...document.querySelectorAll('.message-row.assistant .markdown-message')].find((node) => node.textContent.includes('MD-TABLE'));
         const table = row.querySelector('table');
-        const preRow = [...document.querySelectorAll('.message-row.assistant')].find((node) => node.innerText.includes('MD-CODE'));
+        const preRow = [...document.querySelectorAll('.message-row.assistant .markdown-message')].find((node) => node.textContent.includes('MD-CODE'));
         const pre = preRow?.querySelector('pre');
         return {
           viewportWidth: window.innerWidth,

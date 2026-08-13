@@ -147,9 +147,53 @@ function renderStreamHook(options: HarnessOptions, initialMessages: ChatMessage[
 
 afterEach(() => {
   vi.useRealTimers()
+  delete window.__chatbotPerformanceDiagnostics
 })
 
 describe('useChatStream', () => {
+  it('batches a burst of text events while exposing the first text immediately', async () => {
+    window.__chatbotPerformanceDiagnostics = { enabled: true, marks: [] }
+    const controlled = createControlledResponse()
+    const requestConversationAnswer = vi
+      .fn<RequestAnswer>()
+      .mockResolvedValue(controlled.response)
+    const { result } = renderStreamHook(createHarnessOptions({ requestConversationAnswer }))
+
+    let submission!: Promise<void>
+    await act(async () => {
+      submission = result.current.submitQuestion('批处理测试', {
+        appendUser: true,
+        clearComposer: true,
+      })
+      await Promise.resolve()
+    })
+    await waitFor(() => expect(requestConversationAnswer).toHaveBeenCalledOnce())
+
+    const events = Array.from({ length: 51 }, (_, index) => ({
+      type: 'delta' as const,
+      content: String(index % 10),
+    }))
+    await act(async () => {
+      controlled.emit(events)
+      await Promise.resolve()
+    })
+    await waitFor(() => expect(result.current.messages[1]?.text).toBe('0'))
+    await act(async () => {
+      await new Promise((resolve) => window.setTimeout(resolve, 60))
+    })
+
+    expect(result.current.messages[1]?.text).toBe(events.map((event) => event.content).join(''))
+    const marksBeforeDone = window.__chatbotPerformanceDiagnostics.marks
+    expect(marksBeforeDone.filter((mark) => mark.name === 'stream-event')).toHaveLength(51)
+    expect(marksBeforeDone.filter((mark) => mark.name === 'assistant-update')).toHaveLength(2)
+
+    await act(async () => {
+      controlled.emit([{ type: 'done' }])
+      await submission
+    })
+    expect(result.current.messages[1]).toMatchObject({ status: 'done' })
+  })
+
   it('keeps tool preamble out of text and exposes delta before done', async () => {
     const controlled = createControlledResponse()
     const requestConversationAnswer = vi
