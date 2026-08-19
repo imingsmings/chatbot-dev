@@ -20,8 +20,9 @@
 - R17：会话级模型配置已贯通 file/SQLite、API、React、分支、导入导出和 Docker Volume，并完成兼容、竞态与恢复验证。
 - R18：自定义 Prompt 模板 CRUD、浏览器本地持久化和 JSON 导入导出已完成，并通过静态、单测、构建、全量 mock 与真实接口全量门禁。
 - R19：流式文本有界合并、历史消息行隔离、尺寸驱动自动滚动、快速到底和分档 Markdown 刷新已完成，并通过静态、单测、构建、mock、Docker 和真实 Provider 全量门禁。
+- R20：JWT 单用户认证、Refresh 轮换、Session 撤销、登录 UI 和自动化覆盖已完成并验证；静态、单元、构建、依赖审计、全量 mock、真实 Provider 与 Docker 门禁均通过。
 
-R11-R19 已完成并验证。后续阶段仍必须从真实个人使用证据中一次选择一个范围。
+R11-R20 已完成并验证。
 
 ## 当前基线
 
@@ -44,6 +45,7 @@ R11-R19 已完成并验证。后续阶段仍必须从真实个人使用证据中
 - `/api/health` 直接探测当前 file/SQLite store，而不是只检查通用数据目录。
 - 流式文本首段即时、后续 40ms 有界合并；历史消息行与当前流隔离，Markdown 按长度以 80/160ms 刷新。
 - ResizeObserver + 单一 rAF 自动滚动；用户离开底部后可一键到底并恢复当前流跟随。
+- production 默认启用单用户认证；除健康检查与认证入口外，API 需要短期 Bearer Access Token。Refresh Token 仅存在于受限 Cookie，并由独立 SQLite Session Store 执行轮换、重放检测和撤销。
 
 ## 阶段矩阵
 
@@ -72,6 +74,7 @@ R11-R19 已完成并验证。后续阶段仍必须从真实个人使用证据中
 | R17 | 会话级模型配置持久化、恢复、兼容和竞态保护 | 完成并验证 |
 | R18 | 自定义 Prompt 模板 CRUD、浏览器持久化和 JSON 导入导出 | 完成并验证 |
 | R19 | 流式渲染平滑度、历史行隔离、快速到底和性能门禁 | 完成并验证 |
+| R20 | JWT 单用户认证、Refresh 轮换、Session 撤销和登录 UI | 完成并验证 |
 
 ## R8.7 交付边界
 
@@ -411,6 +414,50 @@ R11-R19 已完成并验证。后续阶段仍必须从真实个人使用证据中
 - 不实现虚拟列表、增量 Markdown AST、逐 token 动画或生产 telemetry。
 - 不改变网络事件频率、Provider adapters、NDJSON v2、取消握手或会话数据格式。
 
+## R20 JWT 单用户认证
+
+状态：2026-08-19 完成并验证；静态、单元、构建、审计、全量 mock、真实 Provider 全量和 Docker 门禁均通过。
+
+### 直接价值
+
+- R20 实施前 Node HTTPS 服务监听局域网地址但没有访问认证，同一网络中的设备可以直接访问会话 API 和已配置的模型能力。
+- 在不引入多用户产品复杂度的前提下，补齐密码哈希、JWT、Refresh Token、Cookie 安全、限速、Session 撤销、401 恢复和认证测试等通用工程能力。
+
+### 选定范围
+
+- 单个固定用户，用户名、Argon2id 密码哈希和 JWT secrets 由 `server/.env` 提供，不增加注册、用户资料或角色权限系统。
+- Access Token 使用短期 JWT，通过 `Authorization: Bearer` 发送并只保存在 React 内存；不得写入 Web Storage。
+- Refresh Token 使用长期 JWT，只保存在 `HttpOnly`、`Secure`、`SameSite=Strict` Cookie 中，支持轮换、重放检测和服务端撤销。
+- 新增独立认证 Session Store 保存最少必要的 refresh `jti`/family 状态；不改变会话 file/SQLite schema、导入导出 schema v1 或 NDJSON v2。
+- 除 `/api/health` 和认证入口外保护全部 `/api/*`；生产认证必须运行在 HTTPS 上。
+- 允许引入经过维护的认证依赖，当前设计选择 `jose`、`argon2`、`cookie-parser` 和 `express-rate-limit`，实施时必须验证 Node 22、Docker ARM64/AMD64 和 production audit。
+
+### 关键验收
+
+- JWT 固定算法、issuer、audience、token type 和过期时间；篡改、算法降级、secret 混用、错误 claims 和过期令牌均被拒绝。
+- Refresh 每次使用后轮换；旧 token 重放撤销整个 family；logout 清除 Cookie 并撤销服务端 Session。
+- 登录错误不泄漏用户名是否存在，达到阈值返回稳定 `429`；认证日志不包含密码、JWT、Cookie 或 secret。
+- 前端覆盖登录、启动恢复、过期刷新、并发单飞刷新、退出、Session 失效和重复点击；未登录不加载聊天数据。
+- ask 在建立 NDJSON 流前完成认证，Access Token 在流中途过期不破坏当前回答；认证失败不伪装成流事件。
+- 静态检查、单元、API、全量 mock、受影响 CDP、Docker、备份恢复和生产依赖审计全部通过后才能标记完成。
+
+### 设计与回滚
+
+- 完整配置、接口、claims、存储、前端状态、测试矩阵、部署影响和回滚方案见 [R20 JWT 单用户认证方案](r20-jwt-authentication-plan.md)。
+- 紧急回滚可复用旧镜像和原会话 Volume；`AUTH_ENABLED=false` 只作为临时降级，因为它会重新开放局域网未认证访问。
+
+### 当前验证证据
+
+- `pnpm run test:unit`：服务端 134/134、客户端 102/102。
+- `pnpm run check`、`pnpm run build`、`pnpm run audit:production`：全部通过，production audit 无已知漏洞。
+- `pnpm run test:cdp:all-mock`：17 组 mock/CDP 场景通过，包含认证专项。
+- `pnpm run test:cdp:all-real`：认证开启下的 DeepSeek 主链、上下文、Markdown、OpenAI Responses 与 DeepSeek 8 组模型参数矩阵通过。
+- `pnpm run test:docker`：通过。镜像为 252,725,252 bytes（低于 300MB）；认证 fail-fast、HTTPS Secure Cookie、API 保护、跨重启/备份恢复 Session、logout 撤销、SQLite 恢复、非 root 进程与优雅停机均通过，隔离测试容器、卷和网络已清理。
+
+### 非目标
+
+- 不实现注册、找回密码、OAuth/OIDC、第三方登录、多用户隔离、RBAC、管理员后台或分布式 Session。
+
 ## 维护规则
 
 1. 新问题先复现并加最小回归，再修复。
@@ -423,11 +470,11 @@ R11-R19 已完成并验证。后续阶段仍必须从真实个人使用证据中
 
 ## 非目标
 
-- 用户登录、权限和多用户数据隔离。
+- 注册、账号管理、角色权限和多用户数据隔离；R20 只实现单用户认证。
 - 管理后台、商业计费和面向公众的大规模部署平台能力。
 - 通用多模型网关、复杂观测平台或 Agent 平台化。
 
-R11-R19 已完成并验证。后续候选仍必须先说明对个人使用或学习的直接价值，并由用户明确确认单一实施范围。
+R11-R20 已完成并验证。
 
 R16 最终门禁、修复项和剩余边界见 [R16 全链路一致性验收记录（2026-08-13）](r16-consistency-hardening-2026-08-13.md)。
 
@@ -436,3 +483,5 @@ R17 会话配置语义、兼容矩阵和最终门禁见 [R17 会话级模型配�
 R18 模板数据边界、导入策略和最终门禁见 [R18 自定义 Prompt 模板验收记录（2026-08-13）](r18-custom-prompt-templates-2026-08-13.md)。
 
 R19 性能基线、流式语义、滚动交互和最终门禁见 [R19 流式渲染与快速到底验收记录（2026-08-13）](r19-streaming-rendering-2026-08-13.md)。
+
+R20 JWT、Refresh Session、安全边界和实施门禁见 [R20 JWT 单用户认证方案（2026-08-19）](r20-jwt-authentication-plan.md)。

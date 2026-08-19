@@ -1,9 +1,11 @@
 import { spawn } from 'node:child_process'
+import { randomBytes } from 'node:crypto'
 import { readFile, mkdtemp, rm } from 'node:fs/promises'
 import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
 import { parseEnv } from 'node:util'
+import { hashPassword } from '../../server/security/password.ts'
 
 const REAL_SUITES = new Set([
   'all-real',
@@ -95,6 +97,9 @@ async function main() {
       const [backendPort, vitePort] = await Promise.all([allocatePort(), allocatePort()])
       const backendUrl = `http://127.0.0.1:${backendPort}/`
       const appUrl = `http://127.0.0.1:${vitePort}/`
+      const authUsername = `real-test-${process.pid}`
+      const authPassword = randomBytes(24).toString('base64url')
+      const authPasswordHash = await hashPassword(authPassword)
 
       console.log(`Running isolated ${run.suite} suite with ${run.provider} as the default provider`)
       if (run.suite === 'real-model-options') {
@@ -105,6 +110,7 @@ async function main() {
           cwd: process.cwd(),
           env: {
             ...process.env,
+            NODE_ENV: 'test',
             LLM_PROVIDER: run.provider,
             ...(run.model ? {
               LLM_MODEL: run.model,
@@ -118,6 +124,16 @@ async function main() {
             SERVE_CLIENT_BUILD: 'false',
             CONVERSATION_STORE: 'file',
             CONVERSATION_DATA_DIR: dataDir,
+            AUTH_ENABLED: 'true',
+            AUTH_USERNAME: authUsername,
+            AUTH_PASSWORD_HASH: authPasswordHash,
+            AUTH_ACCESS_TOKEN_SECRET: randomBytes(32).toString('base64url'),
+            AUTH_REFRESH_TOKEN_SECRET: randomBytes(32).toString('base64url'),
+            AUTH_ACCESS_TTL_SECONDS: '3600',
+            AUTH_COOKIE_SECURE: 'false',
+            AUTH_ALLOWED_ORIGINS: `${new URL(appUrl).origin},${new URL(backendUrl).origin}`,
+            CDP_AUTH_USERNAME: authUsername,
+            CDP_AUTH_PASSWORD: authPassword,
             APP_URL: appUrl,
             VITE_PORT: String(vitePort),
             BACKEND_URL: backendUrl,

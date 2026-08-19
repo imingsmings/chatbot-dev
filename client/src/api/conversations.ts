@@ -8,6 +8,7 @@ import type {
   ModelRequestOptions,
   RuntimeInfo,
 } from '#types/chat'
+import { apiFetch } from '#api/httpClient'
 
 export type DownloadedFile = {
   blob: Blob
@@ -67,7 +68,7 @@ async function readDownload(response: Response, fallbackFilename: string): Promi
 }
 
 export async function getConversations() {
-  const response = await fetch('/api/conversations')
+  const response = await apiFetch('/api/conversations')
   const data = await readJson<{ conversations: ConversationSummary[] }>(response)
   return data.conversations
 }
@@ -76,18 +77,18 @@ export async function searchConversations(query: string) {
   const params = new URLSearchParams({
     q: query,
   })
-  const response = await fetch(`/api/conversations/search?${params.toString()}`)
+  const response = await apiFetch(`/api/conversations/search?${params.toString()}`)
   const data = await readJson<{ conversations: ConversationSearchResult[] }>(response)
   return data.conversations
 }
 
 export async function downloadAllConversationsJson() {
-  const response = await fetch('/api/conversations/export.json')
+  const response = await apiFetch('/api/conversations/export.json')
   return readDownload(response, 'chatbot-conversations.json')
 }
 
 export async function downloadConversationMarkdown(id: string) {
-  const response = await fetch(`/api/conversations/${encodeURIComponent(id)}/export.md`)
+  const response = await apiFetch(`/api/conversations/${encodeURIComponent(id)}/export.md`)
   return readDownload(response, `${id}.md`)
 }
 
@@ -95,7 +96,7 @@ export async function importConversationsBackup(
   backup: unknown,
   conflictStrategy: 'skip' | 'duplicate' | 'overwrite' = 'skip',
 ) {
-  const response = await fetch('/api/conversations/import', {
+  const response = await apiFetch('/api/conversations/import', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ backup, conflictStrategy }),
@@ -105,13 +106,13 @@ export async function importConversationsBackup(
 }
 
 export async function getRuntimeConfiguration() {
-  const response = await fetch('/api/runtime-config')
+  const response = await apiFetch('/api/runtime-config')
   const data = await readJson<{ runtime: RuntimeInfo }>(response)
   return data.runtime
 }
 
 export async function createConversation() {
-  const response = await fetch('/api/conversations', {
+  const response = await apiFetch('/api/conversations', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
   })
@@ -124,7 +125,7 @@ export async function createConversationBranch(
   messageIndex: number,
   question: string,
 ) {
-  const response = await fetch(`/api/conversations/${encodeURIComponent(id)}/branches`, {
+  const response = await apiFetch(`/api/conversations/${encodeURIComponent(id)}/branches`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ messageIndex, question }),
@@ -134,13 +135,13 @@ export async function createConversationBranch(
 }
 
 export async function getConversation(id: string) {
-  const response = await fetch(`/api/conversations/${encodeURIComponent(id)}`)
+  const response = await apiFetch(`/api/conversations/${encodeURIComponent(id)}`)
   const data = await readJson<{ conversation: ConversationDetail }>(response)
   return data.conversation
 }
 
 export async function updateConversationTitle(id: string, title: string) {
-  const response = await fetch(`/api/conversations/${encodeURIComponent(id)}`, {
+  const response = await apiFetch(`/api/conversations/${encodeURIComponent(id)}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ title }),
@@ -153,7 +154,7 @@ export async function updateConversationModelOptions(
   id: string,
   options: ConversationModelOptions,
 ) {
-  const response = await fetch(`/api/conversations/${encodeURIComponent(id)}/model-options`, {
+  const response = await apiFetch(`/api/conversations/${encodeURIComponent(id)}/model-options`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ options }),
@@ -163,7 +164,7 @@ export async function updateConversationModelOptions(
 }
 
 export async function deleteConversation(id: string) {
-  const response = await fetch(`/api/conversations/${encodeURIComponent(id)}`, {
+  const response = await apiFetch(`/api/conversations/${encodeURIComponent(id)}`, {
     method: 'DELETE',
   })
 
@@ -174,7 +175,7 @@ export async function deleteConversation(id: string) {
 }
 
 export async function clearConversation(id: string) {
-  const response = await fetch(`/api/conversations/${encodeURIComponent(id)}/clear`, {
+  const response = await apiFetch(`/api/conversations/${encodeURIComponent(id)}/clear`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
   })
@@ -187,7 +188,7 @@ export async function getConversationContextPreview(
   question: string,
   options: ModelRequestOptions,
 ) {
-  const response = await fetch(`/api/conversations/${encodeURIComponent(id)}/context-preview`, {
+  const response = await apiFetch(`/api/conversations/${encodeURIComponent(id)}/context-preview`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ question, options }),
@@ -197,7 +198,7 @@ export async function getConversationContextPreview(
 }
 
 export async function generateConversationSummary(id: string, options: ModelRequestOptions) {
-  const response = await fetch(`/api/conversations/${encodeURIComponent(id)}/summary`, {
+  const response = await apiFetch(`/api/conversations/${encodeURIComponent(id)}/summary`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ options }),
@@ -213,7 +214,7 @@ export async function requestConversationAnswer(params: {
   signal: AbortSignal
   options: ModelRequestOptions
 }) {
-  return fetch(`/api/conversations/${encodeURIComponent(params.conversationId)}/ask`, {
+  return apiFetch(`/api/conversations/${encodeURIComponent(params.conversationId)}/ask`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -231,7 +232,7 @@ export async function cancelRequest(
   requestId: string,
   reason: RequestCancellationReason = 'manual',
 ) {
-  const response = await fetch(`/api/requests/${encodeURIComponent(requestId)}/cancel`, {
+  const response = await apiFetch(`/api/requests/${encodeURIComponent(requestId)}/cancel`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ reason }),

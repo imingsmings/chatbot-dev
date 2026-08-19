@@ -2,10 +2,12 @@ import { randomUUID } from 'node:crypto'
 import { getPageTarget, launchChrome } from './helpers/browser.mjs'
 import { ask, waitForEval } from './helpers/appActions.mjs'
 import { CdpClient, evaluate } from './helpers/cdpClient.mjs'
+import { authenticateBrowser, createAuthenticatedFetch } from './helpers/authentication.mjs'
 import { delay, stopProcess } from './helpers/services.mjs'
 
 const APP_URL = process.env.APP_URL || 'http://127.0.0.1:5173/'
 const API_URL = new URL('/api', APP_URL).toString().replace(/\/$/, '')
+const authenticatedFetch = createAuthenticatedFetch(APP_URL)
 const DEBUG_PORT = Number(process.env.DEBUG_PORT || 9347)
 const WAIT_TIMEOUT_MS = readPositiveInteger('CDP_REAL_OPENAI_WAIT_TIMEOUT_MS', 240000)
 const STAMP = new Date().toISOString().replace(/[-:.TZ]/g, '').slice(0, 14)
@@ -18,7 +20,7 @@ function readPositiveInteger(name, fallback) {
 }
 
 async function createConversation(suffix) {
-  const response = await fetch(`${API_URL}/conversations`, {
+  const response = await authenticatedFetch(`${API_URL}/conversations`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ title: `${TITLE_PREFIX}-${suffix}` }),
@@ -28,13 +30,13 @@ async function createConversation(suffix) {
 }
 
 async function deleteConversation(id) {
-  await fetch(`${API_URL}/conversations/${encodeURIComponent(id)}`, {
+  await authenticatedFetch(`${API_URL}/conversations/${encodeURIComponent(id)}`, {
     method: 'DELETE',
   }).catch(() => null)
 }
 
 async function askApi(conversationId, question, options) {
-  const response = await fetch(`${API_URL}/conversations/${encodeURIComponent(conversationId)}/ask`, {
+  const response = await authenticatedFetch(`${API_URL}/conversations/${encodeURIComponent(conversationId)}/ask`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ question, requestId: randomUUID(), options }),
@@ -67,30 +69,37 @@ async function clickAria(client, label) {
   await waitForEval(
     client,
     `[...document.querySelectorAll('button')]
-      .some((button) => button.getAttribute('aria-label') === ${JSON.stringify(label)})`,
+      .some((button) => {
+        const rect = button.getBoundingClientRect();
+        return button.getAttribute('aria-label') === ${JSON.stringify(label)} &&
+          rect.width > 0 && rect.height > 0 && !button.disabled;
+      })`,
   )
-  await evaluate(
-    client,
-    `(() => {
-      const button = [...document.querySelectorAll('button')]
-        .find((item) => item.getAttribute('aria-label') === ${JSON.stringify(label)});
-      if (!button) throw new Error('Cannot find button: ${label}');
-      button.click();
-    })()`,
-  )
+  await clickSelector(client, `button[aria-label=${JSON.stringify(label)}]`)
 }
 
 async function clickSelector(client, selector) {
   const point = await evaluate(
     client,
     `(() => {
-      const element = document.querySelector(${JSON.stringify(selector)});
-      if (!element) throw new Error('Cannot find selector: ${selector}');
+      const element = [...document.querySelectorAll(${JSON.stringify(selector)})]
+        .find((candidate) => {
+          const rect = candidate.getBoundingClientRect();
+          const style = getComputedStyle(candidate);
+          return rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden';
+        });
+      if (!element || element.disabled) return null;
       element.scrollIntoView({ block: 'center', inline: 'nearest' });
       const rect = element.getBoundingClientRect();
       return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
     })()`,
   )
+  if (!point) throw new Error(`Cannot click selector: ${selector}`)
+  await client.send('Input.dispatchMouseEvent', {
+    type: 'mouseMoved',
+    x: point.x,
+    y: point.y,
+  })
   await client.send('Input.dispatchMouseEvent', {
     type: 'mousePressed',
     x: point.x,
@@ -132,11 +141,28 @@ async function selectConversation(client, title) {
 }
 
 async function selectOpenAiHigh(client) {
+  await waitForEval(client, `document.querySelector('.model-menu-trigger')?.disabled === false`)
   await clickSelector(client, '.model-menu-trigger')
+  await waitForEval(client, `[...document.querySelectorAll('.model-options-menu')]
+    .some((menu) => menu.getBoundingClientRect().height > 0)`)
   await clickAria(client, 'Select Model')
+  await waitForEval(client, `[...document.querySelectorAll('.model-submenu')]
+    .some((menu) => menu.getBoundingClientRect().height > 0)`)
   await clickAria(client, 'Select GPT-5.6 Luna')
+  await waitForEval(
+    client,
+    `document.querySelector('.model-menu-trigger')?.getAttribute('aria-label')
+      ?.includes('GPT-5.6 Luna') && document.querySelector('.model-menu-trigger')?.disabled === false`,
+  )
+  await waitForEval(client, `![...document.querySelectorAll('.model-options-menu')]
+    .some((menu) => menu.getBoundingClientRect().height > 0)`)
   await clickSelector(client, '.model-menu-trigger')
+  await waitForEval(client, `document.querySelector('.model-menu-trigger[data-popup-open]') &&
+    [...document.querySelectorAll('.model-options-menu')]
+      .some((menu) => menu.getBoundingClientRect().height > 0)`)
   await clickAria(client, 'Select Effort')
+  await waitForEval(client, `[...document.querySelectorAll('.effort-submenu')]
+    .some((menu) => menu.getBoundingClientRect().height > 0)`)
   await clickAria(client, 'Select Effort High')
   await waitForEval(
     client,
@@ -193,6 +219,7 @@ async function main() {
     await client.send('Runtime.enable')
     await client.send('Page.addScriptToEvaluateOnNewDocument', { source: observeScript })
     await client.send('Page.navigate', { url: APP_URL })
+    await authenticateBrowser(client)
     await waitForEval(client, `Boolean(document.querySelector('.model-menu-trigger'))`)
 
     await selectConversation(client, uiConversation.title)

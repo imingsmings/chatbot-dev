@@ -629,6 +629,7 @@ async function runSqliteStorageScenario() {
       cwd: path.resolve(process.cwd(), 'server'),
       env: {
         ...process.env,
+        AUTH_ENABLED: 'false',
         PORT: '7705',
         CONVERSATION_STORE: 'sqlite',
         CONVERSATION_DATA_DIR: sqliteDataDir,
@@ -743,6 +744,7 @@ async function main() {
     cwd: path.resolve(process.cwd(), 'server'),
     env: {
       ...process.env,
+      AUTH_ENABLED: 'false',
       PORT: SERVER_PORT,
       LLM_PROVIDER: 'deepseek',
       LLM_ENDPOINT: MOCK_URL,
@@ -1016,6 +1018,7 @@ async function main() {
       cwd: path.resolve(process.cwd(), 'server'),
       env: {
         ...process.env,
+        AUTH_ENABLED: 'false',
         PORT: '7703',
         CONVERSATION_STORE: 'file',
         CONVERSATION_DATA_DIR: legacyDataDir,
@@ -1070,6 +1073,7 @@ async function main() {
       cwd: path.resolve(process.cwd(), 'server'),
       env: {
         ...process.env,
+        AUTH_ENABLED: 'false',
         PORT: '7704',
         CONVERSATION_STORE: 'file',
         CONVERSATION_DATA_DIR: corruptDataDir,

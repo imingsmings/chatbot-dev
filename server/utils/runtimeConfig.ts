@@ -2,6 +2,8 @@ import { MAX_MODEL_TOKENS, resolveModelOptions } from './modelOptions.ts'
 import { findModelDescriptor, readDisabledModelIds } from './llm/modelCatalog.ts'
 import { getProviderConfig, readDefaultProvider } from './llm/providerConfig.ts'
 import { readConversationStoreKind } from '../config/conversationStoreConfig.ts'
+import { getAuthConfig } from '../config/authConfig.ts'
+import { getDeploymentConfig } from '../config/deploymentConfig.ts'
 
 type ValidationIssue = {
   name: string
@@ -130,6 +132,16 @@ function validateStartupConfig(): void {
   } catch (error) {
     issues.push({
       name: 'CONVERSATION_STORE',
+      reason: error instanceof Error ? error.message : '配置不合法'
+    })
+  }
+
+  try {
+    const deployment = getDeploymentConfig()
+    getAuthConfig(process.env, { httpsEnabled: deployment.https.enabled })
+  } catch (error) {
+    issues.push({
+      name: 'AUTH_CONFIG',
       reason: error instanceof Error ? error.message : '配置不合法'
     })
   }

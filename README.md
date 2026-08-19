@@ -11,7 +11,7 @@ Vue 客户端已在 2026-08-09 完成下线，`client/` 现在是唯一的 React
 | 前端 | React 19、TypeScript 7、Vite 8 |
 | UI | Tailwind CSS 4、shadcn/ui Base UI、Lucide React |
 | 前端质量 | Oxlint/tsgolint、Vitest、Testing Library、jsdom |
-| 后端 | Express 5.2、TypeScript 7、Node.js `>=22.18` |
+| 后端 | Express 5.2、TypeScript 7、Node.js `>=22.18`、jose、Argon2id |
 | 工具链 | 根 pnpm workspace/catalog、共享 `tsconfig.base.json` |
 | 存储 | 单会话 JSON 文件或 SQLite |
 | 模型 | DeepSeek Chat Completions、OpenAI Responses adapter |
@@ -32,6 +32,7 @@ Vue 客户端已在 2026-08-09 完成下线，`client/` 现在是唯一的 React
 - Markdown 净化、代码高亮/复制和安全外链。
 - 前端 fetch abort、cancel API、后端 registry 与上游 AbortSignal 全链路停止；确认清理后回拉持久化详情。
 - 明暗主题、响应式布局、尺寸驱动滚动跟随、离开底部后的快速到底按钮及流式代码块自动滚动。
+- 单用户登录、短期 JWT Access Token、HttpOnly Refresh Token 轮换/重放撤销、登录限速和跨标签页退出同步。
 
 完整功能与边界见 [功能清单](docs/features.md)。
 
@@ -54,6 +55,20 @@ pnpm run dev:client
 - 前端：`http://127.0.0.1:5173`
 - 后端：`http://127.0.0.1:7001`
 - Vite 将 `/api/*` 原样代理到后端；开发与生产使用同一 API 路径。
+- 开发环境默认不启用认证；要按生产语义联调，需显式设置 `AUTH_ENABLED=true` 和下列认证配置。
+
+生成 Argon2id 密码哈希和两个独立随机 secret：
+
+```bash
+pnpm --dir server auth:hash-password
+pnpm --dir server auth:generate-secrets
+```
+
+把输出分别填入 `AUTH_PASSWORD_HASH`、`AUTH_ACCESS_TOKEN_SECRET` 和
+`AUTH_REFRESH_TOKEN_SECRET`。命令不会修改 `.env`；不要把明文密码、secret 或 `.env`
+提交到 Git。`AUTH_PASSWORD_HASH` 在 `.env` 中应使用单引号包裹，防止 Argon2 哈希里的
+`$` 被 Docker Compose 插值。生产环境默认启用认证，缺少配置、关闭 Secure Cookie 或未启用 HTTPS
+都会在监听端口前失败。
 
 ## 环境配置
 
@@ -65,6 +80,12 @@ pnpm run dev:client
 | `HTTPS_ENABLED` | 是否由 Node HTTPS 直接提供服务 |
 | `HTTPS_CERT_PATH` / `HTTPS_KEY_PATH` | TLS 证书和私钥；支持 `~/` 路径 |
 | `HTTPS_CA_PATH` | 可选 CA chain 路径 |
+| `AUTH_ENABLED` | 单用户认证开关；production 默认 `true`，开发默认 `false` |
+| `AUTH_USERNAME` / `AUTH_PASSWORD_HASH` | 固定用户名和 Argon2id 密码哈希 |
+| `AUTH_ACCESS_TOKEN_SECRET` / `AUTH_REFRESH_TOKEN_SECRET` | 两个不同且至少 32 字节的 JWT secret |
+| `AUTH_ACCESS_TTL_SECONDS` / `AUTH_REFRESH_TTL_SECONDS` | Access/Refresh 有效期，默认 900/604800 秒 |
+| `AUTH_COOKIE_SECURE` / `AUTH_ALLOWED_ORIGINS` | Refresh Cookie 安全开关和额外允许的精确 Origin |
+| `AUTH_SESSION_DB_PATH` | 独立认证 Session SQLite 路径，默认位于数据根目录 |
 | `LLM_PROVIDER` | 默认 provider：`deepseek` 或 `openai` |
 | `LLM_ENDPOINT` / `LLM_MODEL` | 默认 provider 的兼容配置 |
 | `DEEPSEEK_ENDPOINT` / `DEEPSEEK_MODEL` / `DEEPSEEK_API_KEY` | DeepSeek 专用配置 |
@@ -142,6 +163,11 @@ tsconfig.base.json             前后端共用 TypeScript 严格规则
 
 | Method | Path | 说明 |
 | --- | --- | --- |
+| `GET` | `/api/auth/status` | 公开返回认证是否启用，不返回用户或 secret |
+| `POST` | `/api/auth/login` | 密码登录；返回内存 Access Token 并设置 HttpOnly Refresh Cookie |
+| `POST` | `/api/auth/refresh` | 轮换 Refresh Token 并返回新 Access Token |
+| `POST` | `/api/auth/logout` | 撤销当前 Session 并清除 Cookie |
+| `GET` | `/api/health` | 公开的配置、会话存储与认证 Session Store 健康探针 |
 | `GET/POST` | `/api/conversations` | 列表、新建 |
 | `GET/PATCH/DELETE` | `/api/conversations/:id` | 详情、重命名、删除 |
 | `PATCH` | `/api/conversations/:id/model-options` | 保存当前会话的完整模型配置 |
@@ -165,7 +191,8 @@ pnpm run test:unit             # 全部后端 Node tests + React Vitest
 pnpm run build                 # 全部静态检查 + React 生产构建
 pnpm run audit:production      # 整个 workspace 生产依赖审计
 pnpm run test:cdp:all-mock     # React-only 全量 mock 浏览器回归
-pnpm run test:cdp:all-real     # DeepSeek Pro UI 链路 + OpenAI Responses + DeepSeek Flash/Pro 8 组矩阵；需明确确认
+pnpm run test:cdp:authentication # 登录门禁、内存 Token、401 单次刷新重放和退出
+pnpm run test:cdp:all-real     # 认证开启下的 DeepSeek/OpenAI 真实链路与 DeepSeek 8 组矩阵
 pnpm run test:docker           # Docker HTTPS、API、SQLite 持久性与 SIGTERM 冒烟
 ```
 
@@ -185,6 +212,7 @@ pnpm run test:docker           # Docker HTTPS、API、SQLite 持久性与 SIGTER
 - [R17 会话级模型配置持久化验收记录（2026-08-13）](docs/r17-conversation-model-options-2026-08-13.md)
 - [R18 自定义 Prompt 模板验收记录（2026-08-13）](docs/r18-custom-prompt-templates-2026-08-13.md)
 - [R19 流式渲染与快速到底验收记录（2026-08-13）](docs/r19-streaming-rendering-2026-08-13.md)
+- [R20 JWT 单用户认证方案与实施说明（2026-08-19）](docs/r20-jwt-authentication-plan.md)
 - [流式渲染平滑度优化方案](docs/streaming-rendering-optimization-plan.md)
 - [会话级模型配置持久化方案](docs/conversation-model-options-plan.md)
 - [全面 Code Review 与回归记录（2026-08-10）](docs/code-review-2026-08-10.md)

@@ -1,4 +1,4 @@
-import { ArrowDownIcon, ChevronDownIcon, MoonIcon, SunIcon } from 'lucide-react'
+import { ArrowDownIcon, ChevronDownIcon, LogOutIcon, MoonIcon, SunIcon } from 'lucide-react'
 
 import { AppActionsMenu } from '#components/AppActionsMenu'
 import { AppDialog } from '#components/AppDialog'
@@ -12,9 +12,11 @@ import { ModelSettingsModal } from '#components/ModelSettingsModal'
 import { PromptTemplateModal } from '#components/PromptTemplateModal'
 import { Button } from '#components/ui/button'
 import { useChatAppController } from '#hooks/useChatAppController'
+import { useAuth } from '#hooks/useAuth'
 
 export function App() {
   const controller = useChatAppController()
+  const auth = useAuth()
 
   const openAppMenu = controller.activeTopMenu?.kind === 'app'
   const openConversationMenuId =
@@ -40,11 +42,13 @@ export function App() {
         isResponding={controller.isResponding}
         isSearching={controller.isConversationSearching}
         isStopping={controller.isStopping}
+        isLoggingOut={auth.loggingOut}
         onClearConversation={() => void controller.handleClearCurrentConversation()}
         onDeleteConversation={(id) => void controller.handleDeleteConversation(id)}
         onExportAllConversations={() => void controller.handleExportAllConversations()}
         onExportConversation={(conversation) => void controller.handleExportConversation(conversation)}
         onImportConversations={controller.openImportPicker}
+        onLogout={() => void auth.logout()}
         onNewChat={() => void controller.startNewChat()}
         onOpenConversationMenu={(id) =>
           controller.setActiveTopMenu(id ? { kind: 'conversation', id } : null)
@@ -53,6 +57,7 @@ export function App() {
         onSelectConversation={(id) => void controller.selectConversation(id)}
         onUpdateSearchQuery={(query) => void controller.searchConversations(query)}
         onUserMenuOpenChange={(open) => controller.setMenuOpen({ kind: 'user' }, open)}
+        showLogout={auth.status === 'authenticated'}
         openConversationMenuId={openConversationMenuId}
         operation={controller.sidebarOperation}
         profile={controller.runtimeInfo?.profile}
@@ -68,6 +73,20 @@ export function App() {
             <ChevronDownIcon aria-hidden="true" size={14} />
           </h2>
           <div className="chat-header-actions flex items-center gap-0.5">
+            {auth.status === 'authenticated' ? (
+              <Button
+                aria-label="退出登录"
+                className="header-icon-btn hidden size-[34px] rounded-[7px] text-[var(--text-secondary)] hover:bg-[var(--surface-hover)] hover:text-[var(--text-primary)] max-[820px]:inline-flex"
+                disabled={controller.isResponding || controller.isStopping || auth.loggingOut}
+                onClick={() => void auth.logout()}
+                size="icon"
+                type="button"
+                variant="ghost"
+              >
+                <LogOutIcon aria-hidden="true" size={18} />
+                <span className="sr-only">退出登录</span>
+              </Button>
+            ) : null}
             <Button
               aria-label={controller.themeToggleLabel}
               className="header-icon-btn theme-toggle-btn size-[34px] rounded-[7px] text-[var(--text-secondary)] hover:bg-[var(--surface-hover)] hover:text-[var(--text-primary)]"

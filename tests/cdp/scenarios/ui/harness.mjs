@@ -517,6 +517,10 @@ const mockScript = `
     }
     requests.push({ method, pathname, body: requestBody });
 
+    if (pathname === '/auth/status' && method === 'GET') {
+      return json({ enabled: false });
+    }
+
     if (pathname === '/runtime-config' && method === 'GET') {
       return json({
         runtime: {

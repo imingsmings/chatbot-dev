@@ -116,6 +116,8 @@ const mockScript = `
     const pathname = parsed.pathname.replace(/^\\/api/, '');
     const method = (init.method || 'GET').toUpperCase();
 
+    if (pathname === '/auth/status' && method === 'GET') return json({ enabled: false });
+
     if (pathname === '/runtime-config' && method === 'GET') {
       return json({
         runtime: {

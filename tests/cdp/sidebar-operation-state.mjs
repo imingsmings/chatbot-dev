@@ -75,6 +75,8 @@ const mockScript = `
     const route = method + ' ' + pathname;
     requests.push(route);
 
+    if (pathname === '/auth/status' && method === 'GET') return json({ enabled: false });
+
     const delayMs = routeDelays.get(route) || 0;
     if (delayMs > 0) {
       await new Promise((resolve) => setTimeout(resolve, delayMs));

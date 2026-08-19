@@ -68,6 +68,7 @@
     "test:cdp:model-options-persistence": "node tests/cdp/run-cdp-regression.mjs model-options-persistence",
     "test:cdp:prompt-templates": "node tests/cdp/run-cdp-regression.mjs prompt-templates",
     "test:cdp:stream-performance": "node tests/cdp/run-cdp-regression.mjs stream-performance",
+    "test:cdp:authentication": "node tests/cdp/run-cdp-regression.mjs authentication",
     "test:cdp:all-mock": "node tests/cdp/run-cdp-regression.mjs all-mock",
     "test:cdp:all-real": "node tests/cdp/run-all-real.mjs",
     "test:cdp:real-openai": "CDP_REAL_SUITE=real-openai node tests/cdp/run-all-real.mjs",

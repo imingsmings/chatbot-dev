@@ -14,7 +14,12 @@ import {
 
 async function clickSelector(client, selector) {
   const point = await evaluate(client, `(() => {
-    const element = document.querySelector(${JSON.stringify(selector)});
+    const element = [...document.querySelectorAll(${JSON.stringify(selector)})]
+      .find((candidate) => {
+        const rect = candidate.getBoundingClientRect();
+        const style = getComputedStyle(candidate);
+        return rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden';
+      });
     if (!element || element.disabled) return null;
     element.scrollIntoView({ block: 'nearest', inline: 'nearest' });
     const rect = element.getBoundingClientRect();
@@ -43,28 +48,17 @@ async function clickSelector(client, selector) {
   })
 }
 
-async function hoverSelector(client, selector) {
-  const point = await evaluate(client, `(() => {
-    const element = document.querySelector(${JSON.stringify(selector)});
-    if (!element || element.disabled) return null;
-    element.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-    const rect = element.getBoundingClientRect();
-    return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
-  })()`)
-  if (!point) throw new Error(`Cannot hover selector: ${selector}`)
-  await client.send('Input.dispatchMouseEvent', {
-    type: 'mouseMoved',
-    x: point.x,
-    y: point.y,
-  })
-}
-
 async function selectEffort(client, effort) {
   await waitFor(client, `document.querySelector('.model-menu-trigger')?.disabled === false`)
   await clickSelector(client, '.model-menu-trigger')
-  await waitFor(client, `Boolean(document.querySelector('.model-options-menu'))`, 10_000)
-  await hoverSelector(client, 'button[aria-label="Select Effort"]')
-  await waitFor(client, `Boolean(document.querySelector('.effort-submenu'))`, 10_000)
+  await waitFor(client, `(() => {
+    const menu = [...document.querySelectorAll('.model-options-menu')]
+      .find((candidate) => candidate.getBoundingClientRect().height > 0);
+    return Boolean(document.querySelector('.model-menu-trigger[data-popup-open]') && menu);
+  })()`, 10_000)
+  await clickSelector(client, 'button[aria-label="Select Effort"]')
+  await waitFor(client, `[...document.querySelectorAll('.effort-submenu')]
+    .some((candidate) => candidate.getBoundingClientRect().height > 0)`, 10_000)
   await clickSelector(client, `button[aria-label="Select Effort ${effort}"]`)
 }
 

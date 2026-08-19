@@ -4,7 +4,8 @@ import createError from 'http-errors'
 import express from 'express'
 import cookieParser from 'cookie-parser'
 import logger from 'morgan'
-import indexRouter from './routes/index.ts'
+import indexRouter, { protectedRouter } from './routes/index.ts'
+import { requireAuthentication } from './middleware/authentication.ts'
 import { registerClientHosting } from './config/clientHosting.ts'
 import { getDeploymentConfig } from './config/deploymentConfig.ts'
 import { validateStartupConfig } from './utils/runtimeConfig.ts'
@@ -46,7 +47,7 @@ function createApp(options: CreateAppOptions = {}) {
   // Keep legacy root routes only while the separate Vite client is in use;
   // otherwise API paths such as `/conversations/:id` would shadow SPA routes.
   if (!clientHosting.enabled) {
-    app.use('/', indexRouter)
+    app.use('/', requireAuthentication, protectedRouter)
   }
   registerClientHosting(app, clientHosting)
 

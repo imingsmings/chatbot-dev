@@ -1,10 +1,12 @@
 import { getPageTarget, launchChrome } from './helpers/browser.mjs'
 import { ask, waitForEval } from './helpers/appActions.mjs'
 import { CdpClient, evaluate } from './helpers/cdpClient.mjs'
+import { authenticateBrowser, createAuthenticatedFetch } from './helpers/authentication.mjs'
 import { stopProcess } from './helpers/services.mjs'
 
 const APP_URL = process.env.APP_URL || 'http://127.0.0.1:5173/'
 const API_URL = new URL('/api', APP_URL).toString().replace(/\/$/, '')
+const authenticatedFetch = createAuthenticatedFetch(APP_URL)
 const DEBUG_PORT = Number(process.env.DEBUG_PORT || 9338)
 const REAL_WAIT_TIMEOUT_MS = readPositiveInteger('CDP_REAL_MODEL_WAIT_TIMEOUT_MS', 240000)
 const STAMP = new Date().toISOString().replace(/[-:.TZ]/g, '').slice(0, 14)
@@ -30,13 +32,24 @@ async function clickSelector(client, selector) {
   const point = await evaluate(
     client,
     `(() => {
-      const element = document.querySelector(${JSON.stringify(selector)});
-      if (!element) throw new Error('Cannot find selector: ${selector}');
+      const element = [...document.querySelectorAll(${JSON.stringify(selector)})]
+        .find((candidate) => {
+          const rect = candidate.getBoundingClientRect();
+          const style = getComputedStyle(candidate);
+          return rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden';
+        });
+      if (!element || element.disabled) return null;
       element.scrollIntoView({ block: 'center', inline: 'nearest' });
       const rect = element.getBoundingClientRect();
       return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
     })()`,
   )
+  if (!point) throw new Error(`Cannot click selector: ${selector}`)
+  await client.send('Input.dispatchMouseEvent', {
+    type: 'mouseMoved',
+    x: point.x,
+    y: point.y,
+  })
   await client.send('Input.dispatchMouseEvent', {
     type: 'mousePressed',
     x: point.x,
@@ -54,7 +67,7 @@ async function clickSelector(client, selector) {
 }
 
 async function createConversation(title) {
-  const response = await fetch(`${API_URL}/conversations`, {
+  const response = await authenticatedFetch(`${API_URL}/conversations`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ title }),
@@ -65,7 +78,7 @@ async function createConversation(title) {
 }
 
 async function deleteConversation(id) {
-  await fetch(`${API_URL}/conversations/${encodeURIComponent(id)}`, {
+  await authenticatedFetch(`${API_URL}/conversations/${encodeURIComponent(id)}`, {
     method: 'DELETE',
   }).catch(() => null)
 }
@@ -74,17 +87,13 @@ async function clickAria(client, label) {
   await waitForEval(
     client,
     `[...document.querySelectorAll('button')]
-      .some((button) => button.getAttribute('aria-label') === ${JSON.stringify(label)})`,
+      .some((button) => {
+        const rect = button.getBoundingClientRect();
+        return button.getAttribute('aria-label') === ${JSON.stringify(label)} &&
+          rect.width > 0 && rect.height > 0 && !button.disabled;
+      })`,
   )
-  await evaluate(
-    client,
-    `(() => {
-      const button = [...document.querySelectorAll('button')]
-        .find((item) => item.getAttribute('aria-label') === ${JSON.stringify(label)});
-      if (!button) throw new Error('Cannot find button: ${label}');
-      button.click();
-    })()`,
-  )
+  await clickSelector(client, `button[aria-label=${JSON.stringify(label)}]`)
 }
 
 async function selectConversation(client, title) {
@@ -110,19 +119,54 @@ async function selectConversation(client, title) {
 }
 
 async function selectModelAndEffort(client, model, effort) {
+  await waitForEval(client, `document.querySelector('.model-menu-trigger')?.disabled === false`)
   await clickSelector(client, '.model-menu-trigger')
+  await waitForEval(client, `[...document.querySelectorAll('.model-options-menu')]
+    .some((menu) => menu.getBoundingClientRect().height > 0)`)
   await clickAria(client, 'Select Model')
+  await waitForEval(client, `[...document.querySelectorAll('.model-submenu')]
+    .some((menu) => menu.getBoundingClientRect().height > 0)`)
+  const modelPatchCount = await evaluate(
+    client,
+    `(window.__realModelOptionRequests || []).length`,
+  )
   await clickAria(client, `Select ${model.label}`)
+  await waitForEval(
+    client,
+    `(() => {
+      const requests = window.__realModelOptionRequests || [];
+      const latest = requests.at(-1);
+      return requests.length > ${modelPatchCount} && latest?.done === true && latest.status === 200 &&
+        document.querySelector('.model-menu-trigger')?.getAttribute('aria-label')
+          ?.includes(${JSON.stringify(model.label)}) &&
+        document.querySelector('.model-menu-trigger')?.disabled === false;
+    })()`,
+  )
+  await waitForEval(client, `![...document.querySelectorAll('.model-options-menu')]
+    .some((menu) => menu.getBoundingClientRect().height > 0)`)
 
   await clickSelector(client, '.model-menu-trigger')
+  await waitForEval(client, `document.querySelector('.model-menu-trigger[data-popup-open]') &&
+    [...document.querySelectorAll('.model-options-menu')]
+      .some((menu) => menu.getBoundingClientRect().height > 0)`)
   await clickAria(client, 'Select Effort')
+  await waitForEval(client, `[...document.querySelectorAll('.effort-submenu')]
+    .some((menu) => menu.getBoundingClientRect().height > 0)`)
+  const effortPatchCount = await evaluate(
+    client,
+    `(window.__realModelOptionRequests || []).length`,
+  )
   await clickAria(client, `Select Effort ${effort.label}`)
 
   await waitForEval(
     client,
     `(() => {
+      const requests = window.__realModelOptionRequests || [];
+      const latest = requests.at(-1);
       const label = document.querySelector('.model-menu-trigger')?.getAttribute('aria-label') || '';
-      return label.includes(${JSON.stringify(model.label)}) && label.endsWith(${JSON.stringify(`, ${effort.label}`)});
+      return requests.length > ${effortPatchCount} && latest?.done === true && latest.status === 200 &&
+        label.includes(${JSON.stringify(model.label)}) &&
+        label.endsWith(${JSON.stringify(`, ${effort.label}`)});
     })()`,
   )
 }
@@ -131,6 +175,7 @@ const observeScript = `
 (() => {
   const originalFetch = window.fetch.bind(window);
   window.__realModelAskRequests = [];
+  window.__realModelOptionRequests = [];
   window.fetch = (input, init = {}) => {
     const url = typeof input === 'string' ? input : input.url;
     const pathname = new URL(url, location.origin).pathname;
@@ -139,7 +184,19 @@ const observeScript = `
       try { body = typeof init.body === 'string' ? JSON.parse(init.body) : null; } catch {}
       window.__realModelAskRequests.push({ pathname, body });
     }
-    return originalFetch(input, init);
+    const result = originalFetch(input, init);
+    if (/\\/api\\/conversations\\/[^/]+\\/model-options$/.test(pathname) && init.method === 'PATCH') {
+      const entry = { pathname, done: false, status: null };
+      window.__realModelOptionRequests.push(entry);
+      result.then((response) => {
+        entry.done = true;
+        entry.status = response.status;
+      }, () => {
+        entry.done = true;
+        entry.status = 0;
+      });
+    }
+    return result;
   };
 })();
 `
@@ -174,6 +231,7 @@ async function main() {
         createdIds.add(conversation.id)
 
         await client.send('Page.navigate', { url: APP_URL })
+        await authenticateBrowser(client)
         await waitForEval(client, `Boolean(document.querySelector('.model-menu-trigger'))`)
         await selectConversation(client, title)
         await selectModelAndEffort(client, model, effort)

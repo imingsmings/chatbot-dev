@@ -2,6 +2,7 @@ import {
   ChevronDownIcon,
   FileDownIcon,
   FileUpIcon,
+  LogOutIcon,
   MessageSquarePlusIcon,
   SearchIcon,
   Trash2Icon,
@@ -38,6 +39,7 @@ type ChatSidebarProps = {
   isResponding: boolean
   isSearching: boolean
   isStopping: boolean
+  isLoggingOut: boolean
   openConversationMenuId: string | null
   operation: SidebarOperation | null
   profile?: RuntimeInfo['profile']
@@ -49,12 +51,14 @@ type ChatSidebarProps = {
   onExportAllConversations: () => void
   onExportConversation: (conversation: ConversationSummary) => void
   onImportConversations: () => void
+  onLogout: () => void
   onNewChat: () => void
   onOpenConversationMenu: (id: string | null) => void
   onRenameConversation: (conversation: ConversationSummary) => void
   onSelectConversation: (id: string) => void
   onUpdateSearchQuery: (query: string) => void
   onUserMenuOpenChange: (open: boolean) => void
+  showLogout: boolean
 }
 
 function getMatchLabel(location: ConversationSearchMatchLocation) {
@@ -257,6 +261,20 @@ export function ChatSidebar(props: ChatSidebarProps) {
                   <span>{isOperation('export-all') ? '导出中...' : '导出全部 JSON'}</span>
                 </DropdownMenuItem>
                 <DropdownMenuSeparator className="dropdown-menu-separator" />
+                {props.showLogout ? (
+                  <DropdownMenuItem
+                    aria-busy={props.isLoggingOut || undefined}
+                    className="dropdown-menu-item"
+                    disabled={sidebarBusy || props.isResponding || props.isStopping || props.isLoggingOut}
+                    nativeButton
+                    onClick={props.onLogout}
+                    render={<button aria-label="退出登录" type="button" />}
+                  >
+                    <LogOutIcon aria-hidden="true" size={15} />
+                    <span>{props.isLoggingOut ? '退出中...' : '退出登录'}</span>
+                  </DropdownMenuItem>
+                ) : null}
+                {props.showLogout ? <DropdownMenuSeparator className="dropdown-menu-separator" /> : null}
                 <DropdownMenuItem
                   className="dropdown-menu-item danger text-[var(--danger)] data-[highlighted]:bg-[var(--danger-muted)]"
                   disabled={!props.currentConversationId || sidebarBusy || props.isResponding || props.isStopping}

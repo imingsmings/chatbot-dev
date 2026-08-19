@@ -2,10 +2,12 @@ import { spawn } from 'node:child_process'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { authenticateBrowser, createAuthenticatedFetch } from './helpers/authentication.mjs'
 import { stopProcess } from './helpers/services.mjs'
 
 const APP_URL = process.env.APP_URL || 'http://localhost:5173/'
 const API_BASE = new URL('/api', APP_URL).toString().replace(/\/$/, '')
+const authenticatedFetch = createAuthenticatedFetch(APP_URL)
 const CHROME_PATH =
   process.env.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
 const DEBUG_PORT = Number(process.env.DEBUG_PORT || 9335)
@@ -171,7 +173,7 @@ async function screenshot(client, name) {
 }
 
 async function cleanupTestConversations() {
-  const response = await fetch(`${API_BASE}/conversations`)
+  const response = await authenticatedFetch(`${API_BASE}/conversations`)
   if (!response.ok) return
 
   const data = await response.json()
@@ -180,7 +182,7 @@ async function cleanupTestConversations() {
     conversations
       .filter((conversation) => String(conversation.title || '').startsWith('CDPCTX-'))
       .map((conversation) =>
-        fetch(`${API_BASE}/conversations/${encodeURIComponent(conversation.id)}`, {
+        authenticatedFetch(`${API_BASE}/conversations/${encodeURIComponent(conversation.id)}`, {
           method: 'DELETE',
         }).catch(() => null),
       ),
@@ -432,6 +434,7 @@ async function main() {
     })
     await client.send('Page.addScriptToEvaluateOnNewDocument', { source: observeScript })
     await client.send('Page.navigate', { url: APP_URL })
+    await authenticateBrowser(client)
     await waitFor(client, `Boolean(document.querySelector('textarea') && document.querySelector('.conversation-item-shell'))`)
     await screenshot(client, '01-initial-conversation-list')
 

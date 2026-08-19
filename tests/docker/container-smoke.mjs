@@ -1,16 +1,20 @@
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
+import { randomBytes } from 'node:crypto'
 import { mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises'
 import https from 'node:https'
 import net from 'node:net'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { hashPassword } from '../../server/security/password.ts'
 
 const REPO_ROOT = process.cwd()
 const PROJECT_NAME = `chatbot-docker-test-${process.pid}`
 const TIMEOUT_MS = 120_000
 const COMMAND_TIMEOUT_MS = 300_000
 const CLEANUP_TIMEOUT_MS = 30_000
+const MAX_RUNTIME_IMAGE_SIZE_BYTES = 300_000_000
+let bearerToken = ''
 
 function run(command, args, options = {}) {
   return new Promise((resolve, reject) => {
@@ -83,12 +87,16 @@ function request(port, pathname, options = {}) {
       rejectUnauthorized: false,
       headers: {
         Accept: options.accept ?? 'application/json',
+        ...(bearerToken && options.auth !== false
+          ? { Authorization: `Bearer ${bearerToken}` }
+          : {}),
         ...(body
           ? {
               'Content-Type': 'application/json',
               'Content-Length': Buffer.byteLength(body),
             }
           : {}),
+        ...(options.headers ?? {}),
       },
     }, (response) => {
       const chunks = []
@@ -172,8 +180,13 @@ async function main() {
   let containerId = ''
   let conversationId = ''
   let sourceVolume = ''
+  let runtimeImageSizeBytes = 0
   const restoredVolume = `${PROJECT_NAME}-restored`
   const rejectedVolume = `${PROJECT_NAME}-rejected`
+  const authUsername = 'docker-smoke-user'
+  const authPassword = `docker-smoke-password-${process.pid}`
+  const authPasswordHash = await hashPassword(authPassword)
+  let refreshCookie = ''
 
   await writeFile(envFile, [
     'LLM_PROVIDER=deepseek',
@@ -183,6 +196,12 @@ async function main() {
     'LLM_DISABLED_MODELS=deepseek-v4-pro,gpt-5.6-sol',
     'CONVERSATION_STORE=sqlite',
     'APP_PROFILE_NAME=Docker Smoke Test',
+    'AUTH_ENABLED=true',
+    `AUTH_USERNAME=${authUsername}`,
+    `AUTH_PASSWORD_HASH='${authPasswordHash}'`,
+    `AUTH_ACCESS_TOKEN_SECRET=${randomBytes(32).toString('base64url')}`,
+    `AUTH_REFRESH_TOKEN_SECRET=${randomBytes(32).toString('base64url')}`,
+    `AUTH_ALLOWED_ORIGINS=https://127.0.0.1:${port}`,
     '',
   ].join('\n'))
   await writeFile(opensslConfigPath, [
@@ -224,6 +243,27 @@ async function main() {
     containerId = (await compose('ps', '-q', 'chatbot')).stdout.trim()
     assert(containerId, 'Compose did not return the chatbot container id')
     await waitForHealthy(containerId)
+    runtimeImageSizeBytes = Number((await run('docker', [
+      'image',
+      'inspect',
+      'chatbot:local',
+      '--format',
+      '{{.Size}}',
+    ])).stdout.trim())
+    assert(Number.isSafeInteger(runtimeImageSizeBytes) && runtimeImageSizeBytes > 0)
+    assert(
+      runtimeImageSizeBytes < MAX_RUNTIME_IMAGE_SIZE_BYTES,
+      `Runtime image is too large: ${runtimeImageSizeBytes} bytes`,
+    )
+    await run('docker', [
+      'exec',
+      '--user',
+      'root',
+      containerId,
+      'sh',
+      '-lc',
+      'test ! -e /root/.cache/pnpm && test ! -e /root/.cache/node/corepack/v1/pnpm',
+    ])
     const processList = (await run('docker', [
       'top',
       containerId,
@@ -231,6 +271,23 @@ async function main() {
       'pid,user,args',
     ])).stdout.trim()
     assert.match(processList, /^\s*\d+\s+(?:1000|node)\s+node server\/bin\/www\.ts$/m)
+
+    const missingAuthConfig = await run('docker', [
+      'run', '--rm',
+      '--volume', `${certificatePath}:/run/tls/server-cert.pem:ro`,
+      '--volume', `${privateKeyPath}:/run/tls/server-key.pem:ro`,
+      '--env', 'NODE_ENV=production',
+      '--env', 'LLM_PROVIDER=deepseek',
+      '--env', 'LLM_ENDPOINT=https://provider.invalid/v1',
+      '--env', 'DEEPSEEK_API_KEY=docker-smoke-key',
+      '--env', 'AUTH_ENABLED=true',
+      '--env', `AUTH_USERNAME=${authUsername}`,
+      '--env', `AUTH_PASSWORD_HASH=${authPasswordHash}`,
+      '--env', `AUTH_ACCESS_TOKEN_SECRET=${randomBytes(32).toString('base64url')}`,
+      'chatbot:local',
+    ], { allowFailure: true })
+    assert.notEqual(missingAuthConfig.code, 0)
+    assert.match(missingAuthConfig.stderr, /AUTH_REFRESH_TOKEN_SECRET/)
 
     const containerMounts = JSON.parse((await run('docker', [
       'inspect',
@@ -251,6 +308,27 @@ async function main() {
     assert.equal(home.status, 200)
     assert.match(home.text, /<div id="root"><\/div>/)
     assert.equal(home.headers['cache-control'], 'no-cache')
+
+    const authStatus = await request(port, '/api/auth/status', { auth: false })
+    assert.equal(authStatus.status, 200)
+    assert.deepEqual(JSON.parse(authStatus.text), { enabled: true })
+    const unauthenticatedRuntime = await request(port, '/api/runtime-config', { auth: false })
+    assert.equal(unauthenticatedRuntime.status, 401)
+
+    const login = await request(port, '/api/auth/login', {
+      auth: false,
+      method: 'POST',
+      headers: { Origin: `https://127.0.0.1:${port}` },
+      body: { username: authUsername, password: authPassword },
+    })
+    assert.equal(login.status, 200)
+    bearerToken = JSON.parse(login.text).accessToken
+    assert(bearerToken)
+    refreshCookie = String(login.headers['set-cookie']).split(';')[0]
+    assert.match(refreshCookie, /^chatbot_refresh=/)
+    assert.match(String(login.headers['set-cookie']), /HttpOnly/i)
+    assert.match(String(login.headers['set-cookie']), /Secure/i)
+    assert.match(String(login.headers['set-cookie']), /SameSite=Strict/i)
 
     const runtime = await request(port, '/api/runtime-config')
     assert.equal(runtime.status, 200)
@@ -395,6 +473,17 @@ async function main() {
 
     await compose('restart', 'chatbot')
     await waitForHealthy(containerId)
+    const refreshAfterRestart = await request(port, '/api/auth/refresh', {
+      auth: false,
+      method: 'POST',
+      headers: {
+        Cookie: refreshCookie,
+        Origin: `https://127.0.0.1:${port}`,
+      },
+    })
+    assert.equal(refreshAfterRestart.status, 200)
+    bearerToken = JSON.parse(refreshAfterRestart.text).accessToken
+    refreshCookie = String(refreshAfterRestart.headers['set-cookie']).split(';')[0]
     const persisted = await request(port, `/api/conversations/${conversationId}`)
     assert.equal(persisted.status, 200)
     assert.equal(JSON.parse(persisted.text).conversation.id, conversationId)
@@ -427,6 +516,7 @@ async function main() {
     assert.match(manifest.archive.sha256, /^[a-f0-9]{64}$/)
     assert.match(manifest.data.treeSha256, /^[a-f0-9]{64}$/)
     assert(manifest.data.entries.some((entry) => entry.path === 'sqlite/conversations.sqlite3'))
+    assert(manifest.data.entries.some((entry) => entry.path === 'auth-sessions.sqlite3'))
 
     const rejectedManifestPath = path.join(backupDir, 'rejected.manifest.json')
     await writeFile(rejectedManifestPath, JSON.stringify({
@@ -470,6 +560,18 @@ async function main() {
     assert(containerId, 'Compose did not return the restored-volume container id')
     await waitForHealthy(containerId)
 
+    const refreshAfterRestore = await request(port, '/api/auth/refresh', {
+      auth: false,
+      method: 'POST',
+      headers: {
+        Cookie: refreshCookie,
+        Origin: `https://127.0.0.1:${port}`,
+      },
+    })
+    assert.equal(refreshAfterRestore.status, 200)
+    bearerToken = JSON.parse(refreshAfterRestore.text).accessToken
+    refreshCookie = String(refreshAfterRestore.headers['set-cookie']).split(';')[0]
+
     const afterList = JSON.parse((await request(port, '/api/conversations')).text).conversations
     const afterDetails = Object.fromEntries(await Promise.all(afterList.map(async (conversation) => {
       const detail = await request(port, `/api/conversations/${conversation.id}`)
@@ -485,20 +587,36 @@ async function main() {
     })
     assert.equal(sourceInspect.code, 0)
 
+    const logout = await request(port, '/api/auth/logout', {
+      auth: false,
+      method: 'POST',
+      headers: {
+        Cookie: refreshCookie,
+        Origin: `https://127.0.0.1:${port}`,
+      },
+    })
+    assert.equal(logout.status, 204)
+    const revokedAccess = await request(port, '/api/runtime-config')
+    assert.equal(revokedAccess.status, 401)
+
     console.log(JSON.stringify({
       ok: true,
       project: PROJECT_NAME,
       image: 'chatbot:local',
+      imageSizeBytes: runtimeImageSizeBytes,
       httpsPort: port,
       assertions: [
         'compose config valid',
         'default and overridden TLS source paths valid',
         'image built and container healthy',
+        'runtime image stays below 300MB without pnpm/Corepack caches',
         'application process runs as non-root node user',
         'React build served over HTTPS',
+        'authentication fail-fast, login, secure refresh cookie, and API protection valid',
         'runtime config, storage-aware health, and JSON 404 valid',
         'unwritable storage reports 503 and recovers',
         'SQLite conversation and model options persisted across restart',
+        'authentication session persists across restart and restored volume, then logout revokes access',
         'SIGTERM shutdown exited with code 0',
         'backup refuses a volume mounted by a running container',
         'stopped-volume backup includes checksums and SQLite data directory',

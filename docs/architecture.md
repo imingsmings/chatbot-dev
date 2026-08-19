@@ -12,11 +12,14 @@ flowchart LR
     Hooks["Hooks / lifecycle"]
     Reducers["Conversation + stream reducers"]
     ClientAPI["HTTP + NDJSON v2 reader"]
+    AuthClient["Auth gate + in-memory access token"]
     Markdown["markdown-it + DOMPurify + highlight.js"]
     App --> UI
     App --> Hooks
     Hooks --> Reducers
     Hooks --> ClientAPI
+    AuthClient --> App
+    AuthClient --> ClientAPI
     UI --> Markdown
   end
 
@@ -24,9 +27,11 @@ flowchart LR
     TLS["Node HTTPS + certificate validation"]
     Static["Vite dist + SPA fallback"]
     Routes["Routes"] --> Controllers["Controllers"] --> Services["Services"]
+    Routes --> Auth["JWT middleware + refresh rotation"]
     Services --> LLM["Provider registry + adapters"]
     Services --> Tools["Tool registry"]
     Services --> Store["Conversation store"]
+    Auth --> AuthStore["Auth session SQLite"]
     TLS --> Static
     TLS --> Routes
   end
@@ -35,6 +40,7 @@ flowchart LR
   Weather["Weather API"]
   Files["Atomic JSON files"]
   SQLite["SQLite WAL"]
+  SessionDB["Auth sessions SQLite WAL"]
 
   Browser -->|"same-origin HTTPS"| TLS
   ClientAPI -->|"/api + NDJSON v2"| Routes
@@ -42,6 +48,7 @@ flowchart LR
   Tools --> Weather
   Store --> Files
   Store --> SQLite
+  AuthStore --> SessionDB
 ```
 
 ## 前端边界
@@ -49,6 +56,9 @@ flowchart LR
 | 模块 | 职责 |
 | --- | --- |
 | `client/src/app/App.tsx` | 页面组合和高层事件连接，不承载底层协议逻辑 |
+| `client/src/components/AuthGate.tsx` | 启动恢复和未登录门禁；认证成功前不挂载聊天 hooks |
+| `client/src/auth/authClient.ts` | 内存 Access Token、Refresh 单飞、401 单次重放、定时刷新和跨标签页同步 |
+| `client/src/api/httpClient.ts` | 为全部现有 API 统一附加认证语义，同时保留认证关闭兼容 |
 | `client/src/components/*` | 展示、交互、ARIA 与 shadcn 组件组合 |
 | `client/src/hooks/useChatAppController.ts` | 单一页面装配入口：运行配置、聊天流、搜索、主题和各专责 hook 组合 |
 | `client/src/hooks/useConversationOperations.ts` | 新建、切换、重命名、删除、清空和侧栏操作互斥 |
@@ -84,6 +94,11 @@ flowchart LR
 | --- | --- |
 | `server/routes/*` | 路由与静态/动态路径顺序 |
 | `server/config/deploymentConfig.ts` | HOST/PORT、生产默认值、`~/` 路径和 TLS 证书/私钥校验 |
+| `server/config/authConfig.ts` | production 默认认证、凭据/JWT/Cookie/Origin/TTL/Session DB 配置及 fail-fast |
+| `server/middleware/authentication.ts` | 在控制器前验证 Bearer、JWT claims 和服务端 Session 活性 |
+| `server/controllers/authController.ts` | status/login/refresh/logout、Refresh Cookie 与稳定认证错误 |
+| `server/services/authService.ts` | Argon2id 登录、JWT 签发验证、Refresh 轮换和 Session 撤销编排 |
+| `server/utils/authSessionStore.ts` | 独立 SQLite WAL、哈希 refresh jti、原子轮换、重放撤销和健康探针 |
 | `server/config/clientHosting.ts` | `client/dist` 校验、静态缓存与 HTML SPA 回退 |
 | `server/controllers/*` | HTTP 输入、长度边界、状态码和流响应 |
 | `server/services/chatService.ts` | ask 前绑定完整会话模型配置、上下文、工具两阶段、生成元数据聚合和完成/手动停止持久化 |
@@ -112,6 +127,7 @@ Provider 特有字段只存在于 adapter。控制器不拼 prompt，工具注�
 flowchart TD
   Build["pnpm run build"] --> Dist["client/dist hashed assets"]
   Env["NODE_ENV=production + server/.env"] --> Boot["server/bin/www.ts"]
+  AuthConfig["Argon2id hash + two JWT secrets"] --> Boot
   Cert["certificate + private key"] --> Validate["existence / dates / key match"]
   Validate --> Boot
   Dist --> Guard["index.html startup guard"] --> Boot
@@ -119,14 +135,15 @@ flowchart TD
   HTTPS --> Assets["/assets/* one-year immutable cache"]
   HTTPS --> Index["HTML GET -> index.html no-cache"]
   HTTPS --> API["/api/* -> Express routes"]
-  API --> Missing["unknown API -> JSON 404; never SPA HTML"]
+  API --> AuthGate["public health/auth; other API requires Bearer"]
+  AuthGate --> Missing["unknown authenticated API -> JSON 404; never SPA HTML"]
 ```
 
 - `NODE_ENV=production` 时默认启用 HTTPS 和前端构建托管；均可用显式环境变量覆盖。
 - 生产 API 只位于 `/api/*`，避免会话 API 与 React 路由冲突。未托管前端的开发模式暂时保留根路径 API 兼容面。
 - `index.html` 使用 `no-cache`；带 hash 的 `/assets/*` 使用一年 immutable cache。
 - Node 直接终止 TLS；若改由反向代理终止 TLS，应显式设置 `HTTPS_ENABLED=false`，并只在受控网络内暴露 Node 端口。
-- 当前项目没有登录或多用户隔离，不能仅因启用 HTTPS 就视为适合公开互联网访问。
+- 当前只提供单个固定用户认证，不包含注册、RBAC、多用户隔离、WAF 或公网运营能力；启用 HTTPS 与登录仍不等于适合公开互联网访问。
 
 ### Docker 单容器拓扑
 
@@ -137,6 +154,7 @@ flowchart LR
   Node --> Dist["client/dist"]
   Node --> API["/api/*"]
   Node --> Data["/app/data volume"]
+  Node --> AuthDB["/app/data/auth-sessions.sqlite3"]
   Cert["host TLS cert + key"] -->|"read-only mounts"| Node
   Env["host server/.env"] -->|"runtime injection"| Node
 ```
@@ -145,7 +163,7 @@ flowchart LR
 - Node 仍是唯一 HTTPS 与应用进程，不增加反向代理或第二套前端服务。
 - `server/.env`、TLS 文件和会话数据均不进入镜像层；容器可替换，运行配置和数据独立保留。
 - Compose 只运行一个实例。file store 的队列和 SQLite 写入边界都是单进程语义，不支持横向扩容。
-- Compose healthcheck 使用独立 `/api/health`，将配置或存储不可用映射为 503，不返回路径、endpoint、凭据或底层异常。
+- Compose healthcheck 使用公开的 `/api/health`，同时探测会话 store 与启用时的认证 Session Store；任一不可用映射为 503，且不返回路径、endpoint、凭据或底层异常。
 - `docker:backup` 只读挂载已停止的完整 `/app/data` volume，tar 与 manifest 分别提供 archive 和数据树 SHA-256；`docker:restore` 只创建新 volume，校验后通过独立 Compose override 切换。
 - 完整镜像分层和生命周期见 [Docker 部署说明](docker-deployment.md)。
 
@@ -163,6 +181,39 @@ flowchart LR
 ```
 
 备份与恢复工具不读取或复制 `server/.env`、API key、宿主机 TLS 文件或 CA 私钥。数据 volume 的选择是显式运维状态；它不被写入应用持久化 schema，也不改变 file/SQLite 对外契约。
+
+## 认证时序
+
+```mermaid
+sequenceDiagram
+  participant U as User
+  participant C as React AuthClient
+  participant E as Express auth routes
+  participant S as Auth session SQLite
+  U->>C: 打开应用
+  C->>E: POST /api/auth/refresh (HttpOnly Cookie)
+  alt 有效 Session
+    E->>S: 原子轮换 refresh jti
+    E-->>C: Access JWT + rotated Cookie
+    C->>C: Access Token 仅存内存，挂载 App
+  else 无有效 Session
+    E-->>C: 401
+    C-->>U: 登录页
+    U->>C: 用户名 + 密码
+    C->>E: POST /api/auth/login
+    E->>S: 新建 Session family
+    E-->>C: Access JWT + HttpOnly Refresh Cookie
+  end
+  C->>E: Bearer + protected API
+  E->>S: 校验 sid 未撤销且未过期
+  E-->>C: 业务响应
+```
+
+- Access/Refresh JWT 使用不同 secret，验证固定 HS256、issuer、audience、`token_use` 和过期时间。
+- Refresh `jti` 只以 SHA-256 摘要保存；轮换在 `BEGIN IMMEDIATE` 事务中完成，旧 token 重放撤销整个 Session。
+- logout 撤销服务端 Session 并清 Cookie，因此对应 Access Token 会在下一次 API 请求时立即被 Session 活性检查拒绝。
+- Access Token 仅存在内存和同源 `BroadcastChannel` 消息；Refresh Token 只由 `Path=/api/auth` 的 HttpOnly Cookie 发送。
+- 认证失败在进入 ask 控制器前返回 JSON 401，不建立 NDJSON；已经建立的流不会因 Access Token 中途到期而被强制切断。
 
 ## 普通问答时序
 

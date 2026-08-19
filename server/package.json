@@ -17,14 +17,20 @@
     "test:conversation-summary": "node --test ../tests/server/conversationSummary.test.ts ../tests/server/conversationSummarySqlite.test.ts",
     "test:conversation-import": "node --test ../tests/server/conversationImport.test.ts ../tests/server/conversationImportSqlite.test.ts",
     "test:model-options": "node --test ../tests/server/modelOptions.test.ts ../tests/server/providerConfig.test.ts",
-    "test:tools": "node --test ../tests/server/toolService.test.ts"
+    "test:tools": "node --test ../tests/server/toolService.test.ts",
+    "auth:hash-password": "node ./scripts/hash-password.ts",
+    "auth:generate-secrets": "node ./scripts/generate-auth-secrets.ts",
+    "auth:revoke-all": "node ./scripts/revoke-auth-sessions.ts"
   },
   "dependencies": {
+    "argon2": "0.45.1",
     "cookie-parser": "1.4.7",
     "debug": "4.4.3",
     "dotenv": "17.4.2",
     "express": "5.2.1",
+    "express-rate-limit": "8.6.2",
     "http-errors": "2.0.1",
+    "jose": "6.2.9",
     "morgan": "1.11.0"
   },
   "devDependencies": {

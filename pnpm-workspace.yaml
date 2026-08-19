@@ -7,6 +7,7 @@ catalog:
   typescript: 7.0.2
 
 allowBuilds:
+  argon2: true
   esbuild: false
 
 minimumReleaseAgeExclude:

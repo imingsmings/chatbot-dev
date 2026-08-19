@@ -423,6 +423,7 @@ export default defineConfig({
     cwd: path.resolve(process.cwd(), 'server'),
     env: {
       ...process.env,
+      AUTH_ENABLED: 'false',
       PORT: SERVER_PORT,
       LLM_PROVIDER: 'deepseek',
       LLM_ENDPOINT: MOCK_URL,

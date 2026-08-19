@@ -7,6 +7,7 @@ import type { AddressInfo } from 'node:net'
 import createApp from '../app.ts'
 import { getDeploymentConfig, loadTlsServerOptions } from '../config/deploymentConfig.ts'
 import { closeConversationStore } from '../utils/conversationStore.ts'
+import { closeAuthSessionStores } from '../utils/authSessionStore.ts'
 import { cancelAllRequests } from '../utils/requestRegistry.ts'
 
 const debug = debugLib('server:server')
@@ -98,6 +99,7 @@ function shutdown(signal: NodeJS.Signals): void {
     }
     try {
       closeConversationStore()
+      closeAuthSessionStores()
     } catch (storeError) {
       console.error('关闭会话存储失败：', storeError)
       process.exit(1)

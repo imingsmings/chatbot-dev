@@ -20,9 +20,9 @@
 | 内容 | 位置 | 是否进入镜像 |
 | --- | --- | --- |
 | Node、server、生产依赖、`client/dist` | `chatbot:local` | 是 |
-| 模型 endpoint、API key、业务参数 | 宿主机 `server/.env` | 否 |
+| 模型 endpoint、API key、认证哈希/JWT secret、业务参数 | 宿主机 `server/.env` | 否 |
 | HTTPS 证书和私钥 | 宿主机 `~/devhttps` | 否，只读挂载 |
-| file/SQLite 会话数据 | Compose `chatbot-data` volume | 否 |
+| file/SQLite 会话数据与认证 Session SQLite | Compose `chatbot-data` volume | 否 |
 | 备份 tar 与 manifest | 操作者指定的宿主机目录 | 否 |
 
 容器可以重建，volume 不应随普通回滚删除。只运行一个 `chatbot` 实例，避免 file store 队列和 SQLite 的单进程写入语义失效。
@@ -31,12 +31,13 @@
 
 `Dockerfile` 使用 Node 22 Debian slim 多阶段构建：
 
-1. `base` 固定 pnpm 11.16，与仓库 `packageManager` 一致。
+1. `pnpm-base` 固定 pnpm 11.16，与仓库 `packageManager` 一致，仅供构建和依赖解析阶段使用。
 2. `build` 使用根 lockfile 安装完整 workspace 依赖并构建 React。
-3. `runtime` 只安装 server 生产依赖，复制 server 源码和 `client/dist`。
-4. entrypoint 以 root 读取宿主机 `0600` 私钥并复制到容器临时目录，随后使用 `setpriv` 降权为官方 `node` 用户运行应用。
-5. `/app/data` 预设为 `node:node`，命名卷首次创建后可由非 root 应用进程写入。
-6. `.dockerignore` 阻止 `.env`、证书、`server/data`、备份 tar/manifest、无关测试和 Git 元数据进入 build context；`tests/client` 仅作为 TypeScript 构建输入，不进入运行镜像。
+3. `production-dependencies` 解析 server 生产依赖，pnpm store 和 metadata 仅存在于 BuildKit cache mount。
+4. `runtime` 从原始 Node slim 重新开始，只复制生产 `node_modules`、server 源码和 `client/dist`，不包含 pnpm/Corepack 下载缓存。
+5. entrypoint 以 root 读取宿主机 `0600` 私钥并复制到容器临时目录，随后使用 `setpriv` 降权为官方 `node` 用户运行应用。
+6. `/app/data` 预设为 `node:node`，命名卷首次创建后可由非 root 应用进程写入。
+7. `.dockerignore` 阻止 `.env`、证书、`server/data`、备份 tar/manifest、无关测试和 Git 元数据进入 build context；`tests/client` 仅作为 TypeScript 构建输入，不进入运行镜像。
 
 运行镜像默认配置：
 
@@ -68,6 +69,26 @@ DEEPSEEK_API_KEY=本机实际密钥
 LLM_DISABLED_MODELS=gpt-5.6-sol
 CONVERSATION_STORE=sqlite
 ```
+
+production 默认启用单用户认证。首次启动前生成密码哈希和两个不同的随机 secret：
+
+```bash
+pnpm --dir server auth:hash-password
+pnpm --dir server auth:generate-secrets
+```
+
+把输出手工写入同一个未提交的 `server/.env`：
+
+```dotenv
+AUTH_ENABLED=true
+AUTH_USERNAME=local-user
+AUTH_PASSWORD_HASH='<argon2id hash; keep these single quotes>'
+AUTH_ACCESS_TOKEN_SECRET=<first generated secret>
+AUTH_REFRESH_TOKEN_SECRET=<second generated secret>
+AUTH_COOKIE_SECURE=true
+```
+
+Argon2id 哈希包含 `$`，在 Compose 使用的 `.env` 中必须用单引号包住，避免被当成变量插值；dotenv 和 Compose 都会去掉引号并把原始哈希交给 Node。缺少任一值、Argon2id 参数低于 `m=19456,t=2,p=1`、salt 少于 16 bytes、摘要少于 32 bytes、两个 secret 相同/不足 32 字节、关闭 Secure Cookie 或 production 未启用 HTTPS，容器都会 fail-fast。CLI 不会写 `.env`；不要在 shell history 中输入明文密码或把输出提交到 Git。
 
 如默认使用 OpenAI，应显式设置 `LLM_PROVIDER=openai` 及对应 OpenAI 配置。当前启动校验会拒绝默认 provider 缺少 endpoint 或 API key 的配置。
 
@@ -101,6 +122,10 @@ pnpm run docker:up
 ## 数据与 SQLite
 
 Compose 把整个 `/app/data` 挂载到 `chatbot-data` volume。不能只挂载 `conversations.sqlite3`，因为 SQLite WAL 模式还会写入 `-wal` 和 `-shm` 文件。
+
+认证 Session 固定使用独立的 `/app/data/auth-sessions.sqlite3`，不随
+`CONVERSATION_STORE=file|sqlite` 切换。它只保存 Session/family 状态和 refresh
+`jti` 摘要，不保存密码、完整 JWT 或模型凭据。
 
 Docker 默认使用 `CONVERSATION_STORE=sqlite`：
 
@@ -159,12 +184,15 @@ pnpm run test:docker
 - 默认和覆盖后的证书源路径均可解析，镜像可构建，容器进入 healthy；
 - 应用主进程以非 root `node` 用户运行；
 - React 页面通过 Node HTTPS 返回；
-- runtime config 正确，`/api/health` 正常为 200、数据目录不可写为 503，未知 API 返回 JSON 404；
+- 缺失认证 secret 时 fail-fast；未登录 API 返回 401，登录后 runtime config 正确，Refresh Cookie 属性安全；
+- `/api/health` 正常为 200、数据目录不可写为 503，认证后未知 API 返回 JSON 404；
 - 测试会话跨容器 restart 持久化；
+- Refresh Session 跨 restart 与新卷恢复可用，logout 后既有 Access Token 被拒绝；
 - Docker stop 触发 SIGTERM，Node 在宽限期内以 0 退出；
 - 停止后的完整 volume 可生成 tar 和带 SHA-256 的 manifest；
 - 损坏校验或已存在目标卷会在覆盖前失败；
 - 恢复到新 volume 后，会话数量、消息、reasoning、summary、generation 和 tool trace 与恢复前完全一致；
+- 备份 manifest 同时包含独立认证 Session SQLite；
 - `finally` 只删除测试 project、测试 volume、临时证书和临时 env。
 
 容器页面与截图验收需要先启动容器，然后运行：
@@ -196,7 +224,8 @@ Compose healthcheck 请求 `GET /api/health`。该接口同时检查：
 
 - 当前模型与存储运行配置可以通过启动级校验；
 - 当前存储实现可读取会话；
-- `/app/data` 可以创建、读回并删除唯一探针文件。
+- 当前会话 store 可以完成真实写入/读回/回滚探针；
+- 认证启用时，独立 Session SQLite 可以完成写入/读回/删除探针。
 
 正常返回 200：
 
@@ -208,7 +237,7 @@ Compose healthcheck 请求 `GET /api/health`。该接口同时检查：
 
 ## 备份、恢复与切换
 
-备份必须覆盖整个 `/app/data` volume，不能只复制 SQLite 主文件；这样当 `conversations.sqlite3-wal`、`conversations.sqlite3-shm` 存在时也会与 file store、migration metadata 一并进入 tar。先停止服务，保证 SQLite 主文件和 sidecar 不再变化：
+备份必须覆盖整个 `/app/data` volume，不能只复制 SQLite 主文件；这样当 `conversations.sqlite3-wal`、`conversations.sqlite3-shm` 存在时，会与 file store、migration metadata 和 `auth-sessions.sqlite3` 一并进入 tar。先停止服务，保证两个 SQLite store 及其 sidecar 不再变化：
 
 ```bash
 pnpm run docker:stop
@@ -275,7 +304,7 @@ docker compose up -d
 ### 2. 目标电脑重建运行配置与 TLS
 
 1. 拉取同一代码 revision，安装仓库声明的 Node 22 和 pnpm 11.16，启动 Docker Desktop。
-2. 手工创建 `server/.env`，只填写目标机需要的 provider endpoint、API key 和业务参数；不要把源 `.env` 放进备份 tar 或 Git。
+2. 手工创建 `server/.env`，填写目标机需要的 provider endpoint、API key、认证用户名/哈希和新生成的两组 JWT secret；不要把源 `.env` 放进备份 tar 或 Git。使用新 secret 会让恢复卷中的历史 Refresh Session 自动失效，目标机需重新登录。
 3. 为目标机局域网 IP/DNS 名重新签发服务器证书，或通过 `CHATBOT_TLS_CERT_SOURCE` / `CHATBOT_TLS_KEY_SOURCE` 指向安全传入的服务器证书与私钥。
 4. 客户端只安装并信任签发者的根 CA **证书**；绝不分发 mkcert 根 CA 私钥。证书 SAN 必须包含实际访问的 IP 或 DNS 名。
 5. 执行 `pnpm install --frozen-lockfile` 和 `pnpm run docker:build`，不复制旧机器的 Docker volume 内部目录。
@@ -286,7 +315,7 @@ docker compose up -d
 2. 设置 `CHATBOT_DATA_VOLUME` 并运行 `docker:up:volume`。
 3. 确认容器 healthy、`/api/health` 为 200、Node 主进程为非 root。
 4. 对比源/目标会话数量，并逐项抽查消息、reasoning、summary、stopped/completed、generation usage 和 tool trace。
-5. 从另一台局域网客户端通过证书覆盖的 IP/DNS 访问，验证页面、会话切换和一次不调用真实模型的读取流程。
+5. 从另一台局域网客户端通过证书覆盖的 IP/DNS 访问，验证未登录门禁、登录、页面、会话切换和一次不调用真实模型的读取流程。
 
 ### 4. 回滚
 

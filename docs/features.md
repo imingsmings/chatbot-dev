@@ -60,6 +60,16 @@
 
 ## 本地配置与资料
 
+### 单用户认证
+
+- production 默认启用认证；固定用户名、Argon2id 密码哈希和两个 JWT secret 只从服务端环境变量读取。
+- 未登录时不挂载聊天应用，也不请求 runtime、会话或 Provider；`/api/health` 和认证入口保持公开。
+- Access Token 默认 15 分钟，只保存在 React 内存并通过 Bearer Header 发送，不进入 Web Storage、DOM 或导出。
+- Refresh Token 默认 7 天，只存在 `HttpOnly`、`Secure`、`SameSite=Strict`、`Path=/api/auth` Cookie；每次使用都会轮换。
+- Refresh Token 重放会撤销整个 Session family；logout 和运维撤销会立即使对应 Access Session 失效。
+- 登录失败使用统一错误并按 IP + 用户名摘要限速；刷新/退出校验 Origin，生产认证要求 HTTPS。
+- 认证 Session 使用独立 SQLite WAL 文件，随 `/app/data` Volume 备份恢复，不改变聊天 file/SQLite 或 schema v1。
+
 ### Prompt 模板
 
 - 保留 6 个只读内置模板；自定义模板支持新增、编辑、二次确认删除和直接填入输入框。
@@ -84,12 +94,12 @@
 - `index.html` 禁止缓存，hash assets 使用长期 immutable cache。
 - 基础安全响应头：禁用框架标识、`nosniff`、禁止 frame、同源 referrer；HTTPS 响应包含 HSTS。
 - Docker 单容器部署：Node 直接提供 HTTPS、React 和 `/api/*`，环境变量运行时注入、TLS 只读挂载、会话数据卷持久化。
-- `/api/health` 探测当前 file conversations 目录或 SQLite 数据库的真实读写能力。
+- `/api/health` 探测当前 file conversations 目录或 SQLite 数据库，以及启用时的认证 Session Store 真实读写能力。
 
 ## 明确不包含
 
-- 登录、权限、多用户隔离。
+- 注册、找回密码、角色权限和多用户隔离。
 - 管理后台、计费和商业化。
-- 登录、限流、WAF、集中日志、自动证书续期等公共互联网平台能力；当前 HTTPS 交付面向个人/内网部署。
+- WAF、分布式限流、集中日志、自动证书续期等公共互联网平台能力；当前 HTTPS 与单用户认证仍面向个人/内网部署。
 - 多租户模型网关、复杂 observability 或通用 Agent 平台。
 - 语音输入当前仅为不可用占位，不视为已交付功能。

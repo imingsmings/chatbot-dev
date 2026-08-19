@@ -279,6 +279,8 @@ const injectedFetch = `
     const method = (init.method || 'GET').toUpperCase();
     const pathname = new URL(url, location.origin).pathname.replace(/^\\/api/, '');
 
+    if (pathname === '/auth/status' && method === 'GET') return json({ enabled: false });
+
     if (pathname === '/runtime-config' && method === 'GET') {
       return json({
         runtime: {

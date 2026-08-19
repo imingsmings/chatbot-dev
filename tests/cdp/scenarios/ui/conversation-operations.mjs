@@ -312,7 +312,8 @@ export async function runConversationOperations(client) {
       client,
       `document.querySelector('.empty-state') &&
         document.querySelectorAll('.conversation-item-shell').length === 1 &&
-        document.querySelector('.conversation-item-shell.active .conversation-meta')?.textContent.includes('0 条消息')`,
+        document.querySelector('.conversation-item-shell.active .conversation-meta')?.textContent.includes('0 条消息') &&
+        document.activeElement === document.querySelector('textarea')`,
     )
     const deleteLastState = await evaluate(
       client,

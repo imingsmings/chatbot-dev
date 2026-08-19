@@ -11,6 +11,7 @@
     "#lib/*": "./src/lib/*.ts",
     "#hooks/*": "./src/hooks/*.ts",
     "#api/*": "./src/api/*.ts",
+    "#auth/*": "./src/auth/*.ts",
     "#types/*": "./src/types/*.ts",
     "#utils/*": "./src/utils/*.ts"
   },

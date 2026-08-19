@@ -1,5 +1,5 @@
-# 使用精简版 Node.js 22 Debian 镜像作为构建和运行阶段的公共基础。
-FROM node:22-bookworm-slim AS base
+# 使用精简版 Node.js 22 Debian 镜像作为 pnpm 构建阶段的公共基础。
+FROM node:22-bookworm-slim AS pnpm-base
 
 # 指定 pnpm 通过 Corepack 安装后的主目录。
 ENV PNPM_HOME=/pnpm
@@ -9,8 +9,8 @@ ENV PATH=$PNPM_HOME:$PATH
 # 启用 Corepack，并固定使用与项目 packageManager 声明一致的 pnpm 版本。
 RUN corepack enable && corepack prepare pnpm@11.16.0 --activate
 
-# 从公共基础阶段创建只负责安装依赖和构建前端的 build 阶段。
-FROM base AS build
+# 从 pnpm 基础阶段创建只负责安装依赖和构建前端的 build 阶段。
+FROM pnpm-base AS build
 
 # 将构建阶段的工作目录固定为 /app。
 WORKDIR /app
@@ -25,6 +25,7 @@ COPY server/package.json server/package.json
 # 使用 BuildKit 缓存复用 pnpm store，减少重复下载。
 # 按锁文件精确安装全部构建依赖，锁文件不一致时直接失败。
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
+    --mount=type=cache,id=pnpm-metadata,target=/root/.cache/pnpm \
     pnpm install --frozen-lockfile
 
 # 复制 React 客户端源码和 Vite 配置。
@@ -39,8 +40,24 @@ COPY tests/client tests/client
 # 执行客户端类型检查并生成 client/dist 生产静态文件。
 RUN pnpm run build:client
 
-# 从公共基础阶段创建最终运行镜像，不继承 build 阶段的开发依赖。
-FROM base AS runtime
+# 创建只负责解析服务端生产依赖的阶段，不把 pnpm 或下载缓存带入运行镜像。
+FROM pnpm-base AS production-dependencies
+
+# 将生产依赖阶段的工作目录固定为 /app。
+WORKDIR /app
+
+# 复制 workspace 清单和锁文件，以解析 server 的生产依赖闭包。
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
+COPY client/package.json client/package.json
+COPY server/package.json server/package.json
+
+# pnpm store 和元数据均使用 BuildKit cache mount，只将最终 node_modules 留在本阶段。
+RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
+    --mount=type=cache,id=pnpm-metadata,target=/root/.cache/pnpm \
+    pnpm install --frozen-lockfile --prod --filter server
+
+# 从原始 Node 镜像重新创建运行阶段，避免继承 Corepack、pnpm 和 root 下载缓存。
+FROM node:22-bookworm-slim AS runtime
 
 # 显式安装卷备份和恢复脚本依赖的 tar，避免依赖基础镜像的隐式工具集合。
 RUN apt-get update \
@@ -71,22 +88,15 @@ ENV CONVERSATION_STORE=sqlite
 # 将运行阶段的工作目录固定为 /app。
 WORKDIR /app
 
-# 复制根工作区清单、锁文件和共享 TypeScript 配置，用于安装服务端生产依赖。
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
-# 复制客户端 package 清单，保持运行镜像中的 workspace 结构完整。
-COPY client/package.json client/package.json
-# 复制服务端 package 清单，作为生产依赖筛选目标。
-COPY server/package.json server/package.json
-
-# 使用 BuildKit 缓存复用 pnpm store，减少镜像重建下载。
-# 只安装 server workspace 运行所需的生产依赖，不安装开发依赖。
-RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
-    pnpm install --frozen-lockfile --prod --filter server
-
+# 复制根 package 清单，保留 shared TypeScript 模块的 ESM 运行边界。
+COPY package.json package.json
 # 复制服务端 TypeScript 源码和运行配置。
 COPY server server
 # 复制服务端运行时导入的共享应用协议定义。
 COPY shared shared
+# 从独立依赖阶段复制 server 生产依赖，不在运行镜像中执行 pnpm。
+COPY --from=production-dependencies /app/node_modules node_modules
+COPY --from=production-dependencies /app/server/node_modules server/node_modules
 # 从 build 阶段复制 React 生产构建，不复制 build 阶段的依赖目录。
 COPY --from=build /app/client/dist client/dist
 # 安装容器启动脚本，用于复制 TLS 文件并将应用进程降权到 node 用户。

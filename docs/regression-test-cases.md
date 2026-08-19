@@ -13,7 +13,7 @@
 | 生产构建 | `pnpm run build:client` | Vite 8 bundle、chunk 拆分、无 Vue runtime |
 | 生产托管 | `tests/server/clientHosting.test.ts` | 构建 fail-fast、SPA、API 隔离、缓存和安全头 |
 | HTTPS 配置 | `tests/server/deploymentConfig.test.ts` | production defaults、路径、布尔/端口和证书异常 |
-| Docker 容器 | `pnpm run test:docker` | Compose、证书覆盖、HTTPS、health、SQLite、会话模型配置跨重启、停止备份、新卷恢复、语义一致性和 SIGTERM |
+| Docker 容器 | `pnpm run test:docker` | Compose、运行镜像小于 300MB 且无 pnpm/Corepack 缓存、证书覆盖、HTTPS、health、SQLite、会话模型配置跨重启、停止备份、新卷恢复、语义一致性和 SIGTERM |
 | Docker 页面 | `pnpm run test:cdp:docker-ui` | 容器 HTTPS 页面、侧栏、输入区、模型控件和横向溢出；截图可选 |
 | 浏览器回归 | `pnpm run test:cdp:all-mock` | 完整 React UI/API mock 矩阵 |
 | 真实接口全量 | `pnpm run test:cdp:all-real` | 两批隔离端口/临时 file store；DeepSeek V4 Pro UI/上下文/Markdown + OpenAI Responses reasoning/工具/停止恢复 + DeepSeek Flash/Pro 8 组模型参数；需明确确认 |
@@ -55,6 +55,10 @@
 | production hosting | 缺失 build、SPA deep link、静态缓存、`/api` JSON 404、非 GET 不回退 |
 | TLS configuration | 生产默认值、`~/` 展开、非法布尔/端口、缺失或损坏证书 fail-fast |
 | health | file 实际目录和 SQLite 事务探针；不可写/运行配置异常 503；恢复后 200；响应不泄漏路径、endpoint 或凭据 |
+| authentication config | production 默认启用、HTTP/Secure Cookie/缺失哈希或 secret fail-fast、开发关闭兼容 |
+| authentication security | Argon2id 参数与 salt/摘要最小长度、JWT 固定 HS256/issuer/audience/type/expiry、篡改与 secret 混用拒绝 |
+| authentication sessions | 原子 Refresh 轮换、并发复用/重放撤销、logout、撤销全部、Access Session 立即失效 |
+| authentication API | health/status 公开、其他 API 401、同源 Origin、通用登录错误、限速隔离和 Cookie 属性 |
 
 ## CDP suites
 
@@ -71,7 +75,8 @@
 | Sidebar | `pnpm run test:cdp:sidebar-state` | 操作等待态、连点互斥和失败恢复 |
 | Model options | `pnpm run test:cdp:model-options-persistence` | A/B/刷新恢复、保存等待态、单 PATCH、失败回滚/重试、实际 ask 参数和失效模型回退 |
 | Prompt templates | `pnpm run test:cdp:prompt-templates` | 新增、编辑、二次确认删除、刷新持久化、变量填充、导入导出、损坏文件和 390px 布局 |
-| All mock | `pnpm run test:cdp:all-mock` | 上述去重后的 16-script 完整集合 |
+| Authentication | `pnpm run test:cdp:authentication` | 未登录不预载、限速提示、内存 Token、401 单次刷新重放和 logout |
+| All mock | `pnpm run test:cdp:all-mock` | 上述去重后的 17-script 完整集合 |
 
 UI 七个入口位于 `tests/cdp/scenarios/ui/`，分别包含会话操作、流式恢复、滚动/布局、流性能、模型菜单、会话模型配置持久化和自定义模板管理的真实场景实现，并复用 `scenarios/ui/harness.mjs` 及底层 CDP helpers。`ui-scenarios.mjs` 只负责按入口调度；任一模块失败都会返回非零退出码并标明所属场景。
 
@@ -90,6 +95,7 @@ UI 七个入口位于 `tests/cdp/scenarios/ui/`，分别包含会话操作、流
 - 图标按钮有可读 `aria-label`；Dialog/Dropdown 的 Escape、focus 和 disabled 状态正确。
 - 会话配置保存期间发送、摘要、上下文和重复保存入口不可触发；失败回滚后可重试，实际 ask/摘要/上下文请求使用当前会话配置。
 - 自定义模板 CRUD、刷新恢复、变量填充、非覆盖导入、导出下载、损坏文件保持原数据和删除二次确认均有可重复浏览器断言。
+- 认证开启时未登录不挂载聊天 hooks；登录请求防重复，Access Token 不进入 DOM/Web Storage，并发或 401 恢复只执行一次 Refresh 和一次原请求重放。
 
 ## 变更到测试映射
 
@@ -103,6 +109,7 @@ UI 七个入口位于 `tests/cdp/scenarios/ui/`，分别包含会话操作、流
 | file/SQLite/导入 | `test:server` + P0/对应专项 CDP |
 | 会话模型配置 | `test:unit` + `test:cdp:model-options-persistence` + `test:docker`；真实 Provider 不因持久化本身重复调用 |
 | 自定义 Prompt 模板 | `check` + `test:client` + `test:cdp:prompt-templates`；不涉及服务端或 Provider |
+| 单用户认证/JWT/Session | `check` + `test:unit` + `test:cdp:authentication` + `all-mock` + `test:docker`；最终真实 Provider runner 必须在认证开启下执行 |
 | Provider/Function Calling | adapter/tool tests + P0；真实 provider 需另行确认 |
 | 构建/依赖/入口 | `check` + `build:client` + `all-mock` |
 | 托管/HTTPS | deployment/clientHosting tests + 生产 HTTPS 本机冒烟 |
@@ -120,7 +127,7 @@ UI 七个入口位于 `tests/cdp/scenarios/ui/`，分别包含会话操作、流
 
 ## 真实接口
 
-仅在用户明确确认时执行：
+真实 runner 自动使用临时 Argon2id 凭据、独立 JWT secret 和认证 Session DB；浏览器与直接 API 清理请求都先登录，测试结束删除隔离数据目录：
 
 ```bash
 pnpm run test:cdp:real

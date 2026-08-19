@@ -129,6 +129,13 @@ const SUITES = {
       needsVite: true,
     },
   ],
+  authentication: [
+    {
+      name: 'Authentication UI and refresh scenarios',
+      script: 'tests/cdp/authentication.mjs',
+      needsVite: true,
+    },
+  ],
   real: [
     { name: 'Real UI scenarios', script: 'tests/cdp/real-scenarios.mjs', needsVite: true, needsBackend: true },
     { name: 'Real conversation context scenarios', script: 'tests/cdp/conversation-context-real.mjs', needsVite: true, needsBackend: true },
@@ -163,6 +170,7 @@ SUITES['all-mock'] = [
   ...SUITES['conversation-export'],
   ...SUITES.roadmap,
   ...SUITES['sidebar-state'],
+  ...SUITES.authentication,
 ]
 
 SUITES['all-real'] = [
@@ -195,7 +203,7 @@ async function ensureVite() {
 }
 
 async function ensureBackend() {
-  const healthUrl = new URL('/conversations', BACKEND_URL).toString()
+  const healthUrl = new URL('/api/health', BACKEND_URL).toString()
 
   if (await waitForHttp(healthUrl, 1000)) {
     console.log(`Reusing existing backend service at ${BACKEND_URL}`)
