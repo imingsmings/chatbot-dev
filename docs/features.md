@@ -14,9 +14,10 @@
 
 ## 模型与生成
 
-- DeepSeek V4 Flash 与 DeepSeek V4 Pro；当前 `deepseek-v4-pro` 别名对应 DeepSeek-V4-Pro-0813。
+- 模型目录包含 DeepSeek V4 Flash 与 DeepSeek V4 Pro；具体别名解析由上游控制，项目不把它固定解释为某个日期快照。
 - OpenAI Responses 模型目录。
-- 按模型能力显示和发送 temperature、max tokens、reasoning enabled/effort。
+- 按模型能力显示和发送 temperature、max tokens、reasoning enabled/effort；不向不支持该参数的模型发送无效字段。
+- DeepSeek thinking 模式下 temperature 不生效；接受的 effort 为 `low/high/max`，兼容选项 `medium` 会映射为 `high`。UI 保留这些选项以维持跨 Provider 的统一配置形状。
 - 每个会话保存独立的 provider、model、reasoning、temperature 和 max tokens；刷新、切换、清空、分支和重启后恢复，失效模型安全回退。
 - 运行时目录异常或为空时使用安全的 DeepSeek fallback，不崩溃。
 - 流式正文、reasoning、耗时、停止、错误和后续恢复；DeepSeek/OpenAI 完成事件缺失时不发送成功 `done` 且不落库。

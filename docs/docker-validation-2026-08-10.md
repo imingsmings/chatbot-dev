@@ -1,5 +1,7 @@
 # Docker 验证记录（2026-08-10）
 
+> 历史快照：镜像 ID、401.1 MB 体积和测试结果只对应 R10 初始交付，不代表当前含认证版本。当前操作手册见 [Docker 局域网部署](docker-deployment.md)，最新完整门禁见 [R20 验证记录](r20-jwt-authentication-plan.md#2026-08-19-验证记录)。
+
 ## 结论
 
 R10 单 Node Docker 局域网部署已完成并通过自动化与运行态验收。Docker 容器验收使用 mock provider；另经用户授权运行了隔离数据目录的真实 OpenAI 全量回归。没有调用真实 DeepSeek，也没有修改真实会话数据。

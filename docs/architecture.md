@@ -227,7 +227,7 @@ sequenceDiagram
   participant D as Store
 
   U->>C: 提交问题 + 模型参数
-  C->>E: POST /conversations/:id/ask + requestId
+  C->>E: POST /api/conversations/:id/ask + requestId
   E->>E: 校验 + 注册单会话活动请求
   E->>S: Conversation + AbortSignal
   S->>D: 旧会话在 Provider 前绑定完整模型配置
@@ -259,7 +259,7 @@ sequenceDiagram
   participant S as Existing ask stream
 
   U->>C: 编辑历史用户消息 / 重新生成回答
-  C->>E: POST /conversations/:id/branches + messageIndex
+  C->>E: POST /api/conversations/:id/branches + messageIndex
   E->>D: 读取父会话并复制 target 之前的消息
   D-->>C: 新普通会话（无 summary）
   C->>C: 选中新会话
@@ -287,7 +287,7 @@ sequenceDiagram
   participant T as Tool service
   participant C as React client
 
-  S->>P: messages + tools + tool_choice:auto
+  S->>P: messages + tools + provider-specific tool choice
   P-->>S: 完整聚合的 tool calls
   S-->>C: tool_start
   S->>T: validateArgs + execute(signal)
@@ -301,21 +301,26 @@ sequenceDiagram
 - DeepSeek continuation 使用 assistant `tool_calls` + `tool` messages。
 - OpenAI continuation 重放 Responses output items，并以 `call_id` 关联 `function_call_output`。
 - OpenAI 使用 `store:false`，不依赖 provider 端历史。
+- 当前 DeepSeek adapter 仍发送 `tool_choice:auto`；官方 thinking 文档说明支持工具调用，但没有明确该参数的兼容语义，详见[流式协议](streaming-protocol.md#provider-sse-适配)。
 
 ## 取消与超时
 
 ```mermaid
-flowchart LR
-  Stop["停止 / 首包或流空闲超时 / 页面卸载"] --> Classify["Client cancellation reason"]
-  Classify --> Cancel["POST /requests/:id/cancel"]
-  Cancel --> Abort["Client AbortController"]
-  Cancel --> Registry["Server request registry"]
-  Registry --> ProviderAbort["Provider fetch / stream abort"]
-  Registry --> ToolAbort["Tool AbortSignal"]
-  ProviderAbort --> Complete["ask finally completeRequest"]
-  ToolAbort --> Complete
+flowchart TD
+  Manual["用户手动停止"] --> Flush["flush UI event buffer"]
+  Flush --> Cancel["POST /api/requests/:id/cancel"]
+  Cancel --> Deadline["await ack up to 500ms"]
+  Cancel --> Registry["Server request registry abort"]
+  Registry --> Upstream["Provider / Tool AbortSignal"]
+  Upstream --> Complete["ask finally completeRequest"]
   Complete --> Ack["cancel returns completed"]
-  Ack --> Reconcile["Client reloads persisted detail"]
+  Ack -.-> Deadline
+  Deadline --> LocalAbort["Client AbortController"]
+  LocalAbort --> Reconcile["Client reloads persisted detail"]
+
+  NonManual["超时 / 切换 / 页面卸载"] --> EarlyAbort["Client AbortController"]
+  EarlyAbort --> ReasonedCancel["POST cancel with reason"]
+  ReasonedCancel --> Registry
 ```
 
 - 客户端超时从发起 fetch 前开始，因此覆盖“迟迟没有响应头”。
@@ -357,4 +362,4 @@ flowchart LR
 - 新流事件：更新前后端判别联合、提升协议版本并补兼容测试。
 - 新存储：实现现有 CRUD/导入/摘要/并发语义和 `checkHealth`，不能只满足 happy path。
 
-当前不增加新功能；本阶段只接受缺陷修复、回归覆盖、文档和维护性收敛。
+当前阶段选择与实现授权以 [Roadmap](roadmap.md) 为准；本文只描述已经落地的架构与扩展约束。

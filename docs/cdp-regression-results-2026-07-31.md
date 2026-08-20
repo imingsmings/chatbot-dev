@@ -1,5 +1,7 @@
 # 2026-07-31 Regression Results
 
+> 历史快照：本文跨越 Vue 基线与 React 并行迁移期，旧命令和测试计数不属于当前 React-only 基线。当前入口以[回归测试矩阵](regression-test-cases.md)为准，迁移结果见 [React 迁移收口记录](react-migration-plan.md)。
+
 ## 结论
 
 Vue 基线功能、UI 状态和输入到模型返回的完整链路已通过静态检查、Node 测试、全量 mock/CDP 和历史真实接口/CDP 验证。R8 React 并行验收随后复用了同一业务语义的 mock/CDP 场景；本轮没有重新调用真实模型或真实工具服务。

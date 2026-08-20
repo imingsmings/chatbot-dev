@@ -23,7 +23,7 @@ Vue 客户端已在 2026-08-09 完成下线，`client/` 现在是唯一的 React
 - 历史用户消息编辑、已完成回答重新生成和不改写原会话的独立分支。
 - 标题/消息搜索，单会话 Markdown 导出，全量 JSON 备份与导入。
 - file/SQLite 本地存储及旧 JSON 到 SQLite 幂等迁移。
-- DeepSeek / OpenAI provider、模型和推理强度的请求级切换。
+- DeepSeek / OpenAI provider、模型和推理强度的请求级切换；目录内模型按能力校验，Provider 自定义默认模型保留兼容入口。
 - provider SSE 到应用 NDJSON v2 的稳定流式协议；客户端有界合并文本事件，异常 EOF 不发送成功 `done` 且不落库。
 - reasoning 展示、耗时、持久化和历史恢复。
 - 天气、当前时间和安全表达式计算器 Function Calling。
@@ -95,6 +95,9 @@ pnpm --dir server auth:generate-secrets
 | `LLM_MAX_TOKENS` | 默认最大输出 token 数 |
 | `LLM_REASONING_ENABLED` / `LLM_REASONING_EFFORT` | 默认 reasoning 配置 |
 | `LLM_DISABLED_MODELS` | 逗号分隔的禁用模型 ID |
+| `DEEPSEEK_TEMPERATURE` / `DEEPSEEK_MAX_TOKENS` | 非默认 DeepSeek provider 的独立生成参数 |
+| `DEEPSEEK_REASONING_ENABLED` / `DEEPSEEK_REASONING_EFFORT` | 非默认 DeepSeek provider 的独立 reasoning 配置 |
+| `OPENAI_MAX_TOKENS` / `OPENAI_REASONING_ENABLED` / `OPENAI_REASONING_EFFORT` | 非默认 OpenAI provider 的独立生成配置 |
 | `HEFENG_API_HOST` / `HEFENG_API_KEY` | 天气工具配置，仅调用时需要 |
 | `CONTEXT_MAX_HISTORY_MESSAGES` | 历史消息上限，默认 `20` |
 | `CONTEXT_MAX_HISTORY_CHARS` | 历史字符预算，默认 `12000` |
@@ -105,7 +108,9 @@ pnpm --dir server auth:generate-secrets
 | `CONVERSATION_DB_PATH` | SQLite 文件覆盖 |
 | `APP_PROFILE_NAME` / `APP_PROFILE_AVATAR_URL` | 侧栏用户资料；头像为 Vite public URL |
 
-Provider endpoint 只接受 HTTP/HTTPS。`GET /api/runtime-config` 只返回非敏感能力、默认值和“是否已配置”，不会返回 key 原值。
+Provider endpoint 只接受 HTTP/HTTPS。Provider 专用变量优先于同类 `LLM_*`；`LLM_*` 只作为当前默认 provider 的兼容默认值。`GET /api/runtime-config` 只返回非敏感能力、默认值和“是否已配置”，不会返回 key 原值。
+
+DeepSeek thinking 模式下，上游会忽略 temperature；当前项目仍允许保存该会话字段并随请求发送，因此它不代表 reasoning 请求中的有效采样控制。DeepSeek 接受 `low/high/max`，兼容选项 `medium` 会映射为 `high`。详见 [DeepSeek 思考模式文档](https://api-docs.deepseek.com/zh-cn/guides/thinking_mode/)。
 
 ## 生产构建与 HTTPS
 
@@ -129,13 +134,14 @@ pnpm run docker:up
 pnpm run docker:status
 ```
 
-默认从宿主机 `~/devhttps` 读取证书，映射 `7001:7001`。局域网设备通过 `https://<宿主机局域网 IP>:7001` 访问，并需要信任 mkcert 根 CA。镜像设计、环境变量、数据迁移、验证和回滚见 [Docker 部署说明](docs/docker-deployment.md)，本轮实际结果见 [Docker 验证记录（2026-08-10）](docs/docker-validation-2026-08-10.md)。
+默认从宿主机 `~/devhttps` 读取证书，映射 `7001:7001`。局域网设备通过 `https://<宿主机局域网 IP>:7001` 访问，并需要信任 mkcert 根 CA。镜像设计、环境变量、数据迁移、验证和回滚见 [Docker 部署说明](docs/docker-deployment.md)。R10 初始交付见 [Docker 历史验证记录（2026-08-10）](docs/docker-validation-2026-08-10.md)；包含认证、Session 恢复和当前镜像体积的最新完整门禁见 [R20 验证记录](docs/r20-jwt-authentication-plan.md#2026-08-19-验证记录)。
 
 ## 目录
 
 ```text
 client/                         React 业务客户端
   src/app/                      页面组合
+  src/auth/                     内存 Access Token、Refresh 单飞和跨标签页同步
   src/components/               展示与 shadcn UI 组件
   src/hooks/                    会话、流式、搜索、主题、滚动生命周期
   src/reducers/                 conversation/stream 纯状态转换
@@ -143,12 +149,15 @@ client/                         React 业务客户端
   src/utils/                    Markdown、协议、模型目录、模板
 shared/                         前后端共用 NDJSON v2 事件与协议常量
 server/
-  config/                       产品限制、构建托管和部署/TLS 配置
+  config/                       产品限制、认证、构建托管和部署/TLS 配置
+  middleware/                   Bearer 认证、Origin 校验和登录限速
+  security/                     Argon2id、JWT、Origin 与稳定认证错误
   routes/                       路由注册
   controllers/                  HTTP 校验和状态码
   services/                     聊天、上下文、摘要、导入导出、工具编排
   tools/                        工具 schema、参数校验和 handler
   utils/llm/                    provider 配置、目录、adapter 和 SSE 解析
+  utils/authSessionStore.ts     Refresh Session SQLite、轮换和撤销
   utils/conversationStore.ts    file/SQLite 稳定 facade
   utils/conversationStore/      契约、规范化/迁移和两种存储实现
 tests/client/                   React unit/component/hook 测试及 setup
@@ -192,13 +201,17 @@ pnpm run build                 # 全部静态检查 + React 生产构建
 pnpm run audit:production      # 整个 workspace 生产依赖审计
 pnpm run test:cdp:all-mock     # React-only 全量 mock 浏览器回归
 pnpm run test:cdp:authentication # 登录门禁、内存 Token、401 单次刷新重放和退出
-pnpm run test:cdp:all-real     # 认证开启下的 DeepSeek/OpenAI 真实链路与 DeepSeek 8 组矩阵
-pnpm run test:docker           # Docker HTTPS、API、SQLite 持久性与 SIGTERM 冒烟
+pnpm run test:cdp:all-real     # 认证开启下的 DeepSeek/OpenAI 真实链路与 DeepSeek 代表性 8 组矩阵
+pnpm run test:docker           # Docker HTTPS、认证、SQLite、Volume 恢复与 SIGTERM 冒烟
 ```
 
 专项入口仍保留在根 `package.json`。自动化默认使用 mock、fixture 和临时存储；真实模型只在明确确认后执行。
 
 ## 相关文档
+
+完整分类与历史快照边界见 [文档索引](docs/README.md)。
+
+### 当前规范
 
 - [架构](docs/architecture.md)
 - [功能清单](docs/features.md)
@@ -206,18 +219,25 @@ pnpm run test:docker           # Docker HTTPS、API、SQLite 持久性与 SIGTER
 - [回归测试矩阵](docs/regression-test-cases.md)
 - [生产部署说明](docs/production-deployment.md)
 - [Docker 部署说明](docs/docker-deployment.md)
-- [Docker 验证记录（2026-08-10）](docs/docker-validation-2026-08-10.md)
+- [Roadmap](docs/roadmap.md)
+- [实验记录](docs/experiments.md)
+
+### 方案与验收记录
+
+- [R20 JWT 单用户认证方案与实施说明（2026-08-19）](docs/r20-jwt-authentication-plan.md)
 - [R11 流完整性与摘要覆盖验收记录（2026-08-12）](docs/r11-stream-context-2026-08-12.md)
 - [R16 全链路一致性验收记录（2026-08-13）](docs/r16-consistency-hardening-2026-08-13.md)
 - [R17 会话级模型配置持久化验收记录（2026-08-13）](docs/r17-conversation-model-options-2026-08-13.md)
 - [R18 自定义 Prompt 模板验收记录（2026-08-13）](docs/r18-custom-prompt-templates-2026-08-13.md)
 - [R19 流式渲染与快速到底验收记录（2026-08-13）](docs/r19-streaming-rendering-2026-08-13.md)
-- [R20 JWT 单用户认证方案与实施说明（2026-08-19）](docs/r20-jwt-authentication-plan.md)
 - [流式渲染平滑度优化方案](docs/streaming-rendering-optimization-plan.md)
 - [会话级模型配置持久化方案](docs/conversation-model-options-plan.md)
+
+### 历史快照
+
+- [Docker 初始验证记录（2026-08-10）](docs/docker-validation-2026-08-10.md)
 - [全面 Code Review 与回归记录（2026-08-10）](docs/code-review-2026-08-10.md)
 - [TypeScript 7 / Express 5 工具链升级记录](docs/toolchain-upgrade-2026-08-09.md)
 - [阶段交付审查（2026-08-09）](docs/release-readiness-2026-08-09.md)
-- [Roadmap](docs/roadmap.md)
+- [Roadmap 历史阶段记录](docs/roadmap-history.md)
 - [React 迁移收口](docs/react-migration-plan.md)
-- [实验记录](docs/experiments.md)

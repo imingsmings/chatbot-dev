@@ -1,5 +1,7 @@
 # OpenAI Responses Regression Results - 2026-08-02
 
+> Historical snapshot: model names, commands and test counts only describe the 2026-08-02 integration. Use the current [regression matrix](regression-test-cases.md) and [streaming protocol](streaming-protocol.md) for the active contract.
+
 ## Scope
 
 - Backend provider registry, model catalog and request-level capability validation.

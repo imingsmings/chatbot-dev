@@ -2,9 +2,11 @@
 
 日期：2026-08-13
 
+> 日期证据：本文只记录 2026-08-13 当时的上游别名、价格页与真实测试结果。Provider 别名可能变化，当前能力与请求限制应重新查看 [DeepSeek API 文档](https://api-docs.deepseek.com/zh-cn/guides/thinking_mode/)，不能只依据本记录。
+
 ## 结论
 
-- DeepSeek 官方模型与价格页显示，`deepseek-v4-pro` 当前对应 `DeepSeek-V4-Pro-0813`。
+- 2026-08-13 检查时，DeepSeek 官方模型与价格页显示 `deepseek-v4-pro` 对应 `DeepSeek-V4-Pro-0813`。
 - 本机运行配置已从 `LLM_DISABLED_MODELS` 中移除 `deepseek-v4-pro`，继续禁用 `gpt-5.6-sol`。
 - UI Mock 已确认 V4 Pro 可选择、GPT-5.6 Sol 不可选择；后端已有的通用禁用模型校验继续保留。
 - 真实接口已覆盖 V4 Pro 驱动的 UI、上下文、Markdown，以及 Flash/Pro × Off/Low/Medium/High 共 8 组模型参数组合。

@@ -241,7 +241,7 @@ Compose healthcheck 请求 `GET /api/health`。该接口同时检查：
 
 ```bash
 pnpm run docker:stop
-pnpm run docker:backup -- --output /absolute/safe/chatbot-backups
+pnpm run docker:backup --output /absolute/safe/chatbot-backups
 ```
 
 `docker:backup` 默认从已停止但仍存在的 Compose `chatbot` 容器发现 `/app/data` 的实际 volume 名；也可显式传入 `--volume <name>`。脚本会：
@@ -256,7 +256,7 @@ pnpm run docker:backup -- --output /absolute/safe/chatbot-backups
 恢复时必须使用一个从未存在过的新 volume 名：
 
 ```bash
-pnpm run docker:restore -- \
+pnpm run docker:restore \
   --manifest /absolute/safe/chatbot-backups/chatbot-data-时间.tar.manifest.json \
   --volume chatbot-data-restored-20260812
 ```

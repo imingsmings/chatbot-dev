@@ -23,12 +23,18 @@ flowchart LR
 - 可读的证书和私钥；私钥建议权限 `600`。
 - 数据目录有写权限，并已制定备份策略。
 
-本机已有：
+仓库默认示例路径：
 
 - `~/devhttps/dev-cert.pem`
 - `~/devhttps/dev-key.pem`
 
-当前证书有效期为 2026-08-01 至 2028-11-01，SAN 覆盖 `localhost`、loopback 和 `192.168.0.100` 至 `192.168.0.125`。它由本机 mkcert CA 签发，只适合已信任该 CA 的本机/局域网设备，不适用于公共域名或未安装该 CA 的客户端。
+部署前必须按目标机器实际证书检查有效期与 SAN，不能依赖文档中的历史 IP：
+
+```bash
+openssl x509 -in ~/devhttps/dev-cert.pem -noout -dates -ext subjectAltName
+```
+
+使用 mkcert 时，证书只适合已信任对应根 CA 的本机/局域网设备，不适用于公共域名或未安装该 CA 的客户端。局域网通过 IP 访问时，SAN 必须包含目标机器当前 IP。
 
 ## 配置
 

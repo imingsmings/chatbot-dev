@@ -47,7 +47,7 @@ X-Accel-Buffering: no
 
 - `content` 必须是字符串。
 - 追加到 assistant 的 `reasoningContent`。
-- 正文开始后，UI 从 `Thinking...` 切换为可展开的 `Thoughts`。
+- reasoning 仍在流式输出时，可展开区域的标签为 `Thinking...`；流结束后显示 `已深度思考`，存在耗时时显示 `已深度思考（用时 N 秒）`。
 
 ### `delta`
 
@@ -111,8 +111,10 @@ DeepSeek adapter 负责：
 - 去掉 `data: ` 前缀并识别 `[DONE]`。
 - 提取 `delta.content`、`delta.reasoning_content` 和增量 `tool_calls`。
 - 合并分片工具参数。
-- 把请求选项映射为 `temperature`、`max_tokens`、`thinking` 和 `reasoning_effort`。
+- 把请求选项映射为 `temperature`、`max_tokens`、`thinking` 和 `reasoning_effort`。DeepSeek thinking 模式会忽略 temperature；接受的 effort 为 `low/high/max`，兼容选项 `medium` 会映射为 `high`。
 - 只有收到 `[DONE]` 才视为完整流。
+
+当前 DeepSeek adapter 在提供工具时还会发送 `tool_choice:auto`。[DeepSeek 官方思考模式文档](https://api-docs.deepseek.com/zh-cn/guides/thinking_mode/)说明 thinking 支持工具调用，但没有明确 `tool_choice` 参数的兼容语义。因此该请求形状仍是需要真实门禁覆盖的上游兼容边界，历史真实测试通过不代表官方协议漂移后仍然成立。修改请求形状前应先补 adapter mock，并经用户确认运行最小真实接口验证。
 
 OpenAI Responses adapter 负责：
 
@@ -129,21 +131,26 @@ provider 字段不会直接透传到浏览器。更换 provider 时，只需保�
 
 ## Function Calling 与内容抑制
 
-第一次模型调用带 `tools` 和 `tool_choice:auto`。在是否调用工具尚未确定前，后端不会把普通 content 直接写给客户端，避免 “我先查一下” 一类前导语泄漏。
+第一次模型调用带 `tools` 和 `tool_choice:auto`。后端对尚未标记为最终回答的普通 content 使用 120ms 短窗口缓冲，在工具意图通常能够被识别的时间内抑制“我先查一下”一类前导语，同时避免普通回答一直等待到上游结束。
 
-- 无 tool call：缓冲内容按多个 `delta` 继续输出。
-- 有 tool call：丢弃前导 content，发送 `tool_start` 和 `tool_result`，再流式输出第二阶段最终回答。
+- Provider 明确标记 `final_answer`：立即解锁并流式输出正文。
+- 无 tool call：普通 content 最多短暂缓冲，窗口到期后按 `delta` 继续输出；流结束时刷新剩余内容。
+- 缓冲窗口内出现 tool call：丢弃尚未发送的前导 content，发送 `tool_start` 和 `tool_result`，再流式输出第二阶段最终回答。
+- 普通 content 已因窗口到期发送后才出现 tool call：已发送内容无法撤回。这是低延迟与工具前导语抑制之间的已知取舍，不是绝对的内容隔离保证。
 - 工具参数 JSON 损坏：回退到不带工具的标准回答。
 
 ## 取消与清理
 
-停止生成包含三层：
+用户手动停止时，顺序是：
 
-1. 前端中止 fetch。
-2. 前端调用 `/requests/:requestId/cancel`。
-3. 后端 `AbortController` 中止 provider fetch 或正在执行的工具。
+1. 前端先刷新已接收但尚未渲染的事件缓冲。
+2. 前端调用 `POST /api/requests/:requestId/cancel`，reason 为 `manual`。
+3. 后端 request registry 触发 `AbortController`，中止 provider fetch 或正在执行的工具，并保持 requestId 占用直到 ask 请求的 `finally` 完成清理。
+4. cancel API 等待该清理完成后返回；前端等待最多 500ms，随后中止本地 fetch。500ms 是客户端降级等待上限，不改变后端最终清理语义。
 
-请求中止后不写入完整问答。request registry 会释放 requestId，后续请求可继续使用同一会话。
+只有显式手动停止、且后端已经收到非空正文时，当前用户消息和部分回答才持久化为 `stopped`。首个正文前停止、超时、切换会话、组件卸载、网络错误或 Provider 不完整 EOF 都不会把部分问答写入历史。成功完成或确认停止后，前端重新拉取会话详情，使 optimistic 行与持久化索引一致。
+
+request registry 完成清理后释放 requestId 和会话锁，后续请求可继续使用同一会话。
 
 ## 协议演进规则
 

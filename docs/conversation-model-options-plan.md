@@ -289,7 +289,7 @@ currentConversationModelOptions?: ConversationModelOptions
 4. **浏览器与 Docker 回归**：A/B 会话、刷新、快速点击、失败恢复和 Volume 持久化。
 5. **文档收口**：实现完成后更新架构、功能清单、回归矩阵和 Roadmap 状态。
 
-各阶段已按顺序实现并验证。当前改动尚未提交；SQLite 新增可空列无需删除，旧代码会忽略它。
+各阶段已按顺序实现并验证，R17 已进入当前项目基线。SQLite 使用向后兼容的可空列，旧版本代码会忽略它；详细验证证据见 [R17 验收记录](r17-conversation-model-options-2026-08-13.md)。
 
 ## 11. 验收标准
 

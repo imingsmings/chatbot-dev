@@ -32,6 +32,7 @@ pnpm --dir client build
 
 ```text
 src/app/          页面组合
+src/auth/         内存 Access Token、Refresh 单飞、401 重放和跨标签页同步
 src/components/   业务与 UI primitives
 src/hooks/        会话、流、搜索、滚动、主题和本地模板生命周期
 src/reducers/     conversation/stream 纯状态

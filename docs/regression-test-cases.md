@@ -16,7 +16,7 @@
 | Docker 容器 | `pnpm run test:docker` | Compose、运行镜像小于 300MB 且无 pnpm/Corepack 缓存、证书覆盖、HTTPS、health、SQLite、会话模型配置跨重启、停止备份、新卷恢复、语义一致性和 SIGTERM |
 | Docker 页面 | `pnpm run test:cdp:docker-ui` | 容器 HTTPS 页面、侧栏、输入区、模型控件和横向溢出；截图可选 |
 | 浏览器回归 | `pnpm run test:cdp:all-mock` | 完整 React UI/API mock 矩阵 |
-| 真实接口全量 | `pnpm run test:cdp:all-real` | 两批隔离端口/临时 file store；DeepSeek V4 Pro UI/上下文/Markdown + OpenAI Responses reasoning/工具/停止恢复 + DeepSeek Flash/Pro 8 组模型参数；需明确确认 |
+| 真实接口套件 | `pnpm run test:cdp:all-real` | 两批隔离端口/临时 file store；DeepSeek V4 Pro UI/上下文/Markdown + OpenAI Responses reasoning/工具/停止恢复 + DeepSeek Flash/Pro 代表性 8 组模型参数；需明确确认 |
 | 生产依赖审计 | `pnpm run audit:production` | 根 workspace 全部生产依赖，要求 0 已知漏洞 |
 
 ## React 单元边界
@@ -135,7 +135,7 @@ pnpm run test:cdp:real-model-options
 pnpm run test:cdp:real-openai
 ```
 
-三个专项命令和 `all-real` 都通过 `run-all-real.mjs` 分配随机端口和临时 file store；`all-real` 以 DeepSeek V4 Pro 为默认模型跑 UI/上下文/Markdown，并覆盖 OpenAI Responses；随后以 DeepSeek 为默认 provider 跑 Flash 与 Pro 的 Off/Low/Medium/High。已禁用的 GPT-5.6 Sol 只验证禁用状态，不发送真实请求。
+三个专项命令和 `all-real` 都通过 `run-all-real.mjs` 分配随机端口和临时 file store；`all-real` 以 DeepSeek V4 Pro 为默认模型跑 UI/上下文/Markdown，并覆盖 OpenAI Responses；随后以 DeepSeek 为默认 provider 跑 Flash 与 Pro 的 Off/Low/Medium/High。这个 8 组矩阵是当前代表性兼容门禁，不是所有模型、参数与档位的笛卡尔积；DeepSeek `max` 未包含在该付费矩阵中。已禁用的 GPT-5.6 Sol 只验证禁用状态，不发送真实请求。
 
 真实测试必须说明模型、场景、可能费用、截图与否，并清理全部测试会话。未明确要求截图时保持 `CDP_SCREENSHOTS=0`。
 
@@ -144,3 +144,5 @@ pnpm run test:cdp:real-openai
 DeepSeek V4 Pro 0813 的启用、8 组真实模型参数矩阵和 Docker 验收见 [DeepSeek V4 Pro 0813 启用与验收记录](deepseek-v4-pro-0813-validation-2026-08-13.md)。
 
 R17 的 file/SQLite、API、React 竞态、14-script mock 和 Docker Volume 证据见 [R17 会话级模型配置持久化验收记录](r17-conversation-model-options-2026-08-13.md)。
+
+R18-R20 的最新完整门禁分别见 [R18 自定义 Prompt 模板验收记录](r18-custom-prompt-templates-2026-08-13.md)、[R19 流式渲染验收记录](r19-streaming-rendering-2026-08-13.md)和 [R20 JWT 单用户认证实施与验证记录](r20-jwt-authentication-plan.md#2026-08-19-验证记录)。

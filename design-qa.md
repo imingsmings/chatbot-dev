@@ -1,5 +1,7 @@
 # R8.5 React 设计 QA
 
+> 历史快照：本文记录 2026-08-01 至 2026-08-02 的迁移期视觉验收。`proto/` 和 `.tmp/` 均为本机忽略目录，截图没有纳入仓库，不能作为新环境中的可复现证据；当前 UI 结论应以浏览器自动化断言为准。
+
 日期：2026-08-01
 结论：`final result: passed`
 
@@ -74,9 +76,9 @@
 
 ## 对照范围与状态
 
-- 用户参考：`/var/folders/xy/k7ddmrmd5dl56hpbrq3p7hv40000gn/T/codex-clipboard-917cfb89-299a-4339-86a2-4104d3c601e3.png`，用于确认约 14px 正文字号、消息列与 Composer 同宽、无边框模型入口。
-- 用户菜单参考：`/var/folders/xy/k7ddmrmd5dl56hpbrq3p7hv40000gn/T/codex-clipboard-f6a1e519-2ac1-481e-b607-07b82cdcf870.png`，用于确认“左侧分组 + 右侧子菜单”、浅灰当前项和勾选状态。
-- 用户贴合菜单参考：`/var/folders/xy/k7ddmrmd5dl56hpbrq3p7hv40000gn/T/codex-clipboard-4f0d21c2-717a-4a80-8fa0-e9ad39560cbc.png`；用户 Composer 参考：`/var/folders/xy/k7ddmrmd5dl56hpbrq3p7hv40000gn/T/codex-clipboard-04c12d97-64c0-45f0-8435-60b48d273918.png`。
+- 用户临时参考图（未纳入仓库）用于确认约 14px 正文字号、消息列与 Composer 同宽、无边框模型入口。
+- 用户临时菜单参考图（未纳入仓库）用于确认“左侧分组 + 右侧子菜单”、浅灰当前项和勾选状态。
+- 用户临时贴合菜单和 Composer 参考图均未纳入仓库，原系统临时路径不作为可复现证据。
 - React 最终界面：`.tmp/design-qa/react-density-final.png`；最终模型菜单：`.tmp/design-qa/react-model-menu-final.png`；展开 reasoning 间距：`.tmp/design-qa/react-reasoning-gap-final.png`。
 - 贴合菜单最终截图：`.tmp/design-qa/react-menu-attached-final.png`；输入区最终截图：`.tmp/design-qa/react-composer-controls-final.png`。
 - 菜单同屏对照：`.tmp/design-qa/compare-model-menu-final.png`。参考图与实现截图裁切范围、像素密度不同，因此按菜单结构、字体、行高、选中态和相对间距做局部归一化比较，不把截图绝对坐标当作实现约束。
