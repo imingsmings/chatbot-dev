@@ -7,13 +7,16 @@ import {
 import type {
   ContextPreview,
   ConversationDetail,
+  ImageAttachment,
   ModelRequestOptions,
 } from '#types/chat'
 
 export type ConversationInsightOptions = {
   applyConversationDetail: (conversation: ConversationDetail) => void
   closeTopMenu: () => void
+  currentAttachments: ImageAttachment[]
   currentConversationId: string | null
+  hasBlockingUpload: boolean
   input: string
   isConversationTransitioning: boolean
   isModelOptionsSaving: boolean
@@ -44,6 +47,7 @@ export function useConversationInsights(options: ConversationInsightOptions) {
     !options.isResponding &&
     !options.isStopping &&
     !options.isModelOptionsSaving &&
+    !options.hasBlockingUpload &&
     options.modelOptionsAvailable &&
     !options.isConversationTransitioning
   const canGenerateSummary =
@@ -68,6 +72,7 @@ export function useConversationInsights(options: ConversationInsightOptions) {
         conversationId,
         options.input.trim(),
         options.modelOptions,
+        options.currentAttachments.map(({ id }) => id),
       )
       if (
         conversationId !== currentConversationIdRef.current ||

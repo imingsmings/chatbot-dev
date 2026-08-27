@@ -5,6 +5,7 @@ import type {
   ConversationModelOptions,
   ConversationSearchResult,
   ConversationSummary,
+  ImageAttachment,
   ModelRequestOptions,
   RuntimeInfo,
 } from '#types/chat'
@@ -87,6 +88,11 @@ export async function downloadAllConversationsJson() {
   return readDownload(response, 'chatbot-conversations.json')
 }
 
+export async function downloadAllConversationsZip() {
+  const response = await apiFetch('/api/conversations/export.zip')
+  return readDownload(response, 'chatbot-conversations.zip')
+}
+
 export async function downloadConversationMarkdown(id: string) {
   const response = await apiFetch(`/api/conversations/${encodeURIComponent(id)}/export.md`)
   return readDownload(response, `${id}.md`)
@@ -100,6 +106,20 @@ export async function importConversationsBackup(
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ backup, conflictStrategy }),
+  })
+  const data = await readJson<{ result: ConversationImportResult }>(response)
+  return data.result
+}
+
+export async function importConversationsZip(
+  file: File,
+  conflictStrategy: 'skip' | 'duplicate' | 'overwrite' = 'skip',
+) {
+  const params = new URLSearchParams({ conflictStrategy })
+  const response = await apiFetch(`/api/conversations/import.zip?${params.toString()}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/zip' },
+    body: file,
   })
   const data = await readJson<{ result: ConversationImportResult }>(response)
   return data.result
@@ -130,8 +150,62 @@ export async function createConversationBranch(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ messageIndex, question }),
   })
-  const data = await readJson<{ conversation: ConversationDetail }>(response)
-  return data.conversation
+  const data = await readJson<{
+    conversation: ConversationDetail
+    draftAttachments?: ImageAttachment[]
+  }>(response)
+  return {
+    conversation: data.conversation,
+    draftAttachments: data.draftAttachments ?? [],
+  }
+}
+
+export async function uploadConversationAttachment(
+  conversationId: string,
+  file: File,
+  options: { detail?: ImageAttachment['detail']; signal?: AbortSignal } = {},
+) {
+  const formData = new FormData()
+  formData.append('image', file, file.name)
+  formData.append('detail', options.detail ?? 'auto')
+  const response = await apiFetch(
+    `/api/conversations/${encodeURIComponent(conversationId)}/attachments`,
+    {
+      method: 'POST',
+      body: formData,
+      signal: options.signal,
+    },
+  )
+  const data = await readJson<{ attachment: ImageAttachment }>(response)
+  return data.attachment
+}
+
+export async function deleteConversationAttachment(
+  conversationId: string,
+  attachmentId: string,
+) {
+  const response = await apiFetch(
+    `/api/conversations/${encodeURIComponent(conversationId)}/attachments/${encodeURIComponent(attachmentId)}`,
+    { method: 'DELETE' },
+  )
+  if (!response.ok) {
+    const data = (await response.json().catch(() => null)) as { message?: string } | null
+    throw new Error(data?.message || `请求失败：${response.status}`)
+  }
+}
+
+export async function downloadConversationAttachment(
+  conversationId: string,
+  attachmentId: string,
+) {
+  const response = await apiFetch(
+    `/api/conversations/${encodeURIComponent(conversationId)}/attachments/${encodeURIComponent(attachmentId)}`,
+  )
+  if (!response.ok) {
+    const data = (await response.json().catch(() => null)) as { message?: string } | null
+    throw new Error(data?.message || `请求失败：${response.status}`)
+  }
+  return response.blob()
 }
 
 export async function getConversation(id: string) {
@@ -187,11 +261,16 @@ export async function getConversationContextPreview(
   id: string,
   question: string,
   options: ModelRequestOptions,
+  attachmentIds: string[] = [],
 ) {
   const response = await apiFetch(`/api/conversations/${encodeURIComponent(id)}/context-preview`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ question, options }),
+    body: JSON.stringify({
+      question,
+      options,
+      ...(attachmentIds.length ? { attachmentIds } : {}),
+    }),
   })
   const data = await readJson<{ context: ContextPreview }>(response)
   return data.context
@@ -213,6 +292,7 @@ export async function requestConversationAnswer(params: {
   requestId: string
   signal: AbortSignal
   options: ModelRequestOptions
+  attachmentIds?: string[]
 }) {
   return apiFetch(`/api/conversations/${encodeURIComponent(params.conversationId)}/ask`, {
     method: 'POST',
@@ -221,6 +301,7 @@ export async function requestConversationAnswer(params: {
       question: params.question,
       requestId: params.requestId,
       options: params.options,
+      ...(params.attachmentIds?.length ? { attachmentIds: params.attachmentIds } : {}),
     }),
     signal: params.signal,
   })

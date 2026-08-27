@@ -18,13 +18,19 @@ import type {
   ConversationModelOptions
 } from '../types/conversation.ts'
 import { readDefaultConversationModelOptions } from '../utils/modelOptions.ts'
+import {
+  cleanupOrphanedAttachments,
+  cloneMessageAttachments,
+  removeAttachmentFiles,
+} from './attachmentService.ts'
+import type { ImageAttachment } from '../types/conversation.ts'
 
 const SEARCH_SNIPPET_RADIUS = 42
 const BRANCH_TITLE_SUFFIX = '（分支）'
 
 type ConversationBranchResult =
-  | { conversation: Conversation }
-  | { error: 'not_found' | 'invalid_message' }
+  | { conversation: Conversation; draftAttachments: ImageAttachment[] }
+  | { error: 'not_found' | 'invalid_message' | 'empty_message' }
 
 function normalizeTitle(value: unknown): string {
   return typeof value === 'string' ? value.trim() : ''
@@ -72,38 +78,67 @@ function createBranchTitle(title: string): string {
 
 async function createConversationBranch(
   id: string,
-  messageIndex: number
+  messageIndex: number,
+  question?: string,
 ): Promise<ConversationBranchResult> {
   const source = await getConversation(id)
   if (!source) {
     return { error: 'not_found' }
   }
 
-  if (source.messages[messageIndex]?.role !== 'user') {
+  const sourceMessage = source.messages[messageIndex]
+  if (sourceMessage?.role !== 'user') {
     return { error: 'invalid_message' }
+  }
+  if (
+    question !== undefined &&
+    !question.trim() &&
+    !sourceMessage.attachments?.length
+  ) {
+    return { error: 'empty_message' }
   }
 
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const timestamp = now()
+    const branchId = createId()
+    const cloned = await cloneMessageAttachments(
+      source.id,
+      branchId,
+      source.messages.slice(0, messageIndex + 1),
+    )
+    const draftAttachments = cloned.messages.at(-1)?.attachments ?? []
     const branch: Conversation = {
-      id: createId(),
+      id: branchId,
       title: createBranchTitle(source.title),
       createdAt: timestamp,
       updatedAt: timestamp,
       titleManuallyEdited: true,
-      messages: source.messages.slice(0, messageIndex),
+      messages: cloned.messages.slice(0, messageIndex),
       modelOptions: source.modelOptions ? { ...source.modelOptions } : undefined
     }
-    const imported = await importConversation(branch, 'skip')
-    if (!imported.conversationId) {
-      continue
-    }
+    let importedConversationId: string | null | undefined
+    try {
+      const imported = await importConversation(branch, 'skip')
+      importedConversationId = imported.conversationId
+      if (!importedConversationId) {
+        await removeAttachmentFiles(cloned.createdAttachmentIds)
+        continue
+      }
 
-    const persisted = await getConversation(imported.conversationId)
-    if (!persisted) {
-      throw new Error('会话分支创建后无法读取')
+      const persisted = await getConversation(importedConversationId)
+      if (!persisted) {
+        await deleteConversation(importedConversationId)
+        await removeAttachmentFiles(cloned.createdAttachmentIds)
+        throw new Error('会话分支创建后无法读取')
+      }
+      return { conversation: persisted, draftAttachments }
+    } catch (error) {
+      if (importedConversationId) {
+        await deleteConversation(importedConversationId).catch(() => false)
+      }
+      await removeAttachmentFiles(cloned.createdAttachmentIds)
+      throw error
     }
-    return { conversation: persisted }
   }
 
   throw new Error('会话分支 ID 冲突，请重试')
@@ -189,11 +224,23 @@ async function updateConversationTitle(id: string, title: unknown): Promise<Conv
 }
 
 async function removeConversation(id: string): Promise<boolean> {
-  return deleteConversation(id)
+  const deleted = await deleteConversation(id)
+  if (deleted) {
+    void cleanupOrphanedAttachments().catch((error) => {
+      console.warn('Failed to clean attachments after deleting conversation:', error)
+    })
+  }
+  return deleted
 }
 
 async function clearConversationMessages(id: string): Promise<Conversation | null> {
-  return clearConversation(id)
+  const conversation = await clearConversation(id)
+  if (conversation) {
+    void cleanupOrphanedAttachments().catch((error) => {
+      console.warn('Failed to clean attachments after clearing conversation:', error)
+    })
+  }
+  return conversation
 }
 
 async function saveConversationModelOptions(

@@ -61,6 +61,69 @@ test('DeepSeek adapter sends the request-selected V4 model to the upstream API',
   assert.deepEqual(body.stream_options, { include_usage: true })
 })
 
+test('DeepSeek Vision preserves text-only strings and sends image content blocks unchanged', () => {
+  const common = {
+    config: {
+      id: 'deepseek' as const,
+      endpoint: 'https://mock.local/chat/completions',
+      apiKey: 'test-key',
+      defaultModel: 'deepseek-v4-flash-vision-exp'
+    },
+    stream: true,
+    options: {
+      provider: 'deepseek' as const,
+      model: 'deepseek-v4-flash-vision-exp',
+      maxTokens: undefined,
+      temperature: undefined,
+      reasoningEnabled: true,
+      reasoningEffort: 'high'
+    }
+  }
+  const textBody = deepseekAdapter.buildBody({
+    ...common,
+    prompt: [{ role: 'user' as const, content: 'text only' }],
+  }) as { messages: Array<{ content: unknown }> }
+  assert.equal(textBody.messages[0]?.content, 'text only')
+
+  const content = [
+    { type: 'text' as const, text: 'identify' },
+    {
+      type: 'image_url' as const,
+      image_url: { url: 'data:image/png;base64,aW1hZ2U=', detail: 'original' as const },
+    },
+  ]
+  const imageBody = deepseekAdapter.buildBody({
+    ...common,
+    prompt: [{ role: 'user' as const, content }],
+  }) as { messages: Array<{ content: unknown }> }
+  assert.deepEqual(imageBody.messages[0]?.content, content)
+})
+
+test('DeepSeek Vision rejects image request bodies over the local 40 MiB safety boundary', () => {
+  const oversizedUrl = `data:image/png;base64,${'a'.repeat(40 * 1024 * 1024)}`
+  assert.throws(() => deepseekAdapter.buildBody({
+    config: {
+      id: 'deepseek',
+      endpoint: 'https://mock.local/chat/completions',
+      apiKey: 'test-key',
+      defaultModel: 'deepseek-v4-flash-vision-exp'
+    },
+    prompt: [{
+      role: 'user',
+      content: [{ type: 'image_url', image_url: { url: oversizedUrl, detail: 'auto' } }],
+    }],
+    stream: true,
+    options: {
+      provider: 'deepseek',
+      model: 'deepseek-v4-flash-vision-exp',
+      maxTokens: undefined,
+      temperature: undefined,
+      reasoningEnabled: true,
+      reasoningEffort: 'high'
+    }
+  }), /图片请求体不能超过 40 MiB/)
+})
+
 test('DeepSeek adapter normalizes streamed usage without inventing missing values', () => {
   assert.deepEqual(deepseekAdapter.parseStreamLine(`data: ${JSON.stringify({
     choices: [],

@@ -146,6 +146,7 @@ export function App() {
               ) : (
                 <MessageList
                   copiedMessageId={controller.copiedMessageId}
+                  conversationId={controller.currentConversationId!}
                   isResponding={
                     controller.isResponding ||
                     controller.isStopping ||
@@ -177,6 +178,7 @@ export function App() {
         </div>
 
         <ChatComposer
+          attachments={controller.imageAttachments}
           canGenerateSummary={controller.canGenerateSummary}
           canPreviewContext={controller.canPreviewContext}
           canSubmit={controller.canSubmit}
@@ -186,8 +188,10 @@ export function App() {
           isStopping={controller.isStopping}
           modelMenuOpen={modelMenuOpen}
           modelOptions={controller.modelOptions}
+          modelSupportsImages={controller.modelSupportsImages}
           runtime={controller.runtimeInfo}
           onChange={controller.setInput}
+          onAddFiles={controller.addImageFiles}
           onModelMenuOpenChange={(open) => controller.setMenuOpen({ kind: 'model' }, open)}
           onModelOptionsChange={controller.setModelOptions}
           onOpenSettings={() => controller.setIsModelSettingsOpen(true)}
@@ -196,6 +200,8 @@ export function App() {
           }}
           onOpenTemplates={() => controller.setIsTemplateModalOpen(true)}
           onPreviewContext={() => void controller.openContextPreview()}
+          onRemoveAttachment={(clientId) => void controller.removeImageAttachment(clientId)}
+          onRetryAttachment={controller.retryImageAttachment}
           onStop={() => void controller.stopGenerating()}
           onSubmit={() => void controller.handleSubmit()}
           onToolsMenuOpenChange={(open) => controller.setMenuOpen({ kind: 'tools' }, open)}
@@ -243,7 +249,7 @@ export function App() {
       />
 
       <input
-        accept="application/json,.json"
+        accept="application/zip,.zip,application/json,.json"
         className="visually-hidden sr-only"
         disabled={Boolean(controller.sidebarOperation)}
         onChange={(event) => void controller.handleImportFile(event)}

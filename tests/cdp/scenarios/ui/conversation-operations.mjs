@@ -675,9 +675,9 @@ export async function runConversationOperations(client) {
         clearDisabled: [...(document.querySelector('.sidebar-user-menu') || document.querySelector('.sidebar-footer')).querySelectorAll('button')]
           .find((button) => button.textContent.trim() === '清空当前会话')?.matches(':disabled, [data-disabled], [aria-disabled="true"]') === true,
         importDisabled: [...(document.querySelector('.sidebar-user-menu') || document.querySelector('.sidebar-footer')).querySelectorAll('button')]
-          .find((button) => button.textContent.trim() === '导入 JSON')?.matches(':disabled, [data-disabled], [aria-disabled="true"]') === true,
+          .find((button) => button.textContent.trim() === '导入 JSON/ZIP')?.matches(':disabled, [data-disabled], [aria-disabled="true"]') === true,
         exportAllDisabled: [...(document.querySelector('.sidebar-user-menu') || document.querySelector('.sidebar-footer')).querySelectorAll('button')]
-          .find((button) => button.textContent.trim() === '导出全部 JSON')?.matches(':disabled, [data-disabled], [aria-disabled="true"]') === true,
+          .find((button) => button.textContent.trim() === '导出全部 ZIP')?.matches(':disabled, [data-disabled], [aria-disabled="true"]') === true,
       }))()`,
     )
     if (operationUsesUserMenu) {

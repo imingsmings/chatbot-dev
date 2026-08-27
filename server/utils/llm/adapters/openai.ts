@@ -1,4 +1,4 @@
-import type { PromptMessage } from '../../../types/conversation.ts'
+import type { LlmPromptMessage } from '../../../types/conversation.ts'
 import type {
   EffectiveModelOptions,
   LlmAdapter,
@@ -67,7 +67,7 @@ function buildHeaders(config: LlmProviderConfig & { apiKey: string }): Record<st
   }
 }
 
-function toResponseInput(prompt: PromptMessage[]): Array<Record<string, unknown>> {
+function toResponseInput(prompt: LlmPromptMessage[]): Array<Record<string, unknown>> {
   return prompt
     .filter((message) => message.role !== 'tool')
     .map((message) => ({
@@ -126,7 +126,7 @@ function buildBody({
   continuation
 }: {
   config: LlmProviderConfig
-  prompt: PromptMessage[]
+  prompt: LlmPromptMessage[]
   stream: boolean
   tools?: FunctionToolDefinition[]
   toolChoice?: LlmToolChoice

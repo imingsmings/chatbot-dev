@@ -2,7 +2,10 @@ export type MessageStatus = 'pending' | 'streaming' | 'done' | 'stopped' | 'erro
 
 export type ThemeMode = 'light' | 'dark'
 
-export type DeepSeekModelId = 'deepseek-v4-flash' | 'deepseek-v4-pro'
+export type DeepSeekModelId =
+  | 'deepseek-v4-flash'
+  | 'deepseek-v4-pro'
+  | 'deepseek-v4-flash-vision-exp'
 
 export type LlmProviderId = 'deepseek' | 'openai'
 
@@ -13,6 +16,20 @@ export type ModelCapabilities = {
   reasoningEfforts: string[]
   temperature: boolean
   maxOutputTokens: number
+  inputModalities?: Array<'text' | 'image'>
+  imageDetailLevels?: Array<'auto' | 'low' | 'original'>
+  experimental?: boolean
+}
+
+export type ImageAttachment = {
+  id: string
+  kind: 'image'
+  filename: string
+  mediaType: 'image/jpeg' | 'image/png' | 'image/webp'
+  byteSize: number
+  width: number
+  height: number
+  detail: 'auto' | 'low' | 'original'
 }
 
 export type ModelDescriptor = {
@@ -94,6 +111,7 @@ export type ChatMessage = {
   error?: string
   toolActivities?: ToolActivity[]
   generation?: GenerationMetadata
+  attachments?: ImageAttachment[]
 }
 
 export type StoredMessage = {
@@ -104,6 +122,7 @@ export type StoredMessage = {
   status?: 'completed' | 'stopped'
   generation?: GenerationMetadata
   toolTrace?: StoredToolTrace[]
+  attachments?: ImageAttachment[]
 }
 
 export type ConversationSummary = {
@@ -139,6 +158,7 @@ export type PromptMessageRole = StoredMessage['role'] | 'system' | 'tool'
 export type ContextPreviewMessage = {
   role: PromptMessageRole
   content: string | null
+  attachments?: ImageAttachment[]
   reasoning_content?: string
   tool_call_id?: string
   tool_calls?: unknown[]
@@ -162,6 +182,10 @@ export type ContextPreview = {
     } | null
     maxHistoryMessages: number
     maxHistoryChars: number
+    maxImages: number
+    selectedImages: number
+    droppedImages: number
+    selectedImageBytes: number
     summaryIncluded: boolean
   }
   model: {

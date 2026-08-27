@@ -26,7 +26,10 @@ function createOptions(
   return {
     beginSidebarOperation: vi.fn(() => true),
     clearSearch: vi.fn(),
-    createBranchConversation: vi.fn().mockResolvedValue(createBranch()),
+    createBranchConversation: vi.fn().mockResolvedValue({
+      conversation: createBranch(),
+      draftAttachments: [],
+    }),
     currentConversationId: 'source-1',
     isResponding: false,
     isStopping: false,
@@ -69,6 +72,7 @@ describe('useMessageBranching', () => {
     )
     expect(options.submitQuestion).toHaveBeenCalledWith('编辑后的问题', {
       appendUser: true,
+      attachments: [],
       clearComposer: false,
       conversationId: 'branch-1',
     })
@@ -108,6 +112,7 @@ describe('useMessageBranching', () => {
     )
     expect(options.submitQuestion).toHaveBeenCalledWith('原问题', {
       appendUser: true,
+      attachments: [],
       clearComposer: false,
       conversationId: 'branch-1',
     })

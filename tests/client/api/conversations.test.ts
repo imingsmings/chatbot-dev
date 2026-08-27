@@ -3,9 +3,14 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   cancelRequest,
   createConversationBranch,
+  deleteConversationAttachment,
+  downloadAllConversationsZip,
+  downloadConversationAttachment,
   downloadConversationMarkdown,
   getConversations,
+  importConversationsZip,
   requestConversationAnswer,
+  uploadConversationAttachment,
 } from '../../../client/src/api/conversations'
 
 function stubFetch(response: Response) {
@@ -94,6 +99,34 @@ describe('conversation API client', () => {
     })
   })
 
+  it('sends attachment ids only for image requests', async () => {
+    const response = new Response(null, { status: 200 })
+    const fetchMock = stubFetch(response)
+    const controller = new AbortController()
+    const attachmentIds = ['att_00000000-0000-4000-8000-000000000001']
+
+    await requestConversationAnswer({
+      conversationId: 'vision/id',
+      question: '',
+      requestId: 'request-vision',
+      signal: controller.signal,
+      options: { model: 'deepseek-v4-flash-vision-exp' },
+      attachmentIds,
+    })
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/conversations/vision%2Fid/ask', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        question: '',
+        requestId: 'request-vision',
+        options: { model: 'deepseek-v4-flash-vision-exp' },
+        attachmentIds,
+      }),
+      signal: controller.signal,
+    })
+  })
+
   it('creates a branch with an encoded source id and target question', async () => {
     const conversation = {
       id: 'branch-1',
@@ -108,7 +141,7 @@ describe('conversation API client', () => {
 
     await expect(
       createConversationBranch('folder/id', 2, '编辑后的问题'),
-    ).resolves.toEqual(conversation)
+    ).resolves.toEqual({ conversation, draftAttachments: [] })
     expect(fetchMock).toHaveBeenCalledWith('/api/conversations/folder%2Fid/branches', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -126,5 +159,67 @@ describe('conversation API client', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ reason: 'transition' }),
     })
+  })
+
+  it('uses multipart for image upload and protected Blob endpoints for read/delete', async () => {
+    const attachment = {
+      id: 'att_00000000-0000-4000-8000-000000000001',
+      kind: 'image' as const,
+      filename: 'image.png',
+      mediaType: 'image/png' as const,
+      byteSize: 5,
+      width: 1,
+      height: 1,
+      detail: 'low' as const,
+    }
+    const file = new File(['image'], 'image.png', { type: 'image/png' })
+    const uploadFetch = stubFetch(Response.json({ attachment }, { status: 201 }))
+    await expect(uploadConversationAttachment('folder/id', file, { detail: 'low' }))
+      .resolves.toEqual(attachment)
+    const uploadOptions = uploadFetch.mock.calls[0]?.[1]
+    expect(uploadFetch.mock.calls[0]?.[0]).toBe('/api/conversations/folder%2Fid/attachments')
+    expect(uploadOptions?.method).toBe('POST')
+    expect(uploadOptions?.headers).toBeUndefined()
+    const uploadBody = uploadOptions?.body
+    expect(uploadBody).toBeInstanceOf(FormData)
+    if (!(uploadBody instanceof FormData)) throw new Error('upload body is not FormData')
+    expect(uploadBody.get('detail')).toBe('low')
+    expect(uploadBody.get('image')).toBeInstanceOf(File)
+
+    const imageBlob = new Blob(['image'], { type: 'image/png' })
+    const downloadFetch = stubFetch(new Response(imageBlob))
+    await expect(downloadConversationAttachment('folder/id', attachment.id)).resolves.toEqual(imageBlob)
+    expect(downloadFetch).toHaveBeenCalledWith(
+      `/api/conversations/folder%2Fid/attachments/${attachment.id}`,
+    )
+
+    const deleteFetch = stubFetch(new Response(null, { status: 204 }))
+    await deleteConversationAttachment('folder/id', attachment.id)
+    expect(deleteFetch).toHaveBeenCalledWith(
+      `/api/conversations/folder%2Fid/attachments/${attachment.id}`,
+      { method: 'DELETE' },
+    )
+  })
+
+  it('downloads and imports schema v2 ZIP backups', async () => {
+    const archive = new Blob(['zip'], { type: 'application/zip' })
+    const downloadFetch = stubFetch(new Response(archive, {
+      headers: { 'Content-Disposition': 'attachment; filename="backup.zip"' },
+    }))
+    await expect(downloadAllConversationsZip()).resolves.toMatchObject({ filename: 'backup.zip' })
+    expect(downloadFetch).toHaveBeenCalledWith('/api/conversations/export.zip')
+
+    const file = new File(['zip'], 'backup.zip', { type: 'application/zip' })
+    const result = { total: 1, created: 1, duplicated: 0, overwritten: 0, skipped: 0, items: [] }
+    const importFetch = stubFetch(Response.json({ result }))
+    await expect(importConversationsZip(file, 'overwrite')).resolves.toEqual(result)
+    expect(importFetch).toHaveBeenCalledWith(
+      '/api/conversations/import.zip?conflictStrategy=overwrite',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/zip' },
+        body: file,
+      },
+    )
   })
 })

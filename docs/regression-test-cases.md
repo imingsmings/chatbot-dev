@@ -16,7 +16,8 @@
 | Docker 容器 | `pnpm run test:docker` | Compose、运行镜像小于 300MB 且无 pnpm/Corepack 缓存、证书覆盖、HTTPS、health、SQLite、会话模型配置跨重启、停止备份、新卷恢复、语义一致性和 SIGTERM |
 | Docker 页面 | `pnpm run test:cdp:docker-ui` | 容器 HTTPS 页面、侧栏、输入区、模型控件和横向溢出；截图可选 |
 | 浏览器回归 | `pnpm run test:cdp:all-mock` | 完整 React UI/API mock 矩阵 |
-| 真实接口套件 | `pnpm run test:cdp:all-real` | 两批隔离端口/临时 file store；DeepSeek V4 Pro UI/上下文/Markdown + OpenAI Responses reasoning/工具/停止恢复 + DeepSeek Flash/Pro 代表性 8 组模型参数；需明确确认 |
+| 图片附件浏览器专项 | `pnpm run test:cdp:image-attachments` | 上传、文本加图/仅图片、受保护预览、刷新、失败重试、模型拦截、分支、停止和 390px 边界 |
+| 真实接口套件 | `pnpm run test:cdp:all-real` | 隔离端口/临时 file store；DeepSeek V4 Pro UI/上下文/Markdown、OpenAI Responses、DeepSeek Flash/Pro 8 组参数，以及使用固定非隐私图片的 DeepSeek Vision 识图/刷新/分支/仅图片/停止/ZIP；需明确确认 |
 | 生产依赖审计 | `pnpm run audit:production` | 根 workspace 全部生产依赖，要求 0 已知漏洞 |
 
 ## React 单元边界
@@ -75,6 +76,7 @@
 | Sidebar | `pnpm run test:cdp:sidebar-state` | 操作等待态、连点互斥和失败恢复 |
 | Model options | `pnpm run test:cdp:model-options-persistence` | A/B/刷新恢复、保存等待态、单 PATCH、失败回滚/重试、实际 ask 参数和失效模型回退 |
 | Prompt templates | `pnpm run test:cdp:prompt-templates` | 新增、编辑、二次确认删除、刷新持久化、变量填充、导入导出、损坏文件和 390px 布局 |
+| Image attachments | `pnpm run test:cdp:image-attachments` | 上传完成/失败、图片消息、Blob 预览、刷新、分支复制、文本模型阻止、停止持久化和移动端元素边界 |
 | Authentication | `pnpm run test:cdp:authentication` | 未登录不预载、限速提示、内存 Token、401 单次刷新重放和 logout |
 | All mock | `pnpm run test:cdp:all-mock` | 上述去重后的 17-script 完整集合 |
 
@@ -89,7 +91,7 @@ UI 七个入口位于 `tests/cdp/scenarios/ui/`，分别包含会话操作、流
 - 只有带服务端 `persistedIndex` 的消息显示编辑/重新生成；流成功或停止后 optimistic 行与服务端详情完全对齐。
 - 用户接近底部时跟随正文/reasoning/代码块；上滚查看历史时保持位置并显示快速到底按钮，点击后恢复当前流的持续跟随。
 - 代码块最后增长时 bottom gap 保持在阈值内。
-- 停止、HTTP 失败、网络断开、损坏 NDJSON、缺少 done、Provider 不完整错误和超时后均可恢复；只有有正文的用户手动停止落为 `stopped`，其他中断部分正文仅保留在当前 UI 且不落库。
+- 停止、HTTP 失败、网络断开、损坏 NDJSON、缺少 done、Provider 不完整错误和超时后均可恢复；用户手动停止且已收到正文或 reasoning 时落为 `stopped`，其他中断的部分内容仅保留在当前 UI 且不落库。
 - 刷新后 generation、usage、裁剪工具轨迹和 `stopped` 状态可恢复；缺失 usage 显示未知，`stopped` 不进入上下文或摘要。
 - 明暗主题刷新保持；390px 无页面级横向溢出。
 - 图标按钮有可读 `aria-label`；Dialog/Dropdown 的 Escape、focus 和 disabled 状态正确。
@@ -133,11 +135,12 @@ UI 七个入口位于 `tests/cdp/scenarios/ui/`，分别包含会话操作、流
 pnpm run test:cdp:real
 pnpm run test:cdp:real-model-options
 pnpm run test:cdp:real-openai
+pnpm run test:cdp:real-vision
 ```
 
-三个专项命令和 `all-real` 都通过 `run-all-real.mjs` 分配随机端口和临时 file store；`all-real` 以 DeepSeek V4 Pro 为默认模型跑 UI/上下文/Markdown，并覆盖 OpenAI Responses；随后以 DeepSeek 为默认 provider 跑 Flash 与 Pro 的 Off/Low/Medium/High。这个 8 组矩阵是当前代表性兼容门禁，不是所有模型、参数与档位的笛卡尔积；DeepSeek `max` 未包含在该付费矩阵中。已禁用的 GPT-5.6 Sol 只验证禁用状态，不发送真实请求。
+四个专项命令和 `all-real` 都通过 `run-all-real.mjs` 分配随机端口和临时 file store；`all-real` 以 DeepSeek V4 Pro 为默认模型跑 UI/上下文/Markdown，并覆盖 OpenAI Responses；随后跑 Flash 与 Pro 的 Off/Low/Medium/High，最后使用固定非隐私图片跑 Vision 纯文本工具、识图、刷新、分支、仅图片、停止/恢复、完整识别报告、窄屏与 ZIP 门禁。8 组参数矩阵是当前代表性兼容门禁，不是所有模型、参数与档位的笛卡尔积；DeepSeek `max` 未包含在该付费矩阵中。已禁用的 GPT-5.6 Sol 只验证禁用状态，不发送真实请求。
 
-真实测试必须说明模型、场景、可能费用、截图与否，并清理全部测试会话。未明确要求截图时保持 `CDP_SCREENSHOTS=0`。
+真实测试必须说明模型、场景、可能费用、图片来源、截图与否，并清理全部测试会话。未明确要求截图时保持 `CDP_SCREENSHOTS=0`；本次 R21 验收显式使用 `CDP_SCREENSHOTS=1`。
 
 2026-08-13 的 R16 Mock、Docker、DeepSeek/OpenAI 真实接口与审查结果见 [R16 全链路一致性验收记录](r16-consistency-hardening-2026-08-13.md)。
 
@@ -146,3 +149,5 @@ DeepSeek V4 Pro 0813 的启用、8 组真实模型参数矩阵和 Docker 验收�
 R17 的 file/SQLite、API、React 竞态、14-script mock 和 Docker Volume 证据见 [R17 会话级模型配置持久化验收记录](r17-conversation-model-options-2026-08-13.md)。
 
 R18-R20 的最新完整门禁分别见 [R18 自定义 Prompt 模板验收记录](r18-custom-prompt-templates-2026-08-13.md)、[R19 流式渲染验收记录](r19-streaming-rendering-2026-08-13.md)和 [R20 JWT 单用户认证实施与验证记录](r20-jwt-authentication-plan.md#2026-08-19-验证记录)。
+
+R21 的图片安全、file/SQLite、Mock、真实图片、完整识别输出和截图证据见 [R21 验收记录](r21-multimodal-vision-2026-08-24.md)。

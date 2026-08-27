@@ -89,17 +89,17 @@ export function useConversations(options: UseConversationsOptions = {}) {
     question: string,
   ) => {
     const sequence = ++selectionSequenceRef.current
-    const conversation = await api.createConversationBranch(
+    const branch = await api.createConversationBranch(
       sourceConversationId,
       messageIndex,
       question,
     )
 
     if (sequence === selectionSequenceRef.current) {
-      dispatchWhenMounted({ type: 'select-conversation', conversation })
+      dispatchWhenMounted({ type: 'select-conversation', conversation: branch.conversation })
     }
 
-    return conversation
+    return branch
   }, [api, dispatchWhenMounted])
 
   const loadConversation = useCallback(

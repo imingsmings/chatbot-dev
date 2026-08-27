@@ -136,6 +136,13 @@ const SUITES = {
       needsVite: true,
     },
   ],
+  'image-attachments': [
+    {
+      name: 'Image attachment and Vision UI scenarios',
+      script: 'tests/cdp/image-attachments.mjs',
+      needsVite: true,
+    },
+  ],
   real: [
     { name: 'Real UI scenarios', script: 'tests/cdp/real-scenarios.mjs', needsVite: true, needsBackend: true },
     { name: 'Real conversation context scenarios', script: 'tests/cdp/conversation-context-real.mjs', needsVite: true, needsBackend: true },
@@ -156,6 +163,9 @@ const SUITES = {
   'real-openai': [
     { name: 'Real OpenAI Responses scenarios', script: 'tests/cdp/openai-responses-real.mjs', needsVite: true, needsBackend: true },
   ],
+  'real-vision': [
+    { name: 'Real DeepSeek Vision scenarios', script: 'tests/cdp/vision-real.mjs', needsVite: true, needsBackend: true },
+  ],
 }
 
 SUITES['all-mock'] = [
@@ -171,6 +181,7 @@ SUITES['all-mock'] = [
   ...SUITES.roadmap,
   ...SUITES['sidebar-state'],
   ...SUITES.authentication,
+  ...SUITES['image-attachments'],
 ]
 
 SUITES['all-real'] = [

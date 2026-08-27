@@ -265,6 +265,37 @@ test('manual stop persists partial body as stopped while excluding incomplete us
   assert.equal(persisted?.messages[1]?.generation?.usage, undefined)
 })
 
+test('manual stop persists reasoning-only partial output as stopped', async () => {
+  const conversation = await createConversation('Manual stop reasoning only')
+  const controller = new AbortController()
+  globalThis.fetch = async () => deepseekSse([{
+    choices: [{ delta: { reasoning_content: '保留这段部分推理' } }],
+  }], true)
+
+  await assert.rejects(
+    generateConversationAnswer({
+      conversation,
+      conversationId: conversation.id,
+      question: '推理阶段停止问题',
+      signal: controller.signal,
+      onDelta: (_chunk, type) => {
+        if (type === 'reasoning') controller.abort('explicit_cancel')
+      },
+      modelOptions: { provider: 'deepseek' },
+    }),
+    (error: unknown) => error instanceof Error && error.name === 'AbortError',
+  )
+
+  const persisted = await getConversation(conversation.id)
+  assert.deepEqual(persisted?.messages.map((message) => message.content), [
+    '推理阶段停止问题',
+    '',
+  ])
+  assert.equal(persisted?.messages[1]?.reasoningContent, '保留这段部分推理')
+  assert.equal(persisted?.messages[1]?.status, 'stopped')
+  assert.equal(persisted?.messages[1]?.generation?.usage, undefined)
+})
+
 test('manual stop before body does not create pseudo messages', async () => {
   const conversation = await createConversation('Manual stop empty')
   const controller = new AbortController()

@@ -13,10 +13,15 @@ import {
 import { buildContextPreview } from '../services/contextDebugService.ts'
 import {
   exportAllConversationsAsJson,
+  exportAllConversationsAsZip,
   exportConversationAsMarkdown
 } from '../services/conversationExportService.ts'
-import { importConversationBackup } from '../services/conversationImportService.ts'
+import {
+  importConversationBackup,
+  importConversationZip,
+} from '../services/conversationImportService.ts'
 import { generateConversationSummary } from '../services/conversationSummaryService.ts'
+import { resolveConversationAttachments } from '../services/attachmentService.ts'
 import { parseConversationModelOptions, parseModelRequestOptions } from '../utils/modelOptions.ts'
 import {
   completeRequest,
@@ -42,6 +47,7 @@ type RenameConversationBody = {
 }
 
 type ContextPreviewBody = {
+  attachmentIds?: unknown
   question?: unknown
   options?: unknown
 }
@@ -66,6 +72,10 @@ type UpdateModelOptionsBody = {
 
 type SearchConversationQuery = {
   q?: unknown
+}
+
+type ImportZipQuery = {
+  conflictStrategy?: unknown
 }
 
 function writeNotFound(res: Response): void {
@@ -144,10 +154,6 @@ const branchConversation: RequestHandler<ConversationParams, unknown, BranchConv
     res.status(400).json({ message: 'messageIndex 必须是非负整数' })
     return
   }
-  if (!question) {
-    res.status(400).json({ message: '问题不能为空' })
-    return
-  }
   if (question.length > MAX_QUESTION_LENGTH) {
     res.status(400).json({
       message: `问题不能超过 ${MAX_QUESTION_LENGTH} 个字符`
@@ -156,17 +162,24 @@ const branchConversation: RequestHandler<ConversationParams, unknown, BranchConv
   }
 
   try {
-    const result = await createConversationBranch(req.params.id, messageIndex as number)
+    const result = await createConversationBranch(req.params.id, messageIndex as number, question)
     if ('error' in result) {
       if (result.error === 'not_found') {
         writeNotFound(res)
+        return
+      }
+      if (result.error === 'empty_message') {
+        res.status(400).json({ message: '问题和图片不能同时为空' })
         return
       }
       res.status(400).json({ message: '只能从已保存的用户消息创建分支' })
       return
     }
 
-    res.status(201).json({ conversation: result.conversation })
+    res.status(201).json({
+      conversation: result.conversation,
+      draftAttachments: result.draftAttachments,
+    })
   } catch (error) {
     next(error)
   }
@@ -212,6 +225,17 @@ const exportAllConversations: RequestHandler = async (req, res, next) => {
   }
 }
 
+const exportAllConversationsZip: RequestHandler = async (req, res, next) => {
+  try {
+    const exported = await exportAllConversationsAsZip()
+    setAttachmentHeaders(res, exported.filename, 'application/zip')
+    res.setHeader('X-Content-SHA256', exported.sha256)
+    res.send(exported.content)
+  } catch (err) {
+    next(err)
+  }
+}
+
 const importConversations: RequestHandler<unknown, unknown, ImportConversationBody> = async (
   req,
   res,
@@ -219,6 +243,27 @@ const importConversations: RequestHandler<unknown, unknown, ImportConversationBo
 ) => {
   try {
     const result = await importConversationBackup(req.body.backup, req.body.conflictStrategy)
+    res.status(201).json({ result })
+  } catch (err) {
+    if (err instanceof Error) {
+      res.status(400).json({ message: err.message })
+      return
+    }
+    next(err)
+  }
+}
+
+const importConversationsZip: RequestHandler<unknown, unknown, Buffer, ImportZipQuery> = async (
+  req,
+  res,
+  next,
+) => {
+  try {
+    if (!Buffer.isBuffer(req.body)) {
+      res.status(400).json({ message: '请求体必须是 ZIP 文件' })
+      return
+    }
+    const result = await importConversationZip(req.body, req.query.conflictStrategy)
     res.status(201).json({ result })
   } catch (err) {
     if (err instanceof Error) {
@@ -276,11 +321,27 @@ const previewConversationContext: RequestHandler<ConversationParams, unknown, Co
       return
     }
 
+    const attachmentIds = req.body.attachmentIds === undefined
+      ? []
+      : req.body.attachmentIds
+    if (
+      !Array.isArray(attachmentIds) ||
+      attachmentIds.some((attachmentId) => typeof attachmentId !== 'string')
+    ) {
+      res.status(400).json({ message: 'attachmentIds 必须是字符串数组' })
+      return
+    }
+    const attachments = await resolveConversationAttachments(
+      conversation.id,
+      attachmentIds as string[],
+    )
+
     res.json({
       context: buildContextPreview(
         conversation,
         typeof req.body.question === 'string' ? req.body.question : '',
-        options
+        options,
+        attachments,
       )
     })
   } catch (err) {
@@ -477,9 +538,11 @@ export {
   createConversation,
   deleteConversation,
   exportAllConversations,
+  exportAllConversationsZip,
   exportConversationMarkdown,
   getConversation,
   importConversations,
+  importConversationsZip,
   listConversations,
   previewConversationContext,
   renameConversation,

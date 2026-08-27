@@ -12,6 +12,7 @@ export const DEFAULT_DEEPSEEK_MODEL: DeepSeekModelId = 'deepseek-v4-flash'
 export const DEEPSEEK_MODELS = [
   { label: 'DeepSeek V4 Flash', value: 'deepseek-v4-flash' },
   { label: 'DeepSeek V4 Pro', value: 'deepseek-v4-pro' },
+  { label: 'DeepSeek V4 Flash Vision Exp', value: 'deepseek-v4-flash-vision-exp' },
 ] as const satisfies ReadonlyArray<{ label: string; value: DeepSeekModelId }>
 
 export function normalizeDeepSeekModelId(model: string | null | undefined): DeepSeekModelId {
@@ -27,6 +28,7 @@ const fallbackDeepSeekCapabilities = {
   reasoningEfforts: ['low', 'medium', 'high', 'max'],
   temperature: true,
   maxOutputTokens: 65536,
+  inputModalities: ['text'] as Array<'text' | 'image'>,
 }
 
 function createFallbackProvider(runtime: RuntimeInfo | null): RuntimeProvider {
@@ -44,6 +46,15 @@ function createFallbackProvider(runtime: RuntimeInfo | null): RuntimeProvider {
       capabilities: {
         ...fallbackDeepSeekCapabilities,
         reasoningEfforts: [...fallbackDeepSeekCapabilities.reasoningEfforts],
+        inputModalities: model.value === 'deepseek-v4-flash-vision-exp'
+          ? ['text', 'image']
+          : ['text'],
+        ...(model.value === 'deepseek-v4-flash-vision-exp'
+          ? {
+              imageDetailLevels: ['auto', 'low', 'original'] as Array<'auto' | 'low' | 'original'>,
+              experimental: true,
+            }
+          : {}),
       },
     })),
   }
@@ -70,7 +81,15 @@ function getRuntimeProviders(runtime: RuntimeInfo | null): RuntimeProvider[] {
         .filter((provider) => provider != null && Array.isArray(provider.models))
         .map((provider) => ({
           ...provider,
-          models: provider.models.filter(isUsableModel),
+          models: provider.models.filter(isUsableModel).map((model) => ({
+            ...model,
+            capabilities: {
+              ...model.capabilities,
+              inputModalities: model.capabilities.inputModalities?.includes('text')
+                ? [...model.capabilities.inputModalities]
+                : ['text'] as Array<'text' | 'image'>,
+            },
+          })),
         }))
         .filter((provider) => provider.models.length > 0)
     : []
@@ -181,6 +200,13 @@ function isModelOptionsUsable(
   )
 }
 
+function modelSupportsImages(
+  runtime: RuntimeInfo | null,
+  options: ModelRequestOptions,
+): boolean {
+  return getModelDescriptor(runtime, options).capabilities.inputModalities?.includes('image') === true
+}
+
 function selectModelOptions(
   options: ModelRequestOptions,
   model: ModelDescriptor,
@@ -243,6 +269,7 @@ export {
   getModelDescriptor,
   getRuntimeProviders,
   isModelOptionsUsable,
+  modelSupportsImages,
   resolveConversationModelOptions,
   selectModelOptions,
 }

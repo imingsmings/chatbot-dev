@@ -12,12 +12,14 @@ flowchart LR
     Hooks["Hooks / lifecycle"]
     Reducers["Conversation + stream reducers"]
     ClientAPI["HTTP + NDJSON v2 reader"]
+    Uploads["multipart uploads + protected Blob URLs"]
     AuthClient["Auth gate + in-memory access token"]
     Markdown["markdown-it + DOMPurify + highlight.js"]
     App --> UI
     App --> Hooks
     Hooks --> Reducers
     Hooks --> ClientAPI
+    Hooks --> Uploads
     AuthClient --> App
     AuthClient --> ClientAPI
     UI --> Markdown
@@ -31,6 +33,7 @@ flowchart LR
     Services --> LLM["Provider registry + adapters"]
     Services --> Tools["Tool registry"]
     Services --> Store["Conversation store"]
+    Services --> AttachmentStore["Attachment service"]
     Auth --> AuthStore["Auth session SQLite"]
     TLS --> Static
     TLS --> Routes
@@ -41,6 +44,7 @@ flowchart LR
   Files["Atomic JSON files"]
   SQLite["SQLite WAL"]
   SessionDB["Auth sessions SQLite WAL"]
+  AttachmentFiles["Attachment files + metadata sidecars"]
 
   Browser -->|"same-origin HTTPS"| TLS
   ClientAPI -->|"/api + NDJSON v2"| Routes
@@ -48,6 +52,7 @@ flowchart LR
   Tools --> Weather
   Store --> Files
   Store --> SQLite
+  AttachmentStore --> AttachmentFiles
   AuthStore --> SessionDB
 ```
 
@@ -63,7 +68,8 @@ flowchart LR
 | `client/src/hooks/useChatAppController.ts` | 单一页面装配入口：运行配置、聊天流、搜索、主题和各专责 hook 组合 |
 | `client/src/hooks/useConversationOperations.ts` | 新建、切换、重命名、删除、清空和侧栏操作互斥 |
 | `client/src/hooks/useMessageBranching.ts` | 编辑/重新生成的目标定位、分支创建、新会话显式发送和失败恢复 |
-| `client/src/hooks/useConversationTransfer.ts` | 单会话 Markdown 导出、全量 JSON 导出和备份导入 |
+| `client/src/hooks/useConversationTransfer.ts` | 单会话 Markdown、全量 schema v2 ZIP 下载以及 JSON/ZIP 备份导入 |
+| `client/src/hooks/useImageAttachments.ts` | 当前会话图片选择、上传、预览 URL、删除/失败重试、切换清理和最多 4 张约束 |
 | `client/src/hooks/useConversationInsights.ts` | 上下文预览、会话摘要及切换/生成竞态保护 |
 | `client/src/hooks/useConversationModelOptions.ts` | 会话配置恢复、可用模型回退、乐观保存、失败回滚、快速点击和过期响应隔离 |
 | `client/src/hooks/usePromptTemplates.ts` | 自定义 Prompt 模板的浏览器本地状态、localStorage 提交和跨标签页同步 |
@@ -105,6 +111,8 @@ flowchart LR
 | `server/services/contextService.ts` | 摘要覆盖边界、安全截断、消息数和字符预算 |
 | `server/services/conversationSummaryService.ts` | 覆盖边界后的增量滚动摘要、输入预算及会话变化检测 |
 | `server/services/conversationService.ts` | 会话列表/标题/搜索、模型配置保存，以及继承配置但只复制目标消息前缀的普通会话分支 |
+| `server/services/attachmentService.ts` | 图片魔数/尺寸校验、原子文件和 sidecar、本地读取、会话绑定、引用状态、TTL 与孤儿清理 |
+| `server/services/conversationExportService.ts` / `conversationImportService.ts` | schema v1 JSON 兼容、schema v2 ZIP 附件清单/校验和、ID 重映射与失败回滚 |
 | `server/services/toolService.ts` | 工具参数校验、失败隔离、耗时和生命周期事件 |
 | `server/services/healthService.ts` | 启动级配置校验和当前会话 store 的实际读写探针；仅输出稳定状态 |
 | `server/tools/*` | 单工具 schema、validator 和 handler |
@@ -119,7 +127,7 @@ flowchart LR
 | `server/utils/conversationStore/fileStore.ts` | 原子 JSON 文件、同会话 mutation queue 和 legacy file 迁移 |
 | `server/utils/conversationStore/sqliteStore.ts` | SQLite schema/WAL、幂等 `model_options` 迁移、JSON 迁移、CRUD 和连接关闭 |
 
-Provider 特有字段只存在于 adapter。控制器不拼 prompt，工具注册表不内嵌天气/计算器实现。
+Provider 特有字段只存在于 adapter。控制器不拼 prompt，工具注册表不内嵌天气/计算器实现。附件原图始终以本地文件为准；DeepSeek adapter 只在最终请求组装时读取图片并创建 Base64 Data URL，文本消息仍保持字符串 content。
 
 ## 生产部署边界
 

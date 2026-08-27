@@ -7,9 +7,10 @@ import type {
   LlmStreamWithToolsResult,
   LlmToolChoice
 } from '../../../types/llm.ts'
-import type { PromptMessage } from '../../../types/conversation.ts'
+import type { LlmPromptMessage } from '../../../types/conversation.ts'
 import type { FunctionToolDefinition, ToolResult } from '../../../types/tools.ts'
 import type { TokenUsage } from '../../../types/generation.ts'
+import { MAX_PROVIDER_IMAGE_REQUEST_BYTES } from '../../../config/productLimits.ts'
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
@@ -61,7 +62,7 @@ function buildBody({
   continuation
 }: {
   config: LlmProviderConfig
-  prompt: PromptMessage[]
+  prompt: LlmPromptMessage[]
   stream: boolean
   tools?: FunctionToolDefinition[]
   toolChoice?: LlmToolChoice
@@ -113,6 +114,13 @@ function buildBody({
   if (tools?.length) {
     body.tools = tools
     body.tool_choice = toolChoice ?? 'auto'
+  }
+
+  const containsImages = requestPrompt.some((message) =>
+    Array.isArray(message.content) && message.content.some((block) => block.type === 'image_url')
+  )
+  if (containsImages && Buffer.byteLength(JSON.stringify(body), 'utf8') > MAX_PROVIDER_IMAGE_REQUEST_BYTES) {
+    throw new Error(`图片请求体不能超过 ${MAX_PROVIDER_IMAGE_REQUEST_BYTES / 1024 / 1024} MiB`)
   }
 
   return body

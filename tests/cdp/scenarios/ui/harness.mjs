@@ -112,7 +112,7 @@ async function clickText(client, selector, text) {
   )
   if (clicked) return
 
-  const triggerSelector = ['导入 JSON', '导出全部 JSON', '清空当前会话'].includes(text)
+  const triggerSelector = ['导入 JSON/ZIP', '导出全部 ZIP', '清空当前会话'].includes(text)
     ? '.user-menu-trigger'
     : ['参数', '模板', '摘要', '上下文'].includes(text)
       ? '.chat-header .header-icon-btn[aria-label="更多操作"]'
@@ -566,6 +566,22 @@ const mockScript = `
                     reasoningEfforts: ['low', 'medium', 'high', 'max'],
                     temperature: true,
                     maxOutputTokens: 65536,
+                  },
+                },
+                {
+                  provider: 'deepseek',
+                  id: 'deepseek-v4-flash-vision-exp',
+                  label: 'DeepSeek V4 Flash Vision Exp',
+                  capabilities: {
+                    tools: true,
+                    reasoning: true,
+                    reasoningSummary: false,
+                    reasoningEfforts: ['low', 'medium', 'high', 'max'],
+                    temperature: true,
+                    maxOutputTokens: 65536,
+                    inputModalities: ['text', 'image'],
+                    imageDetailLevels: ['auto', 'low', 'original'],
+                    experimental: true,
                   },
                 },
               ],

@@ -49,6 +49,23 @@ test('file store serializes concurrent mutations without losing messages', async
   assert.equal(files.some((name) => name.endsWith('.tmp')), false)
 })
 
+test('listing tolerates conversation files deleted after directory enumeration', async () => {
+  const conversations = await Promise.all(
+    Array.from({ length: 40 }, (_, index) => createConversation(`Concurrent delete ${index}`)),
+  )
+
+  await Promise.all([
+    ...conversations.map((conversation) => deleteConversation(conversation.id)),
+    ...Array.from({ length: 20 }, () => listConversations()),
+  ])
+
+  const remaining = await listConversations()
+  assert.equal(
+    remaining.some((conversation) => conversation.title.startsWith('Concurrent delete ')),
+    false,
+  )
+})
+
 test('file identity wins over corrupt payload ids and invalid timestamps are normalized', async () => {
   const conversationsDir = path.join(dataDir, 'file', 'conversations')
   await mkdir(conversationsDir, { recursive: true })

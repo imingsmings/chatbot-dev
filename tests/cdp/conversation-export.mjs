@@ -64,6 +64,13 @@ const mockScript = `
     });
   }
 
+  function binary(data, status = 200, headers = {}) {
+    return new Response(new Blob([data], { type: headers['Content-Type'] || 'application/octet-stream' }), {
+      status,
+      headers
+    });
+  }
+
   function summary(conversation) {
     return {
       id: conversation.id,
@@ -121,16 +128,12 @@ const mockScript = `
       });
     }
 
-    if (pathname === '/conversations/export.json' && method === 'GET') {
-      exportRequests.push('all-json');
+    if (pathname === '/conversations/export.zip' && method === 'GET') {
+      exportRequests.push('all-zip');
       await new Promise((resolve) => setTimeout(resolve, 180));
-      return json({
-        schemaVersion: 1,
-        source: 'chatbot-local',
-        exportedAt: '2026-05-26T00:04:00.000Z',
-        conversations: [...conversations.values()]
-      }, 200, {
-        'Content-Disposition': 'attachment; filename="chatbot-conversations-2026-05-26.json"'
+      return binary('MOCK_R21_ZIP_WITH_ATTACHMENTS', 200, {
+        'Content-Type': 'application/zip',
+        'Content-Disposition': 'attachment; filename="chatbot-conversations-2026-05-26.zip"'
       });
     }
 
@@ -212,7 +215,7 @@ async function clickConversationExport(client, title, clickCount = 1) {
 }
 
 async function clickButtonByText(client, text, clickCount = 1) {
-  if (text === '导出全部 JSON') {
+  if (text === '导出全部 ZIP') {
     const usesUserMenu = await evaluate(
       client,
       `(() => {
@@ -293,7 +296,7 @@ async function main() {
     assert(state.downloads[0]?.text.includes('export markdown answer'), 'markdown export did not include answer text')
     assert(state.revokedUrls.includes(state.downloads[0].href), 'single conversation object URL was not revoked')
 
-    await clickButtonByText(client, '导出全部 JSON', 3)
+    await clickButtonByText(client, '导出全部 ZIP', 3)
     await waitForEval(
       client,
       `(() => {
@@ -305,7 +308,7 @@ async function main() {
     )
     const allBusyState = await readExportState(client)
     assert(
-      allBusyState.exportRequests.filter((item) => item === 'all-json').length === 1,
+      allBusyState.exportRequests.filter((item) => item === 'all-zip').length === 1,
       'rapid full export clicks created duplicate requests'
     )
     await waitForEval(client, `window.__conversationExportState().then((state) => state.downloads.length === 2)`)
@@ -313,22 +316,14 @@ async function main() {
       client,
       `[...document.querySelectorAll('button')]
         .some((item) =>
-          item.textContent.trim() === '导出全部 JSON' &&
+          item.textContent.trim() === '导出全部 ZIP' &&
           !item.matches(':disabled, [data-disabled], [aria-disabled="true"]')
         )`
     )
     state = await readExportState(client)
-    assert(state.exportRequests.includes('all-json'), 'all conversations export endpoint was not called')
-    assert(state.downloads[1]?.download === 'chatbot-conversations-2026-05-26.json', 'json export filename was not used')
-    const backup = JSON.parse(state.downloads[1].text)
-    assert(backup.schemaVersion === 1, 'json export schema version missing')
-    assert(backup.conversations.length === 2, 'json export did not include all conversations')
-    assert(
-      backup.conversations.some((conversation) =>
-        conversation.messages.some((message) => message.reasoningContent === 'backup reasoning')
-      ),
-      'json export did not preserve reasoning fields'
-    )
+    assert(state.exportRequests.includes('all-zip'), 'all conversations ZIP export endpoint was not called')
+    assert(state.downloads[1]?.download === 'chatbot-conversations-2026-05-26.zip', 'ZIP export filename was not used')
+    assert(state.downloads[1]?.text === 'MOCK_R21_ZIP_WITH_ATTACHMENTS', 'ZIP export payload was not downloaded intact')
     assert(state.askRequests.length === 0, 'export flow unexpectedly called ask endpoint')
 
     await client.send('Emulation.setDeviceMetricsOverride', {
@@ -346,7 +341,7 @@ async function main() {
       assertions: {
         ...state,
         rapidSingleRequestCount: singleBusyState.exportRequests.length,
-        rapidAllRequestCount: allBusyState.exportRequests.filter((item) => item === 'all-json').length,
+        rapidAllRequestCount: allBusyState.exportRequests.filter((item) => item === 'all-zip').length,
         loadingStatesVisible: true,
         controlsRecovered: true
       }

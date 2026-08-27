@@ -5,7 +5,12 @@ import assert from 'node:assert/strict'
 import { after, test } from 'node:test'
 import { buildContextPreview } from '../../server/services/contextDebugService.ts'
 import { buildContextMessages } from '../../server/services/contextService.ts'
-import type { Conversation, PromptMessage, StoredMessage } from '../../server/types/conversation.ts'
+import type {
+  Conversation,
+  ImageAttachment,
+  PromptMessage,
+  StoredMessage,
+} from '../../server/types/conversation.ts'
 
 const originalFetch = globalThis.fetch
 const answerDataDir = await mkdtemp(path.join(tmpdir(), 'chatbot-context-answer-tests-'))
@@ -53,6 +58,19 @@ function assistant(content: string): StoredMessage {
   return {
     role: 'assistant',
     content
+  }
+}
+
+function image(id: string, byteSize = 100): ImageAttachment {
+  return {
+    id: `att_00000000-0000-4000-8000-${id.padStart(12, '0')}`,
+    kind: 'image',
+    filename: `${id}.png`,
+    mediaType: 'image/png',
+    byteSize,
+    width: 1,
+    height: 1,
+    detail: 'auto',
   }
 }
 
@@ -416,6 +434,57 @@ test('buildContextPreview exposes managed context details without leaking secret
   assert(content.includes('PREVIEW_KEEP_ASSISTANT'))
   assert(content.includes('PREVIEW_KEEP_USER'))
   assert(content.includes('PREVIEW_CURRENT_QUESTION'))
+})
+
+test('image context gives current images priority and caps historical image occurrences', () => {
+  process.env.CONTEXT_MAX_HISTORY_MESSAGES = '20'
+  process.env.CONTEXT_MAX_HISTORY_CHARS = '1000'
+  const repeated = image('1', 10)
+  const conversation = makeConversation([
+    { ...user('oldest'), attachments: [repeated, image('2', 20)] },
+    { ...assistant('middle') },
+    { ...user('latest'), attachments: [repeated, image('3', 30)] },
+  ])
+  const current = [image('4', 40), image('5', 50)]
+  const result = buildContextMessages(conversation, 'current', {
+    currentAttachments: current,
+    includeImages: true,
+  })
+  const userMessages = result.messages.filter((message) => message.role === 'user')
+  const attachmentBlocks = userMessages.flatMap((message) => message.attachments ?? [])
+
+  assert.equal(result.selectedImages, 4)
+  assert.equal(result.droppedImages, 2)
+  assert.equal(result.selectedImageBytes, 130)
+  assert.deepEqual(attachmentBlocks.map(({ id }) => id), [repeated.id, image('3').id, image('4').id, image('5').id])
+  assert(result.messages.some((message) => message.content?.includes('图片预算未发送')))
+})
+
+test('text context strips image metadata while Vision preview includes current images', () => {
+  const historical = image('6', 60)
+  const current = image('7', 70)
+  const conversation = makeConversation([{
+    ...user('history'),
+    attachments: [historical],
+  }])
+
+  const textContext = buildContextMessages(conversation, 'current', {
+    currentAttachments: [current],
+    includeImages: false,
+  })
+  assert.equal(textContext.selectedImages, 0)
+  assert.equal(textContext.droppedImages, 2)
+  assert(textContext.messages.every((message) => !message.attachments?.length))
+  assert(textContext.messages.some((message) => message.content?.includes('历史图片未发送')))
+
+  const preview = buildContextPreview(conversation, 'current', {
+    provider: 'deepseek',
+    model: 'deepseek-v4-flash-vision-exp',
+  }, [current])
+  assert.equal(preview.stats.selectedImages, 2)
+  assert.equal(preview.stats.droppedImages, 0)
+  assert.equal(preview.stats.selectedImageBytes, 130)
+  assert.equal(preview.messages.at(-1)?.attachments?.[0]?.id, current.id)
 })
 
 test('generateConversationAnswer sends managed context to the model instead of full history', async () => {

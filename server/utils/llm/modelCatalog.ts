@@ -15,7 +15,8 @@ const PROVIDERS: readonly LlmProviderDescriptor[] = [
           reasoningSummary: false,
           reasoningEfforts: ['low', 'medium', 'high', 'max'],
           temperature: true,
-          maxOutputTokens: 65536
+          maxOutputTokens: 65536,
+          inputModalities: ['text']
         }
       },
       {
@@ -28,7 +29,24 @@ const PROVIDERS: readonly LlmProviderDescriptor[] = [
           reasoningSummary: false,
           reasoningEfforts: ['low', 'medium', 'high', 'max'],
           temperature: true,
-          maxOutputTokens: 65536
+          maxOutputTokens: 65536,
+          inputModalities: ['text']
+        }
+      },
+      {
+        provider: 'deepseek',
+        id: 'deepseek-v4-flash-vision-exp',
+        label: 'DeepSeek V4 Flash Vision Exp',
+        capabilities: {
+          tools: true,
+          reasoning: true,
+          reasoningSummary: false,
+          reasoningEfforts: ['low', 'medium', 'high', 'max'],
+          temperature: true,
+          maxOutputTokens: 65536,
+          inputModalities: ['text', 'image'],
+          imageDetailLevels: ['auto', 'low', 'original'],
+          experimental: true
         }
       }
     ]
@@ -47,7 +65,8 @@ const PROVIDERS: readonly LlmProviderDescriptor[] = [
           reasoningSummary: true,
           reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
           temperature: false,
-          maxOutputTokens: 128000
+          maxOutputTokens: 128000,
+          inputModalities: ['text']
         }
       },
       {
@@ -60,7 +79,8 @@ const PROVIDERS: readonly LlmProviderDescriptor[] = [
           reasoningSummary: true,
           reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
           temperature: false,
-          maxOutputTokens: 128000
+          maxOutputTokens: 128000,
+          inputModalities: ['text']
         }
       },
       {
@@ -73,7 +93,8 @@ const PROVIDERS: readonly LlmProviderDescriptor[] = [
           reasoningSummary: true,
           reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
           temperature: false,
-          maxOutputTokens: 128000
+          maxOutputTokens: 128000,
+          inputModalities: ['text']
         }
       }
     ]
@@ -130,7 +151,11 @@ function getPublicModelCatalog(): LlmProviderDescriptor[] {
       disabled: disabledModelIds.has(model.id),
       capabilities: {
         ...model.capabilities,
-        reasoningEfforts: [...model.capabilities.reasoningEfforts]
+        reasoningEfforts: [...model.capabilities.reasoningEfforts],
+        inputModalities: [...model.capabilities.inputModalities],
+        imageDetailLevels: model.capabilities.imageDetailLevels
+          ? [...model.capabilities.imageDetailLevels]
+          : undefined
       }
     }))
   }))

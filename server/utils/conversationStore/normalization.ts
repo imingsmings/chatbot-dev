@@ -2,6 +2,9 @@ import crypto from 'node:crypto'
 import path from 'node:path'
 import {
   MAX_AUTO_TITLE_LENGTH,
+  MAX_IMAGE_ATTACHMENT_BYTES,
+  MAX_IMAGE_ATTACHMENT_EDGE,
+  MAX_IMAGE_ATTACHMENTS_PER_MESSAGE,
   MAX_STORED_TOOL_TRACE_ITEMS,
   MAX_STORED_TOOL_TRACE_SUMMARY_LENGTH
 } from '../../config/productLimits.ts'
@@ -9,6 +12,7 @@ import type {
   Conversation,
   ConversationContextSummary,
   ConversationSummary,
+  ImageAttachment,
   StoredMessage
 } from '../../types/conversation.ts'
 import type { GenerationMetadata, StoredToolTrace, TokenUsage } from '../../types/generation.ts'
@@ -136,6 +140,50 @@ function normalizeToolTrace(value: unknown): StoredToolTrace[] | undefined {
   return trace.length ? trace : undefined
 }
 
+export function normalizeImageAttachments(value: unknown): ImageAttachment[] | undefined {
+  if (!Array.isArray(value)) return undefined
+  const seen = new Set<string>()
+  const attachments = value.slice(0, MAX_IMAGE_ATTACHMENTS_PER_MESSAGE).flatMap((item): ImageAttachment[] => {
+    if (
+      !isRecord(item) ||
+      typeof item.id !== 'string' ||
+      !/^att_[0-9a-f-]{36}$/.test(item.id) ||
+      seen.has(item.id) ||
+      item.kind !== 'image' ||
+      typeof item.filename !== 'string' ||
+      !item.filename.trim() ||
+      !['image/jpeg', 'image/png', 'image/webp'].includes(String(item.mediaType)) ||
+      typeof item.byteSize !== 'number' ||
+      !Number.isInteger(item.byteSize) ||
+      item.byteSize < 1 ||
+      item.byteSize > MAX_IMAGE_ATTACHMENT_BYTES ||
+      typeof item.width !== 'number' ||
+      !Number.isInteger(item.width) ||
+      item.width < 1 ||
+      item.width > MAX_IMAGE_ATTACHMENT_EDGE ||
+      typeof item.height !== 'number' ||
+      !Number.isInteger(item.height) ||
+      item.height < 1 ||
+      item.height > MAX_IMAGE_ATTACHMENT_EDGE ||
+      !['auto', 'low', 'original'].includes(String(item.detail))
+    ) {
+      return []
+    }
+    seen.add(item.id)
+    return [{
+      id: item.id,
+      kind: 'image',
+      filename: item.filename.trim().slice(0, 255),
+      mediaType: item.mediaType as ImageAttachment['mediaType'],
+      byteSize: item.byteSize,
+      width: item.width,
+      height: item.height,
+      detail: item.detail as ImageAttachment['detail'],
+    }]
+  })
+  return attachments.length ? attachments : undefined
+}
+
 export function normalizeMessage(message: unknown): StoredMessage {
   const rawMessage = isRecord(message) ? message : {}
   const role = rawMessage.role === 'assistant' ? 'assistant' : 'user'
@@ -166,6 +214,11 @@ export function normalizeMessage(message: unknown): StoredMessage {
     if (generation) normalizedMessage.generation = generation
     const toolTrace = normalizeToolTrace(rawMessage.toolTrace)
     if (toolTrace) normalizedMessage.toolTrace = toolTrace
+  }
+
+  if (role === 'user') {
+    const attachments = normalizeImageAttachments(rawMessage.attachments)
+    if (attachments) normalizedMessage.attachments = attachments
   }
 
   return normalizedMessage
@@ -242,7 +295,8 @@ export function cloneConversation(conversation: Conversation): Conversation {
             usage: message.generation.usage ? { ...message.generation.usage } : undefined
           }
         : undefined,
-      toolTrace: message.toolTrace?.map((trace) => ({ ...trace }))
+      toolTrace: message.toolTrace?.map((trace) => ({ ...trace })),
+      attachments: message.attachments?.map((attachment) => ({ ...attachment }))
     })),
     summary: conversation.summary ? { ...conversation.summary } : undefined,
     modelOptions: conversation.modelOptions ? { ...conversation.modelOptions } : undefined
@@ -284,7 +338,9 @@ export function applyAppendedMessages(
 
   const firstUserMessage = normalizedMessages.find((message) => message.role === 'user')
   if (!conversation.titleManuallyEdited && conversation.title === DEFAULT_TITLE && firstUserMessage) {
-    conversation.title = createTitleFromQuestion(firstUserMessage.content)
+    conversation.title = firstUserMessage.content.trim()
+      ? createTitleFromQuestion(firstUserMessage.content)
+      : firstUserMessage.attachments?.length ? '图片消息' : DEFAULT_TITLE
   }
 
   conversation.updatedAt = now()

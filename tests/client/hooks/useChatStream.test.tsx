@@ -29,6 +29,19 @@ function createConversation(id = 'conversation-1'): ConversationDetail {
   }
 }
 
+function imageAttachment() {
+  return {
+    id: 'att_00000000-0000-4000-8000-000000000001',
+    kind: 'image' as const,
+    filename: 'vision.png',
+    mediaType: 'image/png' as const,
+    byteSize: 68,
+    width: 1,
+    height: 1,
+    detail: 'auto' as const,
+  }
+}
+
 function responseHeaders() {
   return {
     [CHAT_STREAM_PROTOCOL_HEADER]: CHAT_STREAM_PROTOCOL_VERSION,
@@ -306,6 +319,79 @@ describe('useChatStream', () => {
       expect.objectContaining({ role: 'user', text: '编辑后的问题' }),
       expect.objectContaining({ role: 'assistant', text: '分支回答', status: 'done' }),
     ])
+  })
+
+  it('submits image-only messages and forwards attachment ids while preserving optimistic metadata', async () => {
+    const attachment = imageAttachment()
+    const requestConversationAnswer = vi
+      .fn<RequestAnswer>()
+      .mockResolvedValue(responseFromEvents([
+        { type: 'delta', content: '图片答案' },
+        { type: 'done' },
+      ]))
+    const { result } = renderStreamHook(
+      createHarnessOptions({ requestConversationAnswer }),
+    )
+
+    await act(async () => {
+      await result.current.submitQuestion('', {
+        appendUser: true,
+        attachments: [attachment],
+        clearComposer: true,
+      })
+    })
+
+    expect(requestConversationAnswer).toHaveBeenCalledWith(expect.objectContaining({
+      attachmentIds: [attachment.id],
+      question: '',
+    }))
+    expect(result.current.messages[0]).toMatchObject({
+      role: 'user',
+      text: '',
+      attachments: [attachment],
+    })
+    expect(result.current.messages[1]).toMatchObject({
+      role: 'assistant',
+      status: 'done',
+      text: '图片答案',
+    })
+  })
+
+  it('retries failed image messages with the original attachment ids', async () => {
+    const attachment = imageAttachment()
+    const requestConversationAnswer = vi
+      .fn<RequestAnswer>()
+      .mockResolvedValueOnce(responseFromEvents([{ type: 'error', message: '第一次失败' }]))
+      .mockResolvedValueOnce(responseFromEvents([
+        { type: 'delta', content: '重试成功' },
+        { type: 'done' },
+      ]))
+    const { result } = renderStreamHook(
+      createHarnessOptions({ requestConversationAnswer }),
+    )
+
+    await act(async () => {
+      await result.current.submitQuestion('', {
+        appendUser: true,
+        attachments: [attachment],
+        clearComposer: true,
+      })
+    })
+    expect(result.current.messages[1]).toMatchObject({ status: 'error' })
+
+    await act(async () => {
+      await result.current.retryMessage(1)
+    })
+
+    expect(requestConversationAnswer).toHaveBeenCalledTimes(2)
+    expect(requestConversationAnswer.mock.calls[1]?.[0]).toMatchObject({
+      attachmentIds: [attachment.id],
+      question: '',
+    })
+    expect(result.current.messages.at(-1)).toMatchObject({
+      status: 'done',
+      text: '重试成功',
+    })
   })
 
   it('sends one manual cancel and settles a running tool as stopped', async () => {

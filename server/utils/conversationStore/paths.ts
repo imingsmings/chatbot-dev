@@ -5,6 +5,7 @@ const storeDirectory = path.dirname(fileURLToPath(import.meta.url))
 const serverDirectory = path.join(storeDirectory, '..', '..')
 
 export const DATA_DIR = process.env.CONVERSATION_DATA_DIR || path.join(serverDirectory, 'data')
+export const ATTACHMENTS_DIR = process.env.ATTACHMENT_DATA_DIR || path.join(DATA_DIR, 'attachments')
 export const FILE_DATA_DIR = process.env.CONVERSATION_FILE_DATA_DIR || path.join(DATA_DIR, 'file')
 export const CONVERSATIONS_DIR = path.join(FILE_DATA_DIR, 'conversations')
 export const LEGACY_DATA_FILE = path.join(FILE_DATA_DIR, 'conversations.json')

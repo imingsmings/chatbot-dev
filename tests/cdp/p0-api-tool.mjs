@@ -822,7 +822,10 @@ async function main() {
     assert(invalidAsk.status === 400 && invalidAsk.data.message, 'P0-18 invalid requestId JSON failed')
 
     const blankAsk = await askWithRequestId(client, crudId, '   ', 'blank-question-request')
-    assert(blankAsk.status === 400 && blankAsk.data.message === '问题不能为空', 'P0-40 blank question validation failed')
+    assert(
+      blankAsk.status === 400 && blankAsk.data.message === '问题和图片不能同时为空',
+      'P0-40 blank question and attachment validation failed',
+    )
 
     const duplicate = await duplicateRequest(client, crudId)
     assert(duplicate[1].status === 409 && duplicate[1].data.message, 'P0-19 duplicate requestId JSON failed')

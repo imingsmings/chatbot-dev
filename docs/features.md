@@ -14,7 +14,7 @@
 
 ## 模型与生成
 
-- 模型目录包含 DeepSeek V4 Flash 与 DeepSeek V4 Pro；具体别名解析由上游控制，项目不把它固定解释为某个日期快照。
+- 模型目录包含 DeepSeek V4 Flash、DeepSeek V4 Pro 与实验性的 DeepSeek V4 Flash Vision Exp；具体别名解析由上游控制，项目不把它固定解释为某个日期快照。
 - OpenAI Responses 模型目录。
 - 按模型能力显示和发送 temperature、max tokens、reasoning enabled/effort；不向不支持该参数的模型发送无效字段。
 - DeepSeek thinking 模式下 temperature 不生效；接受的 effort 为 `low/high/max`，兼容选项 `medium` 会映射为 `high`。UI 保留这些选项以维持跨 Provider 的统一配置形状。
@@ -23,6 +23,14 @@
 - 流式正文、reasoning、耗时、停止、错误和后续恢复；DeepSeek/OpenAI 完成事件缺失时不发送成功 `done` 且不落库。
 - 同一会话禁止并发 ask；客户端快速连续提交只发出一次。
 - 成功或确认停止后回拉服务端详情；只有已保存消息可编辑或重新生成。
+
+### 图片附件与 Vision
+
+- Vision 模型同时支持纯文本、文本加图片和仅图片；纯文本继续使用字符串 `content`，含图片时才构造 Provider content blocks。
+- 支持选择、粘贴和拖放 JPEG/PNG/WebP；单图最多 6 MiB、单边最多 4096px、单条最多 4 张，并按实际字节而不是扩展名识别格式。
+- 原图保存在数据目录 `attachments/`，会话只保存元数据与引用；Provider 调用时临时读取为 Base64 Data URL，不持久化 Base64、不接受外部图片 URL。
+- 上传、失败重试、删除、受保护缩略图/预览、刷新、停止、重新生成和历史分支均保留一致附件状态；不支持图片的模型会阻止发送并明确提示。
+- 图片使用独立上下文数量/字节预算，当前图片优先；分支复制为独立附件 ID 且不修改父会话。
 
 ## 工具
 
@@ -44,8 +52,8 @@
 ## 导入导出
 
 - 单会话 Markdown 导出。
-- 全量 JSON schema v1 备份。
-- 导入前完整校验；支持 skip、duplicate、overwrite。
+- 全量 schema v2 ZIP 便携备份，包含 `manifest.json` 与附件二进制；保留 schema v1 JSON 导出 API和导入兼容。
+- JSON/ZIP 导入前完整校验；支持 skip、duplicate、overwrite，ZIP 同时校验路径、绑定、大小和 SHA-256。
 - file/SQLite、schema v1 备份和 duplicate/overwrite/skip 导入均保留合法的会话模型配置、reasoning 和 summary。
 - 自动化使用临时数据目录，不删除用户已有会话。
 
@@ -69,7 +77,7 @@
 - Refresh Token 默认 7 天，只存在 `HttpOnly`、`Secure`、`SameSite=Strict`、`Path=/api/auth` Cookie；每次使用都会轮换。
 - Refresh Token 重放会撤销整个 Session family；logout 和运维撤销会立即使对应 Access Session 失效。
 - 登录失败使用统一错误并按 IP + 用户名摘要限速；刷新/退出校验 Origin，生产认证要求 HTTPS。
-- 认证 Session 使用独立 SQLite WAL 文件，随 `/app/data` Volume 备份恢复，不改变聊天 file/SQLite 或 schema v1。
+- 认证 Session 使用独立 SQLite WAL 文件，随 `/app/data` Volume 备份恢复；图片附件同样位于该数据根目录，便携备份另使用 schema v2 ZIP。
 
 ### Prompt 模板
 
@@ -94,7 +102,7 @@
 - 缺少前端构建或 TLS 配置非法时 fail-fast。
 - `index.html` 禁止缓存，hash assets 使用长期 immutable cache。
 - 基础安全响应头：禁用框架标识、`nosniff`、禁止 frame、同源 referrer；HTTPS 响应包含 HSTS。
-- Docker 单容器部署：Node 直接提供 HTTPS、React 和 `/api/*`，环境变量运行时注入、TLS 只读挂载、会话数据卷持久化。
+- Docker 单容器部署：Node 直接提供 HTTPS、React 和 `/api/*`，环境变量运行时注入、TLS 只读挂载，会话数据库、认证 Session 与附件共同由 `/app/data` 数据卷持久化。
 - `/api/health` 探测当前 file conversations 目录或 SQLite 数据库，以及启用时的认证 Session Store 真实读写能力。
 
 ## 明确不包含

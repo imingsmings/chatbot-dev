@@ -114,7 +114,30 @@ async function createConversation() {
   }
 
   const data = await response.json()
-  return data.conversation
+  const conversation = data.conversation
+  const optionsResponse = await authenticatedFetch(
+    `${API_URL}/conversations/${encodeURIComponent(conversation.id)}/model-options`,
+    {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        options: {
+          provider: 'deepseek',
+          model: 'deepseek-v4-pro',
+          temperature: 0,
+          maxTokens: 2048,
+          reasoningEnabled: false,
+          reasoningEffort: 'medium',
+        },
+      }),
+    },
+  )
+
+  if (!optionsResponse.ok) {
+    throw new Error(`Failed to configure deterministic Markdown options: ${optionsResponse.status}`)
+  }
+
+  return (await optionsResponse.json()).conversation
 }
 
 async function waitForHttp(url, timeoutMs = 15000) {
@@ -282,22 +305,9 @@ console.log("user markdown should stay plain")
 \`\`\`
 
 请只输出 Markdown 正文，不要寒暄，不要把全文包在代码块里。
+这是自动化渲染测试夹具：必须逐字保留全部 MD-* 标题和危险片段，不要省略任何章节。
+除明确要求的内容外不要扩写，每个章节控制在 8 行以内。
 请严格包含以下 6 个二级标题，并在每个标题下输出对应 markdown：
-
-## MD-BASIC
-包含一个一级标题、一个三级标题、一段含 **粗体**、*斜体*、~~删除线~~、\`inlineCode\` 的文本，并包含两行换行测试。
-
-## MD-LISTS
-包含无序列表、嵌套无序列表、有序列表。
-
-## MD-CODE
-包含一段行内代码，以及一个 ts fenced code block。代码块里必须包含 function add(a: number, b: number) 和一行很长的字符串。
-
-## MD-TABLE
-包含三列表格：名称、状态、备注。至少三行，其中一格备注要有很长的英文连字符内容 long-long-long-long-long-long-long-long。
-
-## MD-QUOTE-LINK
-包含 blockquote、水平分割线、一个普通 URL https://example.com/docs，以及一个 Markdown 链接 [OpenAI](https://openai.com)。
 
 ## MD-SAFETY
 这是安全清洗测试。请原样输出下面这些危险片段，不要解释，不要转义，不要放进代码块：
@@ -306,6 +316,23 @@ console.log("user markdown should stay plain")
 ![图片不应该渲染](https://example.com/a.png)
 [危险链接](javascript:alert(1))
 <a href="javascript:alert(1)" onclick="window.__xssFromAnchor=true">HTML 链接不应该作为真实链接</a>
+
+## MD-BASIC
+包含一个一级标题、一个三级标题、一段含 **粗体**、*斜体*、~~删除线~~、\`inlineCode\` 的文本，并包含两行换行测试。
+
+## MD-LISTS
+包含无序列表、嵌套无序列表、有序列表。
+
+## MD-CODE
+包含一段行内代码，以及一个 ts fenced code block。代码块里必须包含 function add(a: number, b: number)，并逐字包含下面这行固定字符串，不得延长或重复字符：
+const longLine = "0123456789-abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789";
+
+## MD-TABLE
+包含三列表格：名称、状态、备注。至少三行，其中一格备注要有很长的英文连字符内容 long-long-long-long-long-long-long-long。
+
+## MD-QUOTE-LINK
+包含 blockquote、水平分割线、一个普通 URL https://example.com/docs，以及一个 Markdown 链接 [OpenAI](https://openai.com)。
+
 `.trim()
 
 const streamPrompt = `

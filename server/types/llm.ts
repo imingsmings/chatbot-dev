@@ -1,4 +1,4 @@
-import type { PromptMessage } from './conversation.ts'
+import type { LlmPromptMessage } from './conversation.ts'
 import type { GenerationProviderId, TokenUsage } from './generation.ts'
 import type { ChatCompletionToolCall, FunctionToolDefinition, ToolResult } from './tools.ts'
 
@@ -11,6 +11,9 @@ export type LlmModelCapabilities = {
   reasoningEfforts: string[]
   temperature: boolean
   maxOutputTokens: number
+  inputModalities: Array<'text' | 'image'>
+  imageDetailLevels?: Array<'auto' | 'low' | 'original'>
+  experimental?: boolean
 }
 
 export type LlmModelDescriptor = {
@@ -103,7 +106,7 @@ export type LlmAdapter = {
   buildHeaders: (config: LlmProviderConfig & { apiKey: string }) => Record<string, string>
   buildBody: (input: {
     config: LlmProviderConfig
-    prompt: PromptMessage[]
+    prompt: LlmPromptMessage[]
     stream: boolean
     tools?: FunctionToolDefinition[]
     toolChoice?: LlmToolChoice

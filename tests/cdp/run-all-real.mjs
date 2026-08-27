@@ -14,6 +14,7 @@ const REAL_SUITES = new Set([
   'real-markdown',
   'real-model-options',
   'real-openai',
+  'real-vision',
 ])
 
 function allocatePort() {
@@ -62,13 +63,15 @@ async function main() {
   }
 
   const runs = requestedSuite === 'all-real'
-    ? [
+      ? [
         { suite: 'all-real', provider: 'deepseek', model: 'deepseek-v4-pro' },
         { suite: 'real-model-options', provider: 'deepseek' },
+        { suite: 'real-vision', provider: 'deepseek', model: 'deepseek-v4-flash-vision-exp' },
       ]
     : [{
         suite: requestedSuite,
-        provider: requestedSuite === 'real-model-options' ? 'deepseek' : 'openai',
+        provider: ['real-model-options', 'real-vision'].includes(requestedSuite) ? 'deepseek' : 'openai',
+        ...(requestedSuite === 'real-vision' ? { model: 'deepseek-v4-flash-vision-exp' } : {}),
       }]
   const realModelWaitTimeoutMs = await resolveRealModelWaitTimeoutMs()
   let child

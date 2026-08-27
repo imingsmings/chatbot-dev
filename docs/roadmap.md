@@ -4,10 +4,10 @@
 
 ## 当前结论
 
-- P0-P7、R8.0-R8.9、R9-R20 已完成；R11-R20 均有明确验收记录。
-- 最近完成阶段是 R20：JWT 单用户认证、Refresh 轮换、Session 撤销、登录 UI 和认证回归。
-- 当前没有进行中的 Roadmap 阶段，也没有分配 R21；下一阶段必须先从候选中确认一个单一范围。
-- 详细历史范围和交付证据见 [P0-R20 历史阶段记录](roadmap-history.md)。
+- P0-P7、R8.0-R8.9、R9-R21 已完成；R11-R21 均有明确验收记录。
+- 最近完成阶段是 R21：图片附件、DeepSeek Vision、本地持久化、上下文图片预算和 schema v2 ZIP。
+- R21 静态、单元/API、构建、18/18 全量 Mock 与全量真实 Provider 已通过；Docker 实机新 Volume 恢复门禁按用户要求暂缓。
+- 详细历史范围和交付证据见 [P0-R21 历史阶段记录](roadmap-history.md)。
 
 ## 当前基线
 
@@ -26,6 +26,7 @@
 - 会话级 provider/model/reasoning/temperature/max tokens 配置可跨刷新、分支、导入导出、Docker 重启和 Volume 恢复。
 - 摘要覆盖边界、增量滚动摘要、消息数/字符预算和上下文预览统计。
 - assistant 生成元数据、裁剪工具轨迹和 `completed`/`stopped` 状态；停止正文默认不进入后续模型上下文。
+- JPEG/PNG/WebP 图片附件、本地文件持久化、DeepSeek Vision 请求时 Base64、独立图片上下文预算和 schema v2 ZIP 便携备份。
 
 ### 前端与流式状态
 
@@ -58,10 +59,24 @@
 | R18 | 自定义 Prompt 模板 CRUD、浏览器持久化和 JSON 导入导出 | 完成并验证 |
 | R19 | 流式渲染平滑度、历史行隔离、快速到底和性能门禁 | 完成并验证 |
 | R20 | JWT 单用户认证、Refresh 轮换、Session 撤销和登录 UI | 完成并验证 |
+| R21 | 图片附件、DeepSeek Vision 多模态输入、本地持久化和备份恢复 | 完成（Docker 实机恢复暂缓） |
+
+## R21 图片附件与多模态理解
+
+状态：功能与非 Docker 验收已完成。完整范围与设计见 [R21 图片附件与多模态理解方案](r21-multimodal-vision-plan.md)，验收证据见 [R21 验收记录](r21-multimodal-vision-2026-08-24.md)。
+
+- 直接价值：支持围绕截图、照片和图表提问，并学习上传安全、多模态消息建模、Provider 能力约束、附件生命周期和上下文预算。
+- 模型边界：接入 `deepseek-v4-flash-vision-exp`；该模型默认支持纯文本，图片是可选输入，同时支持文本加图片和仅图片消息。
+- 存储边界：浏览器 multipart 上传，原始图片保存在 `/app/data/attachments`；会话只保存元数据和引用。
+- Provider 边界：首期调用时由服务端临时转 Base64 Data URL；不把 Base64 长期保存，不接外部 URL，DeepSeek Files API 暂缓。
+- 协议边界：现有 NDJSON v2 输出协议保持不变；不支持图片的模型不得静默接收或降级图片请求。
+- 已验证：上传状态、刷新、停止/恢复、重试、分支、file/SQLite、schema v1/v2、上下文预算、请求时 Base64、安全边界、全量 Mock 和真实图片完整识别。
+- 暂缓项：用户恢复 Docker 工作后执行新 Volume 恢复实机验证；不影响本轮功能与非 Docker 验收结论。
+- 非目标：文档文本提取、OCR/RAG、图片生成/编辑、音视频和通用多模态网关。
 
 ## 下一阶段候选
 
-以下项目尚未立项，也没有分配阶段编号。自定义 Prompt 模板已在 R18 完成，不再列入候选。
+R21 已选择图片附件与多模态理解。以下项目继续保留为后续候选，尚未立项或分配阶段编号。自定义 Prompt 模板已在 R18 完成，不再列入候选。
 
 ### 文件附件与受限文本提取
 
@@ -85,7 +100,7 @@
 
 1. 一次只选择一个能直接改善个人使用或带来明确学习价值的主题。
 2. 立项前记录使用频率、痛点、当前替代方式、数据边界、预期验收和回滚方案。
-3. 设计文档不代表实施批准；用户确认具体范围后才分配下一阶段编号并修改代码。
+3. 设计文档和阶段编号不代表实施批准；用户明确确认实施范围后才修改代码。
 4. 新问题先复现并增加最小回归；UI、流式和存储行为以自动化断言为准。
 5. 默认使用 mock、fixture 和临时 file/SQLite；真实模型必须明确确认。
 6. 完成阶段必须同步功能、架构、测试、部署文档和验收证据。
@@ -99,9 +114,11 @@
 
 ## 历史与证据
 
-- [P0-R20 历史阶段记录](roadmap-history.md)
+- [P0-R21 历史阶段记录](roadmap-history.md)
 - [R16 全链路一致性验收记录](r16-consistency-hardening-2026-08-13.md)
 - [R17 会话级模型配置持久化验收记录](r17-conversation-model-options-2026-08-13.md)
 - [R18 自定义 Prompt 模板验收记录](r18-custom-prompt-templates-2026-08-13.md)
 - [R19 流式渲染与快速到底验收记录](r19-streaming-rendering-2026-08-13.md)
 - [R20 JWT 单用户认证方案与实施说明](r20-jwt-authentication-plan.md)
+- [R21 图片附件与多模态理解方案](r21-multimodal-vision-plan.md)
+- [R21 图片附件与 Vision 验收记录](r21-multimodal-vision-2026-08-24.md)

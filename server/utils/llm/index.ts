@@ -12,7 +12,7 @@ import type {
   LlmStreamToolCallDelta,
   LlmStreamWithToolsResult
 } from '../../types/llm.ts'
-import type { PromptMessage } from '../../types/conversation.ts'
+import type { LlmPromptMessage } from '../../types/conversation.ts'
 import type { ChatCompletionToolCall, ToolResult } from '../../types/tools.ts'
 import type { TokenUsage } from '../../types/generation.ts'
 
@@ -83,7 +83,7 @@ async function readResponseText(
 }
 
 type CallLLMInput = {
-  prompt: PromptMessage[]
+  prompt: LlmPromptMessage[]
   stream?: boolean
   callback?: LlmStreamCallback
   signal?: AbortSignal
@@ -292,7 +292,7 @@ async function callLLM({
 }
 
 async function callLLMStreamWithTools(
-  prompt: PromptMessage[],
+  prompt: LlmPromptMessage[],
   callback: LlmStreamCallback,
   options: LlmCallOptions = {}
 ): Promise<LlmStreamWithToolsResult> {
@@ -451,7 +451,7 @@ async function callLLMStreamWithTools(
   }
 }
 
-function callLLMOnce(prompt: PromptMessage[], options: LlmCallOptions = {}): Promise<string> {
+function callLLMOnce(prompt: LlmPromptMessage[], options: LlmCallOptions = {}): Promise<string> {
   return callLLM({
     prompt,
     signal: options.signal,
@@ -460,7 +460,7 @@ function callLLMOnce(prompt: PromptMessage[], options: LlmCallOptions = {}): Pro
 }
 
 function callLLMStream(
-  prompt: PromptMessage[],
+  prompt: LlmPromptMessage[],
   callback: LlmStreamCallback,
   options: LlmCallOptions = {}
 ): Promise<LlmStreamResult> {
@@ -474,7 +474,7 @@ function callLLMStream(
 }
 
 function callLLMStreamAfterTools(
-  prompt: PromptMessage[],
+  prompt: LlmPromptMessage[],
   firstResponse: LlmStreamWithToolsResult,
   toolResults: ToolResult[],
   callback: LlmStreamCallback,

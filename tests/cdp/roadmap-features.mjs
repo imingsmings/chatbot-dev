@@ -675,7 +675,7 @@ async function main() {
       }]
     }
     await evaluate(client, `(() => {
-      const input = document.querySelector('input[type="file"]');
+      const input = document.querySelector('input[type="file"][accept*=".json"]');
       const transfer = new DataTransfer();
       transfer.items.add(new File(
         [${JSON.stringify(JSON.stringify(importBackup))}],
@@ -691,8 +691,7 @@ async function main() {
       client,
       `(() => {
         const userTrigger = document.querySelector('.user-menu-trigger');
-        const importButton = [...document.querySelectorAll('.export-all-btn')]
-          .find((item) => item.textContent.trim() === '导入中...');
+        const importButton = document.querySelector('button[aria-label="导入 JSON/ZIP"]');
         const loading = (userTrigger?.getAttribute('aria-label') === '导入中...' &&
           userTrigger.getAttribute('aria-busy') === 'true') ||
           (importButton?.disabled === true && importButton.getAttribute('aria-busy') === 'true');
@@ -710,8 +709,7 @@ async function main() {
         requestCount: state.importRequests.length,
         loadingVisible: document.querySelector('.user-menu-trigger')
           ?.getAttribute('aria-label') === '导入中...' ||
-          [...document.querySelectorAll('.export-all-btn')]
-            .some((item) => item.textContent.trim() === '导入中...' && item.disabled)
+          document.querySelector('button[aria-label="导入 JSON/ZIP"]')?.disabled === true
       };
     })()`)
     await clickButton(client, '知道了')
@@ -719,8 +717,7 @@ async function main() {
       client,
       `(() => {
         const userTrigger = document.querySelector('.user-menu-trigger');
-        const importButton = [...document.querySelectorAll('.export-all-btn')]
-          .find((item) => item.textContent.trim() === '导入 JSON');
+        const importButton = document.querySelector('button[aria-label="导入 JSON/ZIP"]');
         return (userTrigger?.getAttribute('aria-label') === '用户设置' &&
           !userTrigger.matches(':disabled, [data-disabled], [aria-disabled="true"]')) ||
           importButton?.disabled === false;

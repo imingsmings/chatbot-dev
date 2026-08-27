@@ -1,5 +1,6 @@
 import type {
   ConversationContextSummary,
+  LlmPromptMessage,
   PromptMessage,
   StoredMessage
 } from '../types/conversation.ts'
@@ -8,7 +9,8 @@ import type { ChatCompletionToolCall, ToolResult } from '../types/tools.ts'
 function buildStandardPrompt(
   userInput: string,
   conversations: StoredMessage[],
-  summary?: ConversationContextSummary
+  summary?: ConversationContextSummary,
+  currentAttachments: StoredMessage['attachments'] = []
 ): PromptMessage[] {
   return [
     {
@@ -23,11 +25,17 @@ function buildStandardPrompt(
       : []),
     ...conversations.map((message) => ({
       role: message.role,
-      content: message.content
+      content: message.content,
+      ...(message.attachments?.length
+        ? { attachments: message.attachments.map((attachment) => ({ ...attachment })) }
+        : {})
     })),
     {
       role: 'user',
-      content: userInput
+      content: userInput,
+      ...(currentAttachments.length
+        ? { attachments: currentAttachments.map((attachment) => ({ ...attachment })) }
+        : {})
     }
   ]
 }
@@ -61,11 +69,11 @@ function buildConversationSummaryPrompt(
 }
 
 function buildToolResultPrompt(
-  prompt: PromptMessage[],
+  prompt: LlmPromptMessage[],
   toolCalls: ChatCompletionToolCall[],
   results: ToolResult[],
   reasoningContent = ''
-): PromptMessage[] {
+): LlmPromptMessage[] {
   return [
     ...prompt,
     {

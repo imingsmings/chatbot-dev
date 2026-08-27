@@ -243,10 +243,10 @@ export function ChatSidebar(props: ChatSidebarProps) {
                   disabled={sidebarBusy || props.isResponding || props.isStopping}
                   nativeButton
                   onClick={props.onImportConversations}
-                  render={<button aria-label="导入 JSON" type="button" />}
+                  render={<button aria-label="导入 JSON/ZIP" type="button" />}
                 >
                   <FileUpIcon aria-hidden="true" size={15} />
-                  <span>{isOperation('import') ? '导入中...' : '导入 JSON'}</span>
+                  <span>{isOperation('import') ? '导入中...' : '导入 JSON/ZIP'}</span>
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   aria-busy={isOperation('export-all') || undefined}
@@ -255,10 +255,10 @@ export function ChatSidebar(props: ChatSidebarProps) {
                   disabled={sidebarBusy || props.isResponding || props.isStopping}
                   nativeButton
                   onClick={props.onExportAllConversations}
-                  render={<button aria-label="导出全部 JSON" type="button" />}
+                  render={<button aria-label="导出全部 ZIP" type="button" />}
                 >
                   <FileDownIcon aria-hidden="true" size={15} />
-                  <span>{isOperation('export-all') ? '导出中...' : '导出全部 JSON'}</span>
+                  <span>{isOperation('export-all') ? '导出中...' : '导出全部 ZIP'}</span>
                 </DropdownMenuItem>
                 <DropdownMenuSeparator className="dropdown-menu-separator" />
                 {props.showLogout ? (

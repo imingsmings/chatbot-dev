@@ -21,7 +21,8 @@ Vue 客户端已在 2026-08-09 完成下线，`client/` 现在是唯一的 React
 
 - 多会话创建、切换、重命名、清空、删除和自动标题。
 - 历史用户消息编辑、已完成回答重新生成和不改写原会话的独立分支。
-- 标题/消息搜索，单会话 Markdown 导出，全量 JSON 备份与导入。
+- 标题/消息搜索、单会话 Markdown、schema v2 ZIP 全量备份，以及 JSON/ZIP 导入。
+- JPEG/PNG/WebP 图片上传、受保护预览、DeepSeek Vision 文本加图/仅图片、本地附件持久化与分支复制。
 - file/SQLite 本地存储及旧 JSON 到 SQLite 幂等迁移。
 - DeepSeek / OpenAI provider、模型和推理强度的请求级切换；目录内模型按能力校验，Provider 自定义默认模型保留兼容入口。
 - provider SSE 到应用 NDJSON v2 的稳定流式协议；客户端有界合并文本事件，异常 EOF 不发送成功 `done` 且不落库。
@@ -182,13 +183,16 @@ tsconfig.base.json             前后端共用 TypeScript 严格规则
 | `PATCH` | `/api/conversations/:id/model-options` | 保存当前会话的完整模型配置 |
 | `POST` | `/api/conversations/:id/clear` | 清空消息和摘要 |
 | `POST` | `/api/conversations/:id/branches` | 从已保存用户消息前创建独立分支 |
-| `POST` | `/api/conversations/:id/ask` | NDJSON v2 流式问答 |
+| `POST/GET/DELETE` | `/api/conversations/:id/attachments[/:attachmentId]` | 上传、认证读取和删除图片附件 |
+| `POST` | `/api/conversations/:id/ask` | NDJSON v2 流式问答；可附带 `attachmentIds` |
 | `POST` | `/api/conversations/:id/context-preview` | 实际上下文预览 |
 | `POST` | `/api/conversations/:id/summary` | 生成摘要 |
 | `GET` | `/api/conversations/search?q=` | 搜索标题和消息 |
 | `GET` | `/api/conversations/:id/export.md` | 单会话 Markdown |
 | `GET` | `/api/conversations/export.json` | 全量 schema v1 备份 |
-| `POST` | `/api/conversations/import` | `skip`/`duplicate`/`overwrite` 导入 |
+| `GET` | `/api/conversations/export.zip` | 全量 schema v2 便携备份（会话 + 附件） |
+| `POST` | `/api/conversations/import` | schema v1 JSON 的 `skip`/`duplicate`/`overwrite` 导入 |
+| `POST` | `/api/conversations/import.zip` | schema v2 ZIP 的校验与导入 |
 | `POST` | `/api/requests/:requestId/cancel` | 取消活动请求 |
 | `GET` | `/api/runtime-config` | 非敏感运行配置和模型能力目录 |
 
@@ -201,7 +205,8 @@ pnpm run build                 # 全部静态检查 + React 生产构建
 pnpm run audit:production      # 整个 workspace 生产依赖审计
 pnpm run test:cdp:all-mock     # React-only 全量 mock 浏览器回归
 pnpm run test:cdp:authentication # 登录门禁、内存 Token、401 单次刷新重放和退出
-pnpm run test:cdp:all-real     # 认证开启下的 DeepSeek/OpenAI 真实链路与 DeepSeek 代表性 8 组矩阵
+pnpm run test:cdp:image-attachments # 图片上传、预览、分支、停止和移动端 Mock 专项
+pnpm run test:cdp:all-real     # DeepSeek/OpenAI 全量真实链路、参数矩阵与 Vision 真实图片门禁
 pnpm run test:docker           # Docker HTTPS、认证、SQLite、Volume 恢复与 SIGTERM 冒烟
 ```
 
@@ -224,6 +229,7 @@ pnpm run test:docker           # Docker HTTPS、认证、SQLite、Volume 恢复�
 
 ### 方案与验收记录
 
+- [R21 图片附件与 Vision 验收记录（2026-08-24）](docs/r21-multimodal-vision-2026-08-24.md)
 - [R20 JWT 单用户认证方案与实施说明（2026-08-19）](docs/r20-jwt-authentication-plan.md)
 - [R11 流完整性与摘要覆盖验收记录（2026-08-12）](docs/r11-stream-context-2026-08-12.md)
 - [R16 全链路一致性验收记录（2026-08-13）](docs/r16-consistency-hardening-2026-08-13.md)

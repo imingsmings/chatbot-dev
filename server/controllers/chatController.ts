@@ -7,9 +7,15 @@ import {
   parseRequestId,
   registerRequest
 } from '../utils/requestRegistry.ts'
-import { parseModelRequestOptions } from '../utils/modelOptions.ts'
-import { MAX_QUESTION_LENGTH } from '../config/productLimits.ts'
+import { parseModelRequestOptions, resolveModelOptions } from '../utils/modelOptions.ts'
+import { MAX_IMAGE_ATTACHMENTS_PER_MESSAGE, MAX_QUESTION_LENGTH } from '../config/productLimits.ts'
+import { findModelDescriptor } from '../utils/llm/modelCatalog.ts'
+import {
+  AttachmentError,
+  resolveConversationAttachments,
+} from '../services/attachmentService.ts'
 import type { LlmStreamChunkType } from '../types/llm.ts'
+import type { ImageAttachment } from '../types/conversation.ts'
 import type { ToolExecutionEvent } from '../types/tools.ts'
 import type { RequestHandler, Response } from 'express'
 
@@ -21,6 +27,7 @@ type AskConversationBody = {
   question?: unknown
   requestId?: unknown
   options?: unknown
+  attachmentIds?: unknown
 }
 
 function writeNotFound(res: Response): void {
@@ -38,6 +45,7 @@ const askConversation: RequestHandler<AskConversationParams, unknown, AskConvers
   const requestId = parseRequestId(req.body.requestId)
   let modelOptions
   let conversation
+  let attachments: ImageAttachment[] = []
   const requestController = new AbortController()
   let abortReason: string | null = null
 
@@ -48,9 +56,22 @@ const askConversation: RequestHandler<AskConversationParams, unknown, AskConvers
     return
   }
 
-  if (!question) {
+  if (
+    req.body.attachmentIds !== undefined &&
+    (!Array.isArray(req.body.attachmentIds) ||
+      req.body.attachmentIds.length > MAX_IMAGE_ATTACHMENTS_PER_MESSAGE ||
+      req.body.attachmentIds.some((id) => typeof id !== 'string'))
+  ) {
     res.status(400).json({
-      message: '问题不能为空'
+      message: `attachmentIds 必须是最多 ${MAX_IMAGE_ATTACHMENTS_PER_MESSAGE} 个字符串组成的数组`
+    })
+    return
+  }
+  const attachmentIds = (req.body.attachmentIds ?? []) as string[]
+
+  if (!question && attachmentIds.length === 0) {
+    res.status(400).json({
+      message: '问题和图片不能同时为空'
     })
     return
   }
@@ -80,6 +101,27 @@ const askConversation: RequestHandler<AskConversationParams, unknown, AskConvers
 
   if (!conversation) {
     writeNotFound(res)
+    return
+  }
+
+  try {
+    attachments = await resolveConversationAttachments(req.params.id, attachmentIds)
+    if (attachments.length) {
+      const effectiveOptions = resolveModelOptions(modelOptions)
+      const descriptor = findModelDescriptor(effectiveOptions.model)
+      if (!descriptor?.capabilities.inputModalities.includes('image')) {
+        res.status(400).json({
+          message: `${descriptor?.label ?? effectiveOptions.model} 不支持图片，请切换到 Vision 模型`
+        })
+        return
+      }
+    }
+  } catch (error) {
+    if (error instanceof AttachmentError) {
+      res.status(error.status).json({ message: error.message })
+      return
+    }
+    next(error)
     return
   }
 
@@ -153,6 +195,7 @@ const askConversation: RequestHandler<AskConversationParams, unknown, AskConvers
       conversation,
       conversationId: req.params.id,
       question,
+      attachments,
       signal: requestController.signal,
       onDelta: writeDelta,
       onToolEvent: writeToolEvent,

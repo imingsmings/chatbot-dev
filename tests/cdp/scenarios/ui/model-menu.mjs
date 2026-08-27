@@ -158,6 +158,7 @@ export async function runModelMenu(client) {
       JSON.stringify(modelMenuState.labels) !== JSON.stringify([
         'DeepSeek V4 Flash',
         'DeepSeek V4 Pro',
+        'DeepSeek V4 Flash Vision Exp',
         'GPT-5.6 Luna',
         'GPT-5.6 Sol',
       ]) ||

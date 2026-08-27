@@ -89,3 +89,14 @@
 - Evidence：不带 tools 的请求返回 `response.reasoning_summary_text.delta`，完成事件中 `reasoning.summary` 有内容；携带 tools 且无需调用工具的请求返回空 `reasoning.summary`，正文仍正常完成。重复 UI 请求均观察到该差异。
 - Conclusion：当前上游在 tools 组合下不保证 reasoning summary。前端和 NDJSON 解析没有丢失事件；UI 只在 provider 实际返回摘要时展示 thinking 内容。
 - Follow-up：真实门禁继续断言 reasoning 参数、正文、工具、取消和恢复；`uiReasoningSummaryPresent` 作为证据记录，不作为上游输出内容的强制断言。若 provider 行为变化，再恢复摘要存在性门禁。
+
+## 2026-08-24 DeepSeek Vision 真实图片全链路
+
+- Goal：验证 Vision 模型的纯文本兼容、工具调用、真实识图、历史图片上下文、停止/恢复、完整识别输出与持久化。
+- Provider/model：已配置 DeepSeek endpoint / `deepseek-v4-flash-vision-exp`；不记录 endpoint 和凭据。
+- Input：`Downloads/ai-basic-master` 子目录中的 `books.jpeg`，500×500 JPEG，34,429 bytes，SHA-256 `e8decf4230ec0c622f030ffe6456e5dca03a39b97c5ec3bd20814408f82ef59d`。
+- Test mode：真实接口；`CDP_SCREENSHOTS=1 pnpm run test:cdp:all-real`。
+- Assertions：Vision 纯文本调用 calculator 得到 42；图片识别书堆和饮用容器；历史上下文选中 1 张/34,429 bytes；刷新、分支、仅图片、停止/恢复、schema v2 ZIP 和 390px 布局通过。
+- Result：全量真实入口通过；完整图片识别报告为 1,851 个可见字符，包含书堆、容器、相对位置、色彩、构图和不确定信息。
+- Conclusion：当前 Provider 的当轮图片输入、应用 NDJSON v2 输出、附件持久化与 React 展示已连通。停止后恢复与完整识图分离验证，避免把历史图片是否重发的模型波动误当成恢复链路失败。
+- Reproduction：`pnpm run test:cdp:real-vision` 或全量 `pnpm run test:cdp:all-real`；脚本自动清理测试会话、附件、临时服务与浏览器 Profile。

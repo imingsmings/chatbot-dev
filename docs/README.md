@@ -32,6 +32,8 @@
 - [R18 自定义 Prompt 模板](r18-custom-prompt-templates-2026-08-13.md)
 - [R19 流式渲染与快速到底](r19-streaming-rendering-2026-08-13.md)
 - [R20 JWT 单用户认证](r20-jwt-authentication-plan.md)
+- [R21 图片附件与多模态理解方案](r21-multimodal-vision-plan.md)
+- [R21 图片附件与 Vision 验收记录](r21-multimodal-vision-2026-08-24.md)
 - [会话级模型配置持久化方案](conversation-model-options-plan.md)
 - [流式渲染平滑度优化方案](streaming-rendering-optimization-plan.md)
 - [DeepSeek V4 Pro 0813 启用与验收](deepseek-v4-pro-0813-validation-2026-08-13.md)
@@ -40,7 +42,7 @@
 
 以下内容用于追溯当时的架构、命令、模型、镜像和测试结果。部分 Vue 命令、模型名、计数、临时产物路径或镜像体积已经不属于当前基线。
 
-- [Roadmap P0-R20 历史阶段记录](roadmap-history.md)
+- [Roadmap P0-R21 历史阶段记录](roadmap-history.md)
 - [React 迁移收口记录](react-migration-plan.md)
 - [Vue 迁移基线归档](react-migration-vue-baseline.md)
 - [架构与 Code Review 记录（2026-05-23）](architecture-review-2026-05-23.md)

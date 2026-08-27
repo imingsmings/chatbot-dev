@@ -9,6 +9,7 @@ import { getDeploymentConfig, loadTlsServerOptions } from '../config/deploymentC
 import { closeConversationStore } from '../utils/conversationStore.ts'
 import { closeAuthSessionStores } from '../utils/authSessionStore.ts'
 import { cancelAllRequests } from '../utils/requestRegistry.ts'
+import { cleanupOrphanedAttachments } from '../services/attachmentService.ts'
 
 const debug = debugLib('server:server')
 const deployment = getDeploymentConfig()
@@ -69,6 +70,11 @@ function onListening(): void {
   const displayHost = deployment.host === '0.0.0.0' ? 'localhost' : deployment.host
   console.log(`服务器已启动：${protocol}://${displayHost}:${address.port}`)
   console.log(`前端构建托管：${deployment.client.enabled ? '已启用' : '未启用'}`)
+  void cleanupOrphanedAttachments().then((deleted) => {
+    if (deleted > 0) console.log(`已清理 ${deleted} 个过期孤儿附件`)
+  }).catch((error) => {
+    console.warn('附件孤儿清理失败：', error)
+  })
 }
 
 let shuttingDown = false

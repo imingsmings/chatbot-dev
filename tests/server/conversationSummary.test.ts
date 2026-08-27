@@ -110,6 +110,33 @@ test('messages added after a summary are the only raw history sent to the model'
   assert(content.includes('摘要后助手消息'))
 })
 
+test('image-only user messages participate in rolling summaries through safe metadata references', async () => {
+  const conversation = await createConversation('Summary image-only')
+  await appendMessages(conversation.id, [{
+    role: 'user',
+    content: '',
+    attachments: [{
+      id: 'att_00000000-0000-4000-8000-000000000001',
+      kind: 'image',
+      filename: 'summary-image.png',
+      mediaType: 'image/png',
+      byteSize: 68,
+      width: 1,
+      height: 1,
+      detail: 'auto',
+    }],
+  }])
+  const requestCount = requests.length
+
+  const result = await generateConversationSummary(conversation.id)
+
+  assert.equal(result.conversation?.summary?.sourceMessageCount, 1)
+  const serializedRequest = JSON.stringify(requests[requestCount])
+  assert(serializedRequest.includes('[图片附件]'))
+  assert(serializedRequest.includes('summary-image.png'))
+  assert(!serializedRequest.includes('base64'))
+})
+
 test('regenerating a summary advances the coverage boundary to the latest message', async () => {
   const conversation = await createConversation('Summary regeneration')
   await appendMessages(conversation.id, [

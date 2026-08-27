@@ -1,7 +1,7 @@
 import { useCallback } from 'react'
 
 import type { SubmitQuestionOptions } from '#hooks/useChatStream'
-import type { ChatMessage, ConversationDetail, SidebarOperation } from '#types/chat'
+import type { ChatMessage, ConversationDetail, ImageAttachment, SidebarOperation } from '#types/chat'
 
 type MessageBranchingOptions = {
   beginSidebarOperation: (
@@ -13,7 +13,7 @@ type MessageBranchingOptions = {
     sourceConversationId: string,
     messageIndex: number,
     question: string,
-  ) => Promise<ConversationDetail>
+  ) => Promise<{ conversation: ConversationDetail; draftAttachments: ImageAttachment[] }>
   currentConversationId: string | null
   isResponding: boolean
   isModelOptionsSaving?: boolean
@@ -53,7 +53,8 @@ export function useMessageBranching(options: MessageBranchingOptions) {
       await options.submitQuestion(question, {
         appendUser: true,
         clearComposer: false,
-        conversationId: branch.id,
+        conversationId: branch.conversation.id,
+        attachments: branch.draftAttachments,
       })
       await options.settleConversationView({ focus: true, scroll: true })
     } catch (error) {
@@ -127,11 +128,11 @@ export function useMessageBranching(options: MessageBranchingOptions) {
       userMessageIndex -= 1
     }
     const userMessage = options.messages[userMessageIndex]
-    const question = userMessage?.text.trim()
+    const question = userMessage?.text.trim() ?? ''
     if (
       userMessageIndex < 0 ||
       userMessage?.persistedIndex === undefined ||
-      !question ||
+      (!question && !userMessage?.attachments?.length) ||
       !options.beginSidebarOperation('branch', sourceConversationId)
     ) {
       return

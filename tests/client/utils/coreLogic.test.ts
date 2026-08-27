@@ -141,6 +141,7 @@ describe('framework-neutral core logic', () => {
     expect(DEEPSEEK_MODELS).toEqual([
       { label: 'DeepSeek V4 Flash', value: 'deepseek-v4-flash' },
       { label: 'DeepSeek V4 Pro', value: 'deepseek-v4-pro' },
+      { label: 'DeepSeek V4 Flash Vision Exp', value: 'deepseek-v4-flash-vision-exp' },
     ])
     expect(normalizeDeepSeekModelId('deepseek-v4-pro')).toBe('deepseek-v4-pro')
     expect(normalizeDeepSeekModelId('deepseek-reasoner')).toBe('deepseek-v4-flash')

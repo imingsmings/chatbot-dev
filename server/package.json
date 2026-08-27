@@ -24,16 +24,19 @@
   },
   "dependencies": {
     "argon2": "0.45.1",
+    "busboy": "^1.6.0",
     "cookie-parser": "1.4.7",
     "debug": "4.4.3",
     "dotenv": "17.4.2",
     "express": "5.2.1",
     "express-rate-limit": "8.6.2",
+    "fflate": "^0.8.3",
     "http-errors": "2.0.1",
     "jose": "6.2.9",
     "morgan": "1.11.0"
   },
   "devDependencies": {
+    "@types/busboy": "^1.5.4",
     "@types/cookie-parser": "1.4.10",
     "@types/debug": "4.1.13",
     "@types/express": "5.0.6",

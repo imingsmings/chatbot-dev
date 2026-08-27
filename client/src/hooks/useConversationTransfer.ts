@@ -1,9 +1,10 @@
 import { useCallback, useRef, type ChangeEvent } from 'react'
 
 import {
-  downloadAllConversationsJson,
+  downloadAllConversationsZip,
   downloadConversationMarkdown,
   importConversationsBackup,
+  importConversationsZip,
   type DownloadedFile,
 } from '#api/conversations'
 import type { ConversationSummary, SidebarOperation } from '#types/chat'
@@ -68,7 +69,7 @@ export function useConversationTransfer(options: ConversationTransferOptions) {
       return
     }
     try {
-      saveDownloadedFile(await downloadAllConversationsJson())
+      saveDownloadedFile(await downloadAllConversationsZip())
     } catch (error) {
       console.error('Failed to export all conversations:', error)
       await options.showError('导出全部会话失败，请稍候再试')
@@ -96,8 +97,9 @@ export function useConversationTransfer(options: ConversationTransferOptions) {
         return
       }
       try {
-        const backup = JSON.parse(await file.text()) as unknown
-        const result = await importConversationsBackup(backup, 'skip')
+        const result = file.name.toLowerCase().endsWith('.zip') || file.type === 'application/zip'
+          ? await importConversationsZip(file, 'skip')
+          : await importConversationsBackup(JSON.parse(await file.text()) as unknown, 'skip')
         await options.refreshConversationListAndSearch()
         await options.openDialog({
           message: [

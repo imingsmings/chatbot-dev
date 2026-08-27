@@ -3,7 +3,8 @@ import { getToolDefinitions } from './toolService.ts'
 import { readConversationStoreKind } from '../config/conversationStoreConfig.ts'
 import { resolveModelOptions } from '../utils/modelOptions.ts'
 import { getProviderConfig } from '../utils/llm/providerConfig.ts'
-import type { Conversation, PromptMessage } from '../types/conversation.ts'
+import { getModelDescriptor } from '../utils/llm/modelCatalog.ts'
+import type { Conversation, ImageAttachment, PromptMessage } from '../types/conversation.ts'
 import type { ModelRequestOptions } from '../types/llm.ts'
 import type { FunctionToolDefinition } from '../types/tools.ts'
 
@@ -29,12 +30,16 @@ type ContextPreviewStats = {
   selectedHistoryMessages: number
   droppedHistoryMessages: number
   selectedHistoryChars: number
+  selectedImages: number
+  droppedImages: number
+  selectedImageBytes: number
   selectedHistoryRange: {
     start: number
     end: number
   } | null
   maxHistoryMessages: number
   maxHistoryChars: number
+  maxImages: number
   summaryIncluded: boolean
 }
 
@@ -72,9 +77,17 @@ function readContextPreviewModel(options: ModelRequestOptions = {}): ContextPrev
 function buildContextPreview(
   conversation: Conversation,
   question: string,
-  options: ModelRequestOptions = {}
+  options: ModelRequestOptions = {},
+  currentAttachments: ImageAttachment[] = [],
 ): ContextPreview {
-  const context = buildContextMessages(conversation, question)
+  const effectiveOptions = resolveModelOptions(options)
+  const descriptor = effectiveOptions.model
+    ? getModelDescriptor(effectiveOptions.provider, effectiveOptions.model)
+    : undefined
+  const context = buildContextMessages(conversation, question, {
+    currentAttachments,
+    includeImages: descriptor?.capabilities.inputModalities.includes('image') === true,
+  })
   const tools = getToolDefinitions()
 
   return {
@@ -89,9 +102,13 @@ function buildContextPreview(
       selectedHistoryMessages: context.selectedHistoryMessages,
       droppedHistoryMessages: context.droppedHistoryMessages,
       selectedHistoryChars: context.selectedHistoryChars,
+      selectedImages: context.selectedImages,
+      droppedImages: context.droppedImages,
+      selectedImageBytes: context.selectedImageBytes,
       selectedHistoryRange: context.selectedHistoryRange,
       maxHistoryMessages: context.config.maxHistoryMessages,
       maxHistoryChars: context.config.maxHistoryChars,
+      maxImages: context.config.maxImages,
       summaryIncluded: context.summaryIncluded
     },
     model: readContextPreviewModel(options),

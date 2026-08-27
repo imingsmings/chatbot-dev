@@ -3,6 +3,7 @@ import { CheckIcon, CopyIcon, PencilIcon, RefreshCwIcon } from 'lucide-react'
 
 import { MarkdownMessage } from '#components/MarkdownMessage'
 import { ReasoningDisclosure } from '#components/ReasoningDisclosure'
+import { MessageAttachments } from '#components/MessageAttachments'
 import { Button } from '#components/ui/button'
 import { cn } from '#lib/utils'
 import type { ChatMessage, ToolActivity } from '#types/chat'
@@ -11,6 +12,7 @@ import { formatModelName, formatProviderName } from '#utils/displayNames'
 
 type MessageRowProps = {
   copied: boolean
+  conversationId: string
   hasPreviousPersistedUserMessage: boolean
   index: number
   isResponding: boolean
@@ -66,6 +68,7 @@ function GenerationDetails({ message }: { message: ChatMessage }) {
 
 export const MessageRow = memo(function MessageRow({
   copied,
+  conversationId,
   hasPreviousPersistedUserMessage,
   index,
   isResponding,
@@ -104,6 +107,13 @@ export const MessageRow = memo(function MessageRow({
       >
         {message.role === 'assistant' ? <ReasoningDisclosure {...message} /> : null}
 
+        {isUser && conversationId && message.attachments?.length ? (
+          <MessageAttachments
+            attachments={message.attachments}
+            conversationId={conversationId}
+          />
+        ) : null}
+
         {message.role === 'assistant' && message.toolActivities?.length ? (
           <div aria-label="工具执行状态" className="tool-activity-list flex flex-col gap-[5px] text-xs text-[var(--text-secondary)]">
             {message.toolActivities.map((activity) => (
@@ -128,7 +138,7 @@ export const MessageRow = memo(function MessageRow({
           <div className="message-text thinking-text inline-flex w-fit animate-pulse text-[13px] text-[var(--text-secondary)]">Thinking...</div>
         ) : message.status === 'error' && !message.text ? (
           <div className="message-text error-text text-[var(--danger)]">{message.error || '响应失败，请重试'}</div>
-        ) : message.role === 'user' ? (
+        ) : message.role === 'user' && message.text ? (
           <div className="message-text [overflow-wrap:anywhere] rounded-[12px_12px_3px_12px] bg-[var(--user-message-bg)] px-6 py-3 text-sm leading-[1.55] whitespace-pre-wrap text-[var(--user-message-text)] max-[820px]:px-[13px] max-[820px]:py-[9px]">
             {message.text}
           </div>

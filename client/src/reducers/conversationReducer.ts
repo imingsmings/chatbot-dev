@@ -61,6 +61,7 @@ export function mapStoredMessages(conversation: ConversationDetail): ChatMessage
     reasoningDurationMs: message.reasoningDurationMs,
     status: message.status === 'stopped' ? 'stopped' : 'done',
     generation: message.generation,
+    attachments: message.attachments?.map((attachment) => ({ ...attachment })),
     toolActivities: message.toolTrace?.map((trace, traceIndex) => ({
       id: `${conversation.id}-${index}-tool-${traceIndex}`,
       name: trace.name,

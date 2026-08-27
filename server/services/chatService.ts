@@ -9,7 +9,9 @@ import { resolveModelOptions, toConversationModelOptions } from '../utils/modelO
 import { buildContextMessages } from './contextService.ts'
 import { executeToolCalls, getToolDefinitions } from './toolService.ts'
 import { MAX_STORED_TOOL_TRACE_ITEMS } from '../config/productLimits.ts'
-import type { Conversation, StoredMessage } from '../types/conversation.ts'
+import { findModelDescriptor } from '../utils/llm/modelCatalog.ts'
+import { materializePromptAttachments } from './attachmentService.ts'
+import type { Conversation, ImageAttachment, StoredMessage } from '../types/conversation.ts'
 import type { GenerationMetadata, StoredToolTrace, TokenUsage } from '../types/generation.ts'
 import type { LlmStreamChunkType, ModelRequestOptions } from '../types/llm.ts'
 import type { ChatCompletionToolCall, ToolCall, ToolExecutionEvent } from '../types/tools.ts'
@@ -18,6 +20,7 @@ type GenerateConversationAnswerOptions = {
   conversation: Conversation
   conversationId: string
   question: string
+  attachments?: ImageAttachment[]
   signal: AbortSignal
   onDelta: (chunk: string, type: LlmStreamChunkType) => void
   onToolEvent?: (event: ToolExecutionEvent) => void
@@ -62,6 +65,7 @@ async function generateConversationAnswer({
   conversation,
   conversationId,
   question,
+  attachments = [],
   signal,
   onDelta,
   onToolEvent,
@@ -69,6 +73,11 @@ async function generateConversationAnswer({
 }: GenerateConversationAnswerOptions): Promise<GenerateConversationAnswerResult> {
   const startedAt = Date.now()
   const effectiveOptions = resolveModelOptions(modelOptions)
+  const modelDescriptor = findModelDescriptor(effectiveOptions.model)
+  const supportsImages = modelDescriptor?.capabilities.inputModalities.includes('image') === true
+  if (attachments.length && !supportsImages) {
+    throw new Error(`${modelDescriptor?.label ?? effectiveOptions.model} 不支持图片，请切换到 Vision 模型`)
+  }
   const boundOptions = toConversationModelOptions(effectiveOptions)
   const persistedModelOptions = await updateConversationModelOptions(conversationId, boundOptions)
   if (!persistedModelOptions) {
@@ -82,7 +91,11 @@ async function generateConversationAnswer({
   let terminalFinishReason: string | undefined
   const completedUsages: Array<TokenUsage | undefined> = []
   const toolTrace: StoredToolTrace[] = []
-  const { messages: prompt } = buildContextMessages(persistedModelOptions, question)
+  const context = buildContextMessages(persistedModelOptions, question, {
+    currentAttachments: attachments,
+    includeImages: supportsImages,
+  })
+  const prompt = await materializePromptAttachments(conversationId, context.messages)
   const forwardStreamChunk = (chunk: string, type: LlmStreamChunkType = 'content'): void => {
     firstTokenAt ||= Date.now()
 
@@ -151,7 +164,13 @@ async function generateConversationAnswer({
     }
 
     const persistedConversation = await appendMessages(conversationId, [
-      { role: 'user', content: question },
+      {
+        role: 'user',
+        content: question,
+        ...(attachments.length
+          ? { attachments: attachments.map((attachment) => ({ ...attachment })) }
+          : {}),
+      },
       assistantMessage
     ])
 
@@ -239,7 +258,7 @@ async function generateConversationAnswer({
     if (
       signal.aborted &&
       signal.reason === 'explicit_cancel' &&
-      finalResponse.trim()
+      (finalResponse.trim() || finalReasoningContent.trim())
     ) {
       await persistAnswer('stopped')
     }

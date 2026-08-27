@@ -1,7 +1,12 @@
 import { getConversation, listConversations } from '../utils/conversationStore.ts'
+import crypto from 'node:crypto'
+import { strToU8, zipSync } from 'fflate'
+import { MAX_PORTABLE_BACKUP_BYTES } from '../config/productLimits.ts'
+import { getConversationAttachment, readStoredRecord } from './attachmentService.ts'
 import type { Conversation, StoredMessage } from '../types/conversation.ts'
 
 const EXPORT_SCHEMA_VERSION = 1
+const PORTABLE_EXPORT_SCHEMA_VERSION = 2
 
 type ConversationBackup = {
   exportedAt: string
@@ -20,6 +25,25 @@ type ConversationJsonExport = {
   backup: ConversationBackup
   content: string
   filename: string
+}
+
+type PortableAttachmentManifest = Awaited<ReturnType<typeof readStoredRecord>> & {
+  path: string
+}
+
+type PortableConversationManifest = {
+  exportedAt: string
+  schemaVersion: typeof PORTABLE_EXPORT_SCHEMA_VERSION
+  source: 'chatbot-local'
+  conversations: Conversation[]
+  attachments: PortableAttachmentManifest[]
+}
+
+type ConversationZipExport = {
+  content: Buffer
+  filename: string
+  manifest: PortableConversationManifest
+  sha256: string
 }
 
 function normalizeFilenamePart(value: string): string {
@@ -41,6 +65,10 @@ function createMarkdownFilename(conversation: Conversation): string {
 
 function createBackupFilename(exportedAt: string): string {
   return `chatbot-conversations-${exportedAt.slice(0, 10)}.json`
+}
+
+function createPortableBackupFilename(exportedAt: string): string {
+  return `chatbot-conversations-${exportedAt.slice(0, 10)}.zip`
 }
 
 function formatMessageHeading(message: StoredMessage, index: number): string {
@@ -65,6 +93,18 @@ function formatReasoning(message: StoredMessage): string[] {
     '',
     '</details>',
     ''
+  ]
+}
+
+function formatAttachments(message: StoredMessage): string[] {
+  if (!message.attachments?.length) return []
+  return [
+    '附件：',
+    '',
+    ...message.attachments.map((attachment) =>
+      `- ${attachment.filename}（${attachment.mediaType}，${attachment.width}×${attachment.height}，引用：\`${attachment.id}\`）`
+    ),
+    '',
   ]
 }
 
@@ -154,6 +194,7 @@ function buildConversationMarkdown(conversation: Conversation): string {
     lines.push(formatMessageHeading(message, index), '')
     lines.push(...formatGenerationDetails(message))
     lines.push(...formatReasoning(message))
+    lines.push(...formatAttachments(message))
     lines.push(message.content || '(空消息)', '')
   })
 
@@ -193,14 +234,71 @@ async function exportAllConversationsAsJson(): Promise<ConversationJsonExport> {
   }
 }
 
+async function exportAllConversationsAsZip(): Promise<ConversationZipExport> {
+  const summaries = await listConversations()
+  const conversations = (await Promise.all(summaries.map((summary) => getConversation(summary.id))))
+    .filter((conversation): conversation is Conversation => Boolean(conversation))
+  const entries: Record<string, Uint8Array> = {}
+  const attachments: PortableAttachmentManifest[] = []
+  const seenAttachmentIds = new Set<string>()
+  let totalUncompressedBytes = 0
+
+  for (const conversation of conversations) {
+    for (const attachment of conversation.messages.flatMap((message) => message.attachments ?? [])) {
+      if (seenAttachmentIds.has(attachment.id)) continue
+      seenAttachmentIds.add(attachment.id)
+      const record = await readStoredRecord(attachment.id)
+      if (record.conversationId !== conversation.id) {
+        throw new Error(`附件 ${attachment.id} 与会话绑定不一致`)
+      }
+      const stored = await getConversationAttachment(conversation.id, attachment.id)
+      const archivePath = `attachments/${attachment.id}.data`
+      totalUncompressedBytes += stored.data.length
+      if (totalUncompressedBytes > MAX_PORTABLE_BACKUP_BYTES) {
+        throw new Error(`便携备份内容不能超过 ${MAX_PORTABLE_BACKUP_BYTES / 1024 / 1024} MiB`)
+      }
+      entries[archivePath] = stored.data
+      attachments.push({ ...record, path: archivePath })
+    }
+  }
+
+  const exportedAt = new Date().toISOString()
+  const manifest: PortableConversationManifest = {
+    schemaVersion: PORTABLE_EXPORT_SCHEMA_VERSION,
+    source: 'chatbot-local',
+    exportedAt,
+    conversations,
+    attachments,
+  }
+  const manifestBytes = strToU8(`${JSON.stringify(manifest, null, 2)}\n`)
+  totalUncompressedBytes += manifestBytes.length
+  if (totalUncompressedBytes > MAX_PORTABLE_BACKUP_BYTES) {
+    throw new Error(`便携备份内容不能超过 ${MAX_PORTABLE_BACKUP_BYTES / 1024 / 1024} MiB`)
+  }
+  entries['manifest.json'] = manifestBytes
+  const content = Buffer.from(zipSync(entries, { level: 0 }))
+  const sha256 = crypto.createHash('sha256').update(content).digest('hex')
+
+  return {
+    content,
+    filename: createPortableBackupFilename(exportedAt),
+    manifest,
+    sha256,
+  }
+}
+
 export {
   EXPORT_SCHEMA_VERSION,
+  PORTABLE_EXPORT_SCHEMA_VERSION,
   exportAllConversationsAsJson,
+  exportAllConversationsAsZip,
   exportConversationAsMarkdown
 }
 
 export type {
   ConversationBackup,
   ConversationJsonExport,
+  ConversationZipExport,
+  PortableConversationManifest,
   ConversationMarkdownExport
 }

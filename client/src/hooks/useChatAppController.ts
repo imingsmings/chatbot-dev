@@ -12,9 +12,10 @@ import { useConversationSearch } from '#hooks/useConversationSearch'
 import { useConversationTransfer } from '#hooks/useConversationTransfer'
 import { useConversations } from '#hooks/useConversations'
 import { useMessageBranching } from '#hooks/useMessageBranching'
+import { useImageAttachments } from '#hooks/useImageAttachments'
 import { useTheme } from '#hooks/useTheme'
 import type { RuntimeInfo } from '#types/chat'
-import { isModelOptionsUsable } from '#utils/modelOptions'
+import { isModelOptionsUsable, modelSupportsImages } from '#utils/modelOptions'
 
 export type ActiveTopMenu =
   | { kind: 'app' }
@@ -91,6 +92,24 @@ export function useChatAppController() {
     showError,
   })
   const modelOptionsAvailable = isModelOptionsUsable(runtimeInfo, modelOptions)
+  const currentModelSupportsImages = modelSupportsImages(runtimeInfo, modelOptions)
+  const {
+    addFiles: addImageFiles,
+    attachments: composerImageAttachments,
+    clearSubmitted: clearSubmittedImages,
+    discardAll: discardAllImages,
+    hasBlockingUpload,
+    readyAttachments,
+    removeItem: removeImageAttachment,
+    retryItem: retryImageAttachment,
+  } = useImageAttachments({
+    conversationId: currentConversationId,
+    showError,
+  })
+  const resetDraft = useCallback(() => {
+    resetInput()
+    discardAllImages()
+  }, [discardAllImages, resetInput])
 
   const refreshActiveConversationSearch = useCallback(async () => {
     if (conversationSearchQuery.trim()) {
@@ -127,8 +146,15 @@ export function useChatAppController() {
     stopGenerating,
     submitQuestion,
   } = useChatStream({
-    canStartRequest: () => !isModelOptionsSaving && modelOptionsAvailable,
-    clearComposer: resetInput,
+    canStartRequest: () =>
+      !isModelOptionsSaving &&
+      modelOptionsAvailable &&
+      !hasBlockingUpload &&
+      (readyAttachments.length === 0 || currentModelSupportsImages),
+    clearComposer: () => {
+      resetInput()
+      clearSubmittedImages()
+    },
     conversationId: currentConversationId,
     createConversation: createNewConversation,
     dispatch,
@@ -170,7 +196,7 @@ export function useChatAppController() {
     refreshActiveConversationSearch,
     removeConversation,
     renameConversation,
-    resetInput,
+    resetInput: resetDraft,
     settleConversationView,
     showError,
     stopGenerating,
@@ -189,7 +215,7 @@ export function useChatAppController() {
     isStopping,
     messages,
     promptText,
-    resetInput,
+    resetInput: resetDraft,
     setOperation,
     settleConversationView,
     showError,
@@ -229,7 +255,9 @@ export function useChatAppController() {
   } = useConversationInsights({
     applyConversationDetail,
     closeTopMenu,
+    currentAttachments: readyAttachments,
     currentConversationId,
+    hasBlockingUpload,
     input,
     isConversationTransitioning,
     isModelOptionsSaving,
@@ -271,7 +299,9 @@ export function useChatAppController() {
     : conversations
   const canSubmit =
     Boolean(currentConversationId) &&
-    input.trim().length > 0 &&
+    (input.trim().length > 0 || readyAttachments.length > 0) &&
+    !hasBlockingUpload &&
+    (readyAttachments.length === 0 || currentModelSupportsImages) &&
     !isResponding &&
     !isStopping &&
     !isModelOptionsSaving &&
@@ -303,8 +333,30 @@ export function useChatAppController() {
 
   const handleSubmit = useCallback(async () => {
     if (isStopping || isConversationTransitioning || isModelOptionsSaving) return
-    await submitQuestion(input.trim(), { appendUser: true, clearComposer: true })
-  }, [input, isConversationTransitioning, isModelOptionsSaving, isStopping, submitQuestion])
+    if (hasBlockingUpload) {
+      await showError('请等待图片上传完成，或移除上传失败的图片')
+      return
+    }
+    if (readyAttachments.length && !currentModelSupportsImages) {
+      await showError('当前模型不支持图片，请切换到 DeepSeek V4 Flash Vision Exp')
+      return
+    }
+    await submitQuestion(input.trim(), {
+      appendUser: true,
+      attachments: readyAttachments,
+      clearComposer: true,
+    })
+  }, [
+    currentModelSupportsImages,
+    hasBlockingUpload,
+    input,
+    isConversationTransitioning,
+    isModelOptionsSaving,
+    isStopping,
+    readyAttachments,
+    showError,
+    submitQuestion,
+  ])
 
   const setMenuOpen = useCallback(
     (menu: Exclude<ActiveTopMenu, null>, open: boolean) => {
@@ -315,6 +367,7 @@ export function useChatAppController() {
 
   return {
     activeTopMenu,
+    addImageFiles,
     applyPromptTemplate,
     canPreviewContext,
     canGenerateSummary,
@@ -343,6 +396,7 @@ export function useChatAppController() {
     handleSubmit,
     importInputRef,
     input,
+    imageAttachments: composerImageAttachments,
     isContextPreviewLoading,
     isContextPreviewOpen,
     isAtBottom,
@@ -357,9 +411,12 @@ export function useChatAppController() {
     isTemplateModalOpen,
     messages,
     modelOptions,
+    modelSupportsImages: currentModelSupportsImages,
     openContextPreview,
     openImportPicker,
     retryMessage,
+    retryImageAttachment,
+    removeImageAttachment,
     runtimeInfo,
     scrollChatToBottom,
     selectConversation,

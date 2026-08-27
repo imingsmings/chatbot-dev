@@ -7,6 +7,7 @@ import type { ChatMessage } from '#types/chat'
 
 type MessageListProps = {
   copiedMessageId: string | null
+  conversationId?: string
   isResponding: boolean
   messages: ChatMessage[]
   onCopyMessage: (message: ChatMessage) => void
@@ -25,6 +26,7 @@ function useStableCallback<Args extends unknown[]>(callback: (...args: Args) => 
 
 export function MessageList({
   copiedMessageId,
+  conversationId,
   isResponding,
   messages,
   onCopyMessage,
@@ -49,6 +51,7 @@ export function MessageList({
         return (
           <MessageRow
             copied={copiedMessageId === message.id}
+            conversationId={conversationId ?? ''}
             hasPreviousPersistedUserMessage={rowHasPreviousPersistedUserMessage}
             index={index}
             isResponding={isResponding}

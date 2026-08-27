@@ -14,6 +14,7 @@ await mkdir(databaseDir, { recursive: true })
 await chmod(dataDir, 0o555)
 
 Object.assign(process.env, {
+  ATTACHMENT_DATA_DIR: path.join(databaseDir, 'attachments'),
   CONVERSATION_DATA_DIR: dataDir,
   CONVERSATION_DB_PATH: databasePath,
   CONVERSATION_STORE: 'sqlite',

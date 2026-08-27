@@ -2,6 +2,7 @@ import { checkConversationStoreHealth } from '../utils/conversationStore.ts'
 import { checkAuthSessionStoreHealth } from '../utils/authSessionStore.ts'
 import { getAuthConfig } from '../config/authConfig.ts'
 import { validateStartupConfig } from '../utils/runtimeConfig.ts'
+import { checkAttachmentStorageHealth } from './attachmentService.ts'
 
 type HealthCheckStatus = 'ok' | 'error'
 
@@ -25,6 +26,7 @@ async function checkConfiguration(): Promise<HealthCheckStatus> {
 async function checkStorage(): Promise<HealthCheckStatus> {
   try {
     await checkConversationStoreHealth()
+    await checkAttachmentStorageHealth()
     const authConfig = getAuthConfig()
     if (authConfig.enabled) checkAuthSessionStoreHealth(authConfig)
     return 'ok'

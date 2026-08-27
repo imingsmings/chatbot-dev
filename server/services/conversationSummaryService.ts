@@ -40,6 +40,19 @@ function getSummaryModelOptions(options: ModelRequestOptions): ModelRequestOptio
   }
 }
 
+function addAttachmentReferences(message: StoredMessage): StoredMessage {
+  if (!message.attachments?.length) return message
+  const references = message.attachments
+    .map((attachment) =>
+      `- ${attachment.filename}（${attachment.mediaType}，${attachment.width}×${attachment.height}）`
+    )
+    .join('\n')
+  return {
+    ...message,
+    content: `${message.content}${message.content ? '\n' : ''}[图片附件]\n${references}`,
+  }
+}
+
 function findFittingPrefixLength(
   message: StoredMessage,
   chunk: StoredMessage[],
@@ -186,9 +199,9 @@ async function generateConversationSummary(
   const pendingMessages = conversation.messages.slice(coveredMessageCount)
   const summaryMessages = pendingMessages.filter(
     (message) =>
-      message.content.trim() &&
+      (message.content.trim() || message.attachments?.length) &&
       !(message.role === 'assistant' && message.status === 'stopped')
-  )
+  ).map(addAttachmentReferences)
   if (!conversation.summary && summaryMessages.length === 0) {
     return { error: 'empty' }
   }

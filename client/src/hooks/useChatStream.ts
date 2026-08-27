@@ -14,7 +14,12 @@ import {
   type ChatStreamState,
 } from '../reducers/chatStreamReducer'
 import type { ConversationAction } from '../reducers/conversationReducer'
-import type { ChatMessage, ConversationDetail, ModelRequestOptions } from '#types/chat'
+import type {
+  ChatMessage,
+  ConversationDetail,
+  ImageAttachment,
+  ModelRequestOptions,
+} from '#types/chat'
 import { recordChatPerformance } from '#utils/chatPerformanceDiagnostics'
 import { createChatStreamEventBuffer } from '#utils/chatStreamEventBuffer'
 
@@ -26,6 +31,7 @@ export type SubmitQuestionOptions = {
   clearComposer: boolean
   assistantInsertIndex?: number
   conversationId?: string
+  attachments?: ImageAttachment[]
 }
 
 export type UseChatStreamOptions = {
@@ -235,8 +241,9 @@ export function useChatStream(options: UseChatStreamOptions) {
   const submitQuestion = useCallback(
     async (question: string, submitOptions: SubmitQuestionOptions) => {
       const normalizedQuestion = question.trim()
+      const attachments = submitOptions.attachments ?? []
       if (
-        !normalizedQuestion ||
+        (!normalizedQuestion && attachments.length === 0) ||
         requestInFlightRef.current ||
         isStoppingRef.current ||
         optionsRef.current.canStartRequest?.() === false
@@ -274,6 +281,7 @@ export function useChatStream(options: UseChatStreamOptions) {
               role: 'user',
               text: normalizedQuestion,
               status: 'done',
+              attachments: attachments.map((attachment) => ({ ...attachment })),
             },
           })
         }
@@ -316,6 +324,7 @@ export function useChatStream(options: UseChatStreamOptions) {
           requestId,
           signal: controller.signal,
           options: currentOptions.getModelOptions(),
+          attachmentIds: attachments.map(({ id }) => id),
         })
 
         eventBuffer = createChatStreamEventBuffer({
@@ -538,6 +547,7 @@ export function useChatStream(options: UseChatStreamOptions) {
         appendUser: false,
         clearComposer: false,
         assistantInsertIndex: index,
+        attachments: previousQuestion.attachments,
       })
     },
     [submitQuestion],

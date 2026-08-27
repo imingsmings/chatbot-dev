@@ -28,7 +28,7 @@ function createApi(overrides: Partial<ConversationsApi> = {}): ConversationsApi 
     ),
     createConversationBranch:
       vi.fn<ConversationsApi['createConversationBranch']>().mockResolvedValue(
-        fallbackConversation,
+        { conversation: fallbackConversation, draftAttachments: [] },
       ),
     deleteConversation: vi.fn<ConversationsApi['deleteConversation']>().mockResolvedValue(
       undefined,
@@ -121,7 +121,7 @@ describe('useConversations', () => {
     const branch = createConversation('branch-1')
     const createConversationBranch = vi
       .fn<ConversationsApi['createConversationBranch']>()
-      .mockResolvedValue(branch)
+      .mockResolvedValue({ conversation: branch, draftAttachments: [] })
     const api = createApi({ createConversationBranch })
     const { result } = renderHook(() =>
       useConversations({ api, autoInitialize: false }),

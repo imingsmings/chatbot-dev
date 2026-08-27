@@ -38,6 +38,9 @@ export async function readConversationFilesForMigration(
             ? normalizeConversation(JSON.parse(raw), fileId)
             : normalizeConversation(JSON.parse(raw))
         } catch (error) {
+          if (isNodeError(error) && error.code === 'ENOENT') {
+            return null
+          }
           if (options.skipMalformed && error instanceof SyntaxError) {
             console.error(`Skipping malformed ${options.malformedLabel}: ${entry.name}`)
             return null
