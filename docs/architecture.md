@@ -112,7 +112,7 @@ flowchart LR
 | `server/services/conversationSummaryService.ts` | 覆盖边界后的增量滚动摘要、输入预算及会话变化检测 |
 | `server/services/conversationService.ts` | 会话列表/标题/搜索、模型配置保存，以及继承配置但只复制目标消息前缀的普通会话分支 |
 | `server/services/attachmentService.ts` | 图片魔数/尺寸校验、原子文件和 sidecar、本地读取、会话绑定、引用状态、TTL 与孤儿清理 |
-| `server/services/conversationExportService.ts` / `conversationImportService.ts` | schema v1 JSON 兼容、schema v2 ZIP 附件清单/校验和、ID 重映射与失败回滚 |
+| `server/services/conversationExportService.ts` / `conversationImportService.ts` | schema v1 JSON 兼容、schema v2 ZIP 附件清单/校验和、ID 重映射和单会话附件失败清理；当前批量导入不是全局事务 |
 | `server/services/toolService.ts` | 工具参数校验、失败隔离、耗时和生命周期事件 |
 | `server/services/healthService.ts` | 启动级配置校验和当前会话 store 的实际读写探针；仅输出稳定状态 |
 | `server/tools/*` | 单工具 schema、validator 和 handler |
@@ -338,6 +338,7 @@ flowchart TD
 - 前端对取消确认设置 500ms 等待上限，仅作为取消接口异常时的 UI 降级；它不被当作服务端持久化完成的证据。
 - 超时、页面卸载和新建/切换会话分别标记原因；这些路径即使已有部分正文也不落库。
 - `stopped` assistant 可刷新恢复，但会从后续原始上下文和新摘要中排除；异常 EOF 仍保持 R11 的“不落库”语义。
+- 当前 `requestId` 只存在于进程内 registry。若回答已落库但应用层 `done` 在传输中丢失，客户端无法可靠区分“未保存”和“已保存未确认”；持久化幂等与断线结果恢复属于 R22 规划范围。
 
 ## 存储一致性
 
@@ -358,6 +359,12 @@ flowchart TD
 - messages/summary 以 JSON 保存，模型配置使用可空 `model_options` JSON 列；包含可选 generation/tool trace/status，对外保持与 file store 相同语义。
 - 旧 JSON 迁移通过 metadata 标记实现幂等。
 - 健康检查在当前数据库执行 `BEGIN IMMEDIATE`、探针写入/读回和 `ROLLBACK`，验证真实 DB 路径和事务写能力且不留下数据。
+
+### 批量导入边界
+
+- JSON/ZIP 会先完成 schema、数量、路径、附件绑定、图片元数据和 SHA-256 校验，再逐会话写入。
+- 单个 ZIP 会话写入失败时会清理该会话刚创建的附件，但之前已经创建或覆盖的会话不会整体回滚；当前 API 因此不是批次级 all-or-nothing 事务。
+- R22 计划在不破坏 `skip`、`duplicate`、`overwrite` 和旧备份兼容的前提下，为 file/SQLite 补齐暂存、提交和批次回滚语义。
 
 ## 输入与错误边界
 

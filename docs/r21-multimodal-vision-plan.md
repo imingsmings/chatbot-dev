@@ -5,7 +5,7 @@
 ## 目标与价值
 
 - 接入 `deepseek-v4-flash-vision-exp`，支持纯文本、文本加图片和仅图片消息。
-- 学习并验证上传安全、多模态消息建模、Provider 能力约束、附件生命周期、上下文预算和容器数据恢复。
+- 学习并验证上传安全、多模态消息建模、Provider 能力约束、附件生命周期和上下文预算，并明确容器数据恢复边界。
 - 保持项目的个人学习、内部使用定位，不扩展为通用文件平台或多模态网关。
 
 ## 已确认决策
@@ -18,7 +18,7 @@
 6. 全局默认模型继续使用 `deepseek-v4-flash`；Vision 模型作为实验性可选模型，并继续受现有禁用模型配置控制。
 7. 当前图片请求不得静默降级到不支持图片的模型；纯文本请求仍遵循现有模型兼容与回退规则。
 
-Provider 的模型标识、内容块格式、大小限制和功能兼容性在实施前必须重新核对 [DeepSeek 图像理解文档](https://api-docs.deepseek.com/zh-cn/guides/vision/) 与 [Files API 文档](https://api-docs.deepseek.com/zh-cn/guides/files_api/)。实验模型可能变更或下线，不能把当前文档快照视为长期稳定契约。
+Provider 的模型标识、内容块格式、大小限制和功能兼容性已按实施时的 [DeepSeek 图像理解文档](https://api-docs.deepseek.com/zh-cn/guides/vision/) 与 [Files API 文档](https://api-docs.deepseek.com/zh-cn/guides/files_api/) 核对。后续修改请求形状或重新执行真实门禁前必须再次核对；实验模型可能变更或下线，不能把当前文档快照视为长期稳定契约。
 
 ## 首期范围
 
@@ -41,7 +41,7 @@ Provider 的模型标识、内容块格式、大小限制和功能兼容性在�
 
 ### 文件和接口边界
 
-建议首期接口：
+已落地接口：
 
 ```text
 POST   /api/conversations/:id/attachments
@@ -52,7 +52,7 @@ POST   /api/conversations/:id/ask
 
 `ask` 请求增加 `attachmentIds`；附件上传、读取和删除接口均沿用现有认证，并校验附件与会话的绑定关系。
 
-建议消息元数据：
+已落地消息元数据：
 
 ```ts
 type ImageAttachment = {
@@ -148,5 +148,5 @@ type StoredMessage = {
 
 - 模型目录可通过现有禁用模型配置关闭 Vision 模型。
 - 关闭模型不会删除本地附件或修改已有会话。
-- schema v2 导出必须保留 schema v1 导入兼容；实现阶段若数据格式变化，需要先提供备份和恢复验证。
+- schema v2 导出必须保留 schema v1 导入兼容；后续若数据格式变化，需要先提供备份和恢复验证。
 - 真实模型调用、Docker 部署和破坏性数据清理仍分别需要明确授权；关闭 Vision 模型不会删除已保存附件。

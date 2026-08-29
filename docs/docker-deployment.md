@@ -22,7 +22,7 @@
 | Node、server、生产依赖、`client/dist` | `chatbot:local` | 是 |
 | 模型 endpoint、API key、认证哈希/JWT secret、业务参数 | 宿主机 `server/.env` | 否 |
 | HTTPS 证书和私钥 | 宿主机 `~/devhttps` | 否，只读挂载 |
-| file/SQLite 会话数据与认证 Session SQLite | Compose `chatbot-data` volume | 否 |
+| file/SQLite 会话数据、图片附件与认证 Session SQLite | Compose `chatbot-data` volume | 否 |
 | 备份 tar 与 manifest | 操作者指定的宿主机目录 | 否 |
 
 容器可以重建，volume 不应随普通回滚删除。只运行一个 `chatbot` 实例，避免 file store 队列和 SQLite 的单进程写入语义失效。
@@ -191,7 +191,7 @@ pnpm run test:docker
 - Docker stop 触发 SIGTERM，Node 在宽限期内以 0 退出；
 - 停止后的完整 volume 可生成 tar 和带 SHA-256 的 manifest；
 - 损坏校验或已存在目标卷会在覆盖前失败；
-- 恢复到新 volume 后，会话数量、消息、reasoning、summary、generation 和 tool trace 与恢复前完全一致；
+- 恢复到新 volume 后，会话数量、消息、reasoning、summary、generation 和 tool trace 与恢复前完全一致；当前自动化尚未覆盖 R21 附件二进制、sidecar、缩略图和原图读取；
 - 备份 manifest 同时包含独立认证 Session SQLite；
 - `finally` 只删除测试 project、测试 volume、临时证书和临时 env。
 
@@ -237,7 +237,7 @@ Compose healthcheck 请求 `GET /api/health`。该接口同时检查：
 
 ## 备份、恢复与切换
 
-备份必须覆盖整个 `/app/data` volume，不能只复制 SQLite 主文件；这样当 `conversations.sqlite3-wal`、`conversations.sqlite3-shm` 存在时，会与 file store、migration metadata 和 `auth-sessions.sqlite3` 一并进入 tar。先停止服务，保证两个 SQLite store 及其 sidecar 不再变化：
+备份必须覆盖整个 `/app/data` volume，不能只复制 SQLite 主文件；这样当 `conversations.sqlite3-wal`、`conversations.sqlite3-shm` 存在时，会与 file store、migration metadata、`attachments/` 原图及元数据 sidecar、`auth-sessions.sqlite3` 一并进入 tar。先停止服务，保证两个 SQLite store 及其 sidecar 不再变化：
 
 ```bash
 pnpm run docker:stop
