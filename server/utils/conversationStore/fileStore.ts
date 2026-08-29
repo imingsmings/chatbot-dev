@@ -8,6 +8,8 @@ import type {
   ConversationImportConflictStrategy,
   ConversationImportItemResult,
   ConversationModelOptions,
+  ConversationRequestRecord,
+  ConversationRequestStatus,
   StoredMessage
 } from '../../types/conversation.ts'
 import { DEFAULT_TITLE, type ConversationStore } from './contracts.ts'
@@ -17,6 +19,7 @@ import {
 } from './migration.ts'
 import {
   applyAppendedMessages,
+  assertUniqueRequestBindings,
   cloneConversation,
   createId,
   createImportedDuplicate,
@@ -35,6 +38,21 @@ import {
 
 let migrationPromise: Promise<void> | null = null
 const mutationQueues = new Map<string, Promise<void>>()
+let storeMutationQueue = Promise.resolve()
+
+type FileConversationStoreOptions = {
+  beforeImportCommit?: (index: number) => void | Promise<void>
+}
+
+async function withStoreMutation<T>(mutation: () => Promise<T>): Promise<T> {
+  const result = storeMutationQueue.catch(() => undefined).then(mutation)
+  storeMutationQueue = result.then(() => undefined, () => undefined)
+  return result
+}
+
+async function waitForStoreMutations(): Promise<void> {
+  await storeMutationQueue
+}
 
 function isSamePath(firstPath: string, secondPath: string): boolean {
   return path.resolve(firstPath) === path.resolve(secondPath)
@@ -65,7 +83,7 @@ async function withConversationMutation<T>(
   mutation: () => Promise<T>
 ): Promise<T> {
   const previous = mutationQueues.get(id) ?? Promise.resolve()
-  const result = previous.catch(() => undefined).then(mutation)
+  const result = previous.catch(() => undefined).then(() => withStoreMutation(mutation))
   const tail = result.then(
     () => undefined,
     () => undefined
@@ -187,6 +205,7 @@ async function migrateLegacyStore(): Promise<void> {
 }
 
 async function readAllConversationFiles(): Promise<Conversation[]> {
+  await waitForStoreMutations()
   await migrateLegacyStore()
   await ensureConversationDir()
   return readConversationFilesForMigration(CONVERSATIONS_DIR, {
@@ -201,6 +220,7 @@ async function listConversations() {
 }
 
 async function getConversation(id: string): Promise<Conversation | null> {
+  await waitForStoreMutations()
   await migrateLegacyStore()
   const conversation = await readConversationFileRaw(id)
   return conversation ? cloneConversation(conversation) : null
@@ -256,6 +276,60 @@ async function appendMessages(
 
     await writeConversationFile(applyAppendedMessages(conversation, messages))
     return cloneConversation(conversation)
+  })
+}
+
+async function beginRequest(
+  id: string,
+  request: ConversationRequestRecord
+): Promise<ConversationRequestRecord | null> {
+  await migrateLegacyStore()
+  return withConversationMutation(id, async () => {
+    const conversation = await readConversationFileRaw(id)
+    if (!conversation) return null
+    const existing = conversation.requests?.find(({ requestId }) => requestId === request.requestId)
+    if (existing) return { ...existing }
+    conversation.requests = [...(conversation.requests ?? []), { ...request }]
+    await writeConversationFile(conversation)
+    return { ...request }
+  })
+}
+
+async function findRequest(requestId: string): Promise<{
+  conversationId: string
+  request: ConversationRequestRecord
+} | null> {
+  const conversations = await readAllConversationFiles()
+  for (const conversation of conversations) {
+    const request = conversation.requests?.find((item) => item.requestId === requestId)
+    if (request) return { conversationId: conversation.id, request: { ...request } }
+  }
+  return null
+}
+
+async function finalizeRequest(
+  id: string,
+  requestId: string,
+  status: Exclude<ConversationRequestStatus, 'processing'>,
+  messages: StoredMessage[] = []
+): Promise<ConversationRequestRecord | null> {
+  await migrateLegacyStore()
+  return withConversationMutation(id, async () => {
+    const conversation = await readConversationFileRaw(id)
+    if (!conversation) return null
+    const request = conversation.requests?.find((item) => item.requestId === requestId)
+    if (!request) return null
+    if (request.status !== 'processing') return { ...request }
+
+    if (messages.length) {
+      request.messageStartIndex = conversation.messages.length
+      request.messageCount = messages.length
+      applyAppendedMessages(conversation, messages)
+    }
+    request.status = status
+    request.updatedAt = now()
+    await writeConversationFile(conversation)
+    return { ...request }
   })
 }
 
@@ -331,6 +405,109 @@ async function importConversation(
   })
 }
 
+async function importConversations(
+  sourceConversations: Conversation[],
+  strategy: ConversationImportConflictStrategy,
+  options: FileConversationStoreOptions = {}
+): Promise<ConversationImportItemResult[]> {
+  await migrateLegacyStore()
+  return withStoreMutation(async () => {
+    const planned: Array<{
+      conversation?: Conversation
+      item: ConversationImportItemResult
+    }> = []
+    const sourceIds = new Set<string>()
+    for (const sourceConversation of sourceConversations) {
+      if (sourceIds.has(sourceConversation.id)) {
+        throw new Error(`批次包含重复会话 ID：${sourceConversation.id}`)
+      }
+      sourceIds.add(sourceConversation.id)
+      const conversation = normalizeConversation(sourceConversation)
+      const existing = await readConversationFileRaw(conversation.id)
+      if (existing && strategy === 'skip') {
+        planned.push({
+          item: { sourceId: sourceConversation.id, conversationId: null, status: 'skipped' }
+        })
+        continue
+      }
+      const target = existing && strategy === 'duplicate'
+        ? createImportedDuplicate(conversation)
+        : conversation
+      planned.push({
+        conversation: target,
+        item: {
+          sourceId: sourceConversation.id,
+          conversationId: target.id,
+          status: existing ? (strategy === 'duplicate' ? 'duplicated' : 'overwritten') : 'created'
+        }
+      })
+    }
+
+    const finalConversations = new Map(
+      (await readConversationFilesForMigration(CONVERSATIONS_DIR, {
+        skipMalformed: true,
+        malformedLabel: 'conversation file',
+        requireValidFileId: true
+      })).map((conversation) => [conversation.id, conversation])
+    )
+    for (const entry of planned) {
+      if (entry.conversation) finalConversations.set(entry.conversation.id, entry.conversation)
+    }
+    assertUniqueRequestBindings([...finalConversations.values()])
+
+    const stagingRoot = path.join(CONVERSATIONS_DIR, `.import-${crypto.randomUUID()}`)
+    const stagedDir = path.join(stagingRoot, 'staged')
+    const backupDir = path.join(stagingRoot, 'backup')
+    const committed: Array<{ targetPath: string; backupPath: string | null }> = []
+    try {
+      await fs.mkdir(stagedDir, { recursive: true })
+      await fs.mkdir(backupDir, { recursive: true })
+      for (const entry of planned) {
+        if (!entry.conversation) continue
+        await fs.writeFile(
+          path.join(stagedDir, `${entry.conversation.id}.json`),
+          `${JSON.stringify(entry.conversation, null, 2)}\n`,
+          { encoding: 'utf8', flag: 'wx' }
+        )
+      }
+
+      let commitIndex = 0
+      for (const entry of planned) {
+        if (!entry.conversation) continue
+        await options.beforeImportCommit?.(commitIndex)
+        commitIndex += 1
+        const targetPath = getConversationFilePath(entry.conversation.id)
+        if (!targetPath) throw new Error('会话 ID 不合法')
+        const stagedPath = path.join(stagedDir, `${entry.conversation.id}.json`)
+        const backupPath = path.join(backupDir, `${entry.conversation.id}.json`)
+        let preservedPath: string | null = null
+        try {
+          await fs.rename(targetPath, backupPath)
+          preservedPath = backupPath
+        } catch (error) {
+          if (!isNodeError(error) || error.code !== 'ENOENT') throw error
+        }
+        try {
+          await fs.rename(stagedPath, targetPath)
+          committed.push({ targetPath, backupPath: preservedPath })
+        } catch (error) {
+          if (preservedPath) await fs.rename(preservedPath, targetPath)
+          throw error
+        }
+      }
+      return planned.map(({ item }) => item)
+    } catch (error) {
+      for (const entry of committed.reverse()) {
+        await fs.rm(entry.targetPath, { force: true })
+        if (entry.backupPath) await fs.rename(entry.backupPath, entry.targetPath)
+      }
+      throw error
+    } finally {
+      await fs.rm(stagingRoot, { recursive: true, force: true }).catch(() => undefined)
+    }
+  })
+}
+
 async function clearConversation(id: string): Promise<Conversation | null> {
   await migrateLegacyStore()
   return withConversationMutation(id, async () => {
@@ -339,6 +516,7 @@ async function clearConversation(id: string): Promise<Conversation | null> {
 
     conversation.messages = []
     delete conversation.summary
+    delete conversation.requests
     conversation.updatedAt = now()
     await writeConversationFile(conversation)
     return cloneConversation(conversation)
@@ -362,7 +540,9 @@ async function deleteConversation(id: string): Promise<boolean> {
   })
 }
 
-export function createFileConversationStore(): ConversationStore {
+export function createFileConversationStore(
+  options: FileConversationStoreOptions = {}
+): ConversationStore {
   return {
     checkHealth,
     listConversations,
@@ -370,9 +550,14 @@ export function createFileConversationStore(): ConversationStore {
     createConversation,
     renameConversation,
     appendMessages,
+    beginRequest,
+    findRequest,
+    finalizeRequest,
     updateSummary,
     updateModelOptions,
     importConversation,
+    importConversations: (conversations, strategy) =>
+      importConversations(conversations, strategy, options),
     clearConversation,
     deleteConversation
   }

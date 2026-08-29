@@ -87,7 +87,12 @@ test('status and health stay public while API and legacy roots require a bearer 
     checks: { configuration: 'ok', storage: 'ok' },
   })
 
-  for (const pathname of ['/api/runtime-config', '/runtime-config', '/api/not-a-route']) {
+  for (const pathname of [
+    '/api/runtime-config',
+    '/api/requests/request_status_123',
+    '/runtime-config',
+    '/api/not-a-route'
+  ]) {
     const response = await fetch(`${origin}${pathname}`)
     assert.equal(response.status, 401)
     assert.equal((await response.json()).code, 'auth_required')

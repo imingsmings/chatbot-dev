@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type Dispatch } from 'react'
 
 import {
   cancelRequest as cancelRequestApi,
+  getRequestResult as getRequestResultApi,
   requestConversationAnswer as requestConversationAnswerApi,
   type RequestCancellationReason,
 } from '#api/conversations'
@@ -46,6 +47,7 @@ export type UseChatStreamOptions = {
   dispatch: Dispatch<ConversationAction>
   followNewContent?: (shouldFollow: boolean) => Promise<void> | void
   getModelOptions: () => ModelRequestOptions
+  getRequestResult?: typeof getRequestResultApi
   idleTimeoutMs?: number
   logError?: (message: string, error: unknown) => void
   messages: ChatMessage[]
@@ -392,6 +394,38 @@ export function useChatStream(options: UseChatStreamOptions) {
 
         const aborted = isAbortError(error)
         const manualAbort = abortReason === 'manual'
+        if (!manualAbort && requestId && conversationId) {
+          try {
+            const recovered = await (
+              optionsRef.current.getRequestResult ?? getRequestResultApi
+            )(requestId)
+            if (recovered.conversationId === conversationId && (
+              recovered.status === 'completed' || recovered.status === 'stopped'
+            )) {
+              eventBuffer?.dispose()
+              if (recovered.status === 'completed' && streamState.text.trim()) {
+                const recoveredState = finalizeChatStreamState(
+                  { ...streamState, streamDone: true },
+                  (optionsRef.current.now ?? Date.now)()
+                )
+                activeStreamStateRef.current = recoveredState
+                replaceAssistantMessage(assistantId, recoveredState)
+              } else if (recovered.status === 'stopped') {
+                const recoveredState = interruptChatStreamState(
+                  streamState,
+                  '已停止生成',
+                  'manual'
+                )
+                activeStreamStateRef.current = recoveredState
+                replaceAssistantMessage(assistantId, recoveredState)
+              }
+              await optionsRef.current.reconcileConversation(conversationId)
+              return
+            }
+          } catch (recoveryError) {
+            logError('Failed to recover persisted request result:', recoveryError)
+          }
+        }
         const message = manualAbort
           ? '已停止生成'
           : aborted

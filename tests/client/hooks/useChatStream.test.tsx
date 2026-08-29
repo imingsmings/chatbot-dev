@@ -654,6 +654,42 @@ describe('useChatStream', () => {
     expect(result.current.isResponding).toBe(false)
   })
 
+  it('recovers a persisted answer when the stream closes before done', async () => {
+    const requestConversationAnswer = vi
+      .fn<RequestAnswer>()
+      .mockResolvedValue(responseFromEvents([{ type: 'delta', content: '已持久化答案' }]))
+    const getRequestResult = vi.fn().mockResolvedValue({
+      requestId: 'request-1',
+      conversationId: 'conversation-1',
+      status: 'completed',
+      createdAt: '2026-08-29T00:00:00.000Z',
+      updatedAt: '2026-08-29T00:00:01.000Z',
+      messageStartIndex: 0,
+      messageCount: 2
+    })
+    const reconcileConversation = vi.fn().mockResolvedValue(undefined)
+    const { result } = renderStreamHook(createHarnessOptions({
+      getRequestResult,
+      reconcileConversation,
+      requestConversationAnswer
+    }))
+
+    await act(async () => {
+      await result.current.submitQuestion('恢复丢失的 done', {
+        appendUser: true,
+        clearComposer: true
+      })
+    })
+
+    expect(getRequestResult).toHaveBeenCalledWith('request-1')
+    expect(reconcileConversation).toHaveBeenCalledWith('conversation-1')
+    expect(result.current.messages[1]).toMatchObject({
+      text: '已持久化答案',
+      status: 'done'
+    })
+    expect(result.current.isResponding).toBe(false)
+  })
+
   it('keeps a completed answer done when conversation-list refresh fails', async () => {
     const refreshError = new Error('refresh failed')
     const reconcileConversation = vi

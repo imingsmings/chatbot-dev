@@ -5,6 +5,8 @@ import type {
   ConversationImportConflictStrategy,
   ConversationImportItemResult,
   ConversationModelOptions,
+  ConversationRequestRecord,
+  ConversationRequestStatus,
   ConversationSummary,
   StoredMessage
 } from '../types/conversation.ts'
@@ -53,6 +55,29 @@ async function appendMessages(
   return getStore().appendMessages(id, messages)
 }
 
+async function beginConversationRequest(
+  id: string,
+  request: ConversationRequestRecord
+): Promise<ConversationRequestRecord | null> {
+  return getStore().beginRequest(id, request)
+}
+
+async function findConversationRequest(requestId: string): Promise<{
+  conversationId: string
+  request: ConversationRequestRecord
+} | null> {
+  return getStore().findRequest(requestId)
+}
+
+async function finalizeConversationRequest(
+  id: string,
+  requestId: string,
+  status: Exclude<ConversationRequestStatus, 'processing'>,
+  messages?: StoredMessage[]
+): Promise<ConversationRequestRecord | null> {
+  return getStore().finalizeRequest(id, requestId, status, messages)
+}
+
 async function updateConversationSummary(
   id: string,
   summary: ConversationContextSummary | null
@@ -74,6 +99,13 @@ async function importConversation(
   return getStore().importConversation(conversation, strategy)
 }
 
+async function importConversations(
+  conversations: Conversation[],
+  strategy: ConversationImportConflictStrategy
+): Promise<ConversationImportItemResult[]> {
+  return getStore().importConversations(conversations, strategy)
+}
+
 async function clearConversation(id: string): Promise<Conversation | null> {
   return getStore().clearConversation(id)
 }
@@ -85,13 +117,17 @@ async function deleteConversation(id: string): Promise<boolean> {
 export {
   DEFAULT_TITLE,
   appendMessages,
+  beginConversationRequest,
   checkConversationStoreHealth,
   clearConversation,
   closeConversationStore,
   createConversation,
   deleteConversation,
   getConversation,
+  findConversationRequest,
+  finalizeConversationRequest,
   importConversation,
+  importConversations,
   listConversations,
   renameConversation,
   updateConversationModelOptions,

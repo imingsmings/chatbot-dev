@@ -60,6 +60,18 @@ export type ConversationModelOptions = {
   maxTokens?: number
 }
 
+export type ConversationRequestStatus = 'processing' | 'completed' | 'stopped' | 'failed'
+
+export type ConversationRequestRecord = {
+  requestId: string
+  requestHash: string
+  status: ConversationRequestStatus
+  createdAt: string
+  updatedAt: string
+  messageStartIndex?: number
+  messageCount?: number
+}
+
 export type PromptMessage = {
   role: PromptMessageRole
   content: string | null
@@ -82,6 +94,7 @@ export type Conversation = {
   messages: StoredMessage[]
   summary?: ConversationContextSummary
   modelOptions?: ConversationModelOptions
+  requests?: ConversationRequestRecord[]
 }
 
 export type ConversationSummary = {

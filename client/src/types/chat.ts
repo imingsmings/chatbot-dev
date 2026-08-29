@@ -239,6 +239,16 @@ export type ConversationImportResult = {
   }>
 }
 
+export type ConversationRequestResult = {
+  requestId: string
+  conversationId: string
+  status: 'processing' | 'completed' | 'stopped' | 'failed'
+  createdAt: string
+  updatedAt: string
+  messageStartIndex?: number
+  messageCount?: number
+}
+
 export type SidebarOperation = {
   type:
     | 'initialize'

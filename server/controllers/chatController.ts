@@ -1,12 +1,19 @@
+import crypto from 'node:crypto'
 import { generateConversationAnswer } from '../services/chatService.ts'
 import { findConversation } from '../services/conversationService.ts'
 import { createAbortError } from '../utils/abort.ts'
 import { setNdjsonStreamHeaders, writeStreamError, writeStreamEvent } from '../utils/ndjsonStream.ts'
 import {
   completeRequest,
+  isRequestActive,
   parseRequestId,
   registerRequest
 } from '../utils/requestRegistry.ts'
+import {
+  beginConversationRequest,
+  finalizeConversationRequest,
+  findConversationRequest
+} from '../utils/conversationStore.ts'
 import { parseModelRequestOptions, resolveModelOptions } from '../utils/modelOptions.ts'
 import { MAX_IMAGE_ATTACHMENTS_PER_MESSAGE, MAX_QUESTION_LENGTH } from '../config/productLimits.ts'
 import { findModelDescriptor } from '../utils/llm/modelCatalog.ts'
@@ -28,6 +35,30 @@ type AskConversationBody = {
   requestId?: unknown
   options?: unknown
   attachmentIds?: unknown
+}
+
+function canonicalizeRequestValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalizeRequestValue)
+  if (typeof value !== 'object' || value === null) return value
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([, item]) => item !== undefined)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, item]) => [key, canonicalizeRequestValue(item)])
+  )
+}
+
+function createRequestHash(value: unknown): string {
+  return crypto
+    .createHash('sha256')
+    .update(JSON.stringify(canonicalizeRequestValue(value)))
+    .digest('hex')
+}
+
+function writeTerminalReplay(res: Response): void {
+  setNdjsonStreamHeaders(res)
+  writeStreamEvent(res, { type: 'done' })
+  res.end()
 }
 
 function writeNotFound(res: Response): void {
@@ -83,6 +114,40 @@ const askConversation: RequestHandler<AskConversationParams, unknown, AskConvers
     return
   }
 
+  const requestHash = createRequestHash({
+    question,
+    attachmentIds,
+    options: req.body.options ?? null
+  })
+  const persistedRequest = await findConversationRequest(requestId)
+  if (persistedRequest) {
+    if (
+      persistedRequest.conversationId !== req.params.id ||
+      persistedRequest.request.requestHash !== requestHash
+    ) {
+      res.status(409).json({ message: 'requestId 已绑定到其他请求' })
+      return
+    }
+    if (persistedRequest.request.status === 'processing' && !isRequestActive(requestId)) {
+      await finalizeConversationRequest(req.params.id, requestId, 'failed')
+      res.status(409).json({ message: '请求在服务重启或连接中断后未完成' })
+      return
+    }
+    if (persistedRequest.request.status === 'processing') {
+      res.status(409).json({ message: 'requestId 或会话正在处理中' })
+      return
+    }
+    if (
+      persistedRequest.request.status === 'completed' ||
+      persistedRequest.request.status === 'stopped'
+    ) {
+      writeTerminalReplay(res)
+      return
+    }
+    res.status(409).json({ message: '该 requestId 对应的请求已失败，请使用新的 requestId 重试' })
+    return
+  }
+
   try {
     modelOptions = parseModelRequestOptions(req.body.options)
   } catch (err) {
@@ -124,7 +189,6 @@ const askConversation: RequestHandler<AskConversationParams, unknown, AskConvers
     next(error)
     return
   }
-
   const abortUpstream = (reason = 'client_closed'): void => {
     if (requestController.signal.aborted) {
       return
@@ -153,6 +217,26 @@ const askConversation: RequestHandler<AskConversationParams, unknown, AskConvers
     res.status(409).json({
       message: 'requestId 或会话正在处理中'
     })
+    return
+  }
+  const startedAt = new Date().toISOString()
+  let storedRequest: Awaited<ReturnType<typeof beginConversationRequest>>
+  try {
+    storedRequest = await beginConversationRequest(req.params.id, {
+      requestId,
+      requestHash,
+      status: 'processing',
+      createdAt: startedAt,
+      updatedAt: startedAt
+    })
+  } catch (error) {
+    completeRequest(requestId, requestController)
+    next(error)
+    return
+  }
+  if (!storedRequest) {
+    completeRequest(requestId, requestController)
+    writeNotFound(res)
     return
   }
 
@@ -199,7 +283,8 @@ const askConversation: RequestHandler<AskConversationParams, unknown, AskConvers
       signal: requestController.signal,
       onDelta: writeDelta,
       onToolEvent: writeToolEvent,
-      modelOptions
+      modelOptions,
+      requestId
     })
 
     writeStreamEvent(res, { type: 'done', reasoningDurationMs: answer.reasoningDurationMs })
@@ -216,6 +301,16 @@ const askConversation: RequestHandler<AskConversationParams, unknown, AskConvers
   } finally {
     req.off('aborted', abortOnClientClose)
     res.off('close', abortOnClientClose)
+    const persisted = await findConversationRequest(requestId).catch(() => null)
+    if (persisted?.request.status === 'processing') {
+      await finalizeConversationRequest(
+        req.params.id,
+        requestId,
+        abortReason === 'explicit_cancel' ? 'stopped' : 'failed'
+      ).catch((error) => {
+        console.error('Failed to persist request terminal status:', error)
+      })
+    }
     completeRequest(requestId, requestController)
 
     if (!res.destroyed && !res.writableEnded) {

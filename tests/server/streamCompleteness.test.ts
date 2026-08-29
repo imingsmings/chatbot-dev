@@ -21,7 +21,9 @@ process.env.OPENAI_MODEL = 'openai-test-model'
 process.env.OPENAI_API_KEY = 'openai-test-key'
 
 const { generateConversationAnswer } = await import('../../server/services/chatService.ts')
-const { createConversation, getConversation } = await import('../../server/utils/conversationStore.ts')
+const { beginConversationRequest, createConversation, getConversation } = await import(
+  '../../server/utils/conversationStore.ts'
+)
 
 afterEach(() => {
   globalThis.fetch = originalFetch
@@ -235,6 +237,15 @@ test('OpenAI partial text EOF rejects a trailing DONE sentinel and then recovers
 
 test('manual stop persists partial body as stopped while excluding incomplete usage', async () => {
   const conversation = await createConversation('Manual stop partial')
+  const requestId = 'request_manual_stop_partial_123'
+  const timestamp = new Date().toISOString()
+  await beginConversationRequest(conversation.id, {
+    requestId,
+    requestHash: 'd'.repeat(64),
+    status: 'processing',
+    createdAt: timestamp,
+    updatedAt: timestamp
+  })
   const controller = new AbortController()
   globalThis.fetch = async () => deepseekSse([
     deepseekDelta('保留这段部分正文'),
@@ -250,7 +261,8 @@ test('manual stop persists partial body as stopped while excluding incomplete us
       onDelta: (_chunk, type) => {
         if (type === 'content') controller.abort('explicit_cancel')
       },
-      modelOptions: { provider: 'deepseek' }
+      modelOptions: { provider: 'deepseek' },
+      requestId
     }),
     (error: unknown) => error instanceof Error && error.name === 'AbortError'
   )
@@ -263,6 +275,8 @@ test('manual stop persists partial body as stopped while excluding incomplete us
   assert.equal(persisted?.messages[1]?.status, 'stopped')
   assert.equal(persisted?.messages[1]?.generation?.provider, 'deepseek')
   assert.equal(persisted?.messages[1]?.generation?.usage, undefined)
+  assert.equal(persisted?.requests?.[0]?.status, 'stopped')
+  assert.equal(persisted?.requests?.[0]?.messageCount, 2)
 })
 
 test('manual stop persists reasoning-only partial output as stopped', async () => {

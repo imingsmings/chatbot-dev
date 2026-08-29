@@ -4,6 +4,8 @@ import type {
   ConversationImportConflictStrategy,
   ConversationImportItemResult,
   ConversationModelOptions,
+  ConversationRequestRecord,
+  ConversationRequestStatus,
   ConversationSummary,
   StoredMessage
 } from '../../types/conversation.ts'
@@ -20,6 +22,20 @@ export type ConversationStore = {
   ) => Promise<Conversation>
   renameConversation: (id: string, title: unknown) => Promise<Conversation | null>
   appendMessages: (id: string, messages: StoredMessage[]) => Promise<Conversation | null>
+  beginRequest: (
+    id: string,
+    request: ConversationRequestRecord
+  ) => Promise<ConversationRequestRecord | null>
+  findRequest: (requestId: string) => Promise<{
+    conversationId: string
+    request: ConversationRequestRecord
+  } | null>
+  finalizeRequest: (
+    id: string,
+    requestId: string,
+    status: Exclude<ConversationRequestStatus, 'processing'>,
+    messages?: StoredMessage[]
+  ) => Promise<ConversationRequestRecord | null>
   updateSummary: (
     id: string,
     summary: ConversationContextSummary | null
@@ -32,6 +48,10 @@ export type ConversationStore = {
     conversation: Conversation,
     strategy: ConversationImportConflictStrategy
   ) => Promise<ConversationImportItemResult>
+  importConversations: (
+    conversations: Conversation[],
+    strategy: ConversationImportConflictStrategy
+  ) => Promise<ConversationImportItemResult[]>
   clearConversation: (id: string) => Promise<Conversation | null>
   deleteConversation: (id: string) => Promise<boolean>
   close?: () => void

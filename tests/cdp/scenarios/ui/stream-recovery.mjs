@@ -282,6 +282,7 @@ export async function runStreamRecovery(client) {
     await setPlan(client, [
       { kind: 'malformedNdjson' },
       { kind: 'noDoneClose', chunks: ['没有 done 的响应。'], interval: 20 },
+      { kind: 'persistedNoDone', chunks: ['服务端已保存的回答。'], interval: 20 },
       {
         kind: 'streamError',
         chunks: ['上游部分正文。'],
@@ -296,6 +297,45 @@ export async function runStreamRecovery(client) {
     await ask(client, '前端没有 done')
     await waitFor(client, `document.body.innerText.includes('响应未完整结束')`)
     await waitIdle(client)
+    const recoveryQueriesBeforePersistedDone = await evaluate(
+      client,
+      `window.__requestResultQueryCount`,
+    )
+    await ask(client, '服务端保存后 done 丢失')
+    await waitFor(
+      client,
+      `(() => {
+        const rows = [...document.querySelectorAll('.message-row.assistant')];
+        const last = rows.at(-1);
+        return last?.innerText.includes('服务端已保存的回答。') &&
+          !last?.innerText.includes('响应未完整结束');
+      })()`,
+    )
+    await waitIdle(client)
+    const persistedDoneRecoveryState = await evaluate(
+      client,
+      `(() => {
+        const rows = [...document.querySelectorAll('.message-row.assistant')];
+        const last = rows.at(-1);
+        const stored = window.__getMockState().conversations
+          .flatMap((conversation) => conversation.messages)
+          .filter((message) => message.content === '服务端已保存的回答。');
+        return {
+          recoveredText: last?.innerText.includes('服务端已保存的回答。'),
+          hasRecoveryError: last?.innerText.includes('响应未完整结束'),
+          persistedAnswerCount: stored.length,
+          requestResultQueries: window.__requestResultQueryCount - ${recoveryQueriesBeforePersistedDone},
+        };
+      })()`,
+    )
+    if (
+      !persistedDoneRecoveryState.recoveredText ||
+      persistedDoneRecoveryState.hasRecoveryError ||
+      persistedDoneRecoveryState.persistedAnswerCount !== 1 ||
+      persistedDoneRecoveryState.requestResultQueries !== 1
+    ) {
+      throw new Error(`Persisted done recovery failed: ${JSON.stringify(persistedDoneRecoveryState)}`)
+    }
     const persistedMessagesBeforeIncomplete = await evaluate(
       client,
       `window.__getMockState().conversations
@@ -331,6 +371,7 @@ export async function runStreamRecovery(client) {
       extraAfterDoneState,
       fastSubmitState,
       timeoutRecoveryState,
+      persistedDoneRecoveryState,
       incompleteStreamState,
     })
   return groupResults

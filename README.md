@@ -194,6 +194,7 @@ tsconfig.base.json             前后端共用 TypeScript 严格规则
 | `POST` | `/api/conversations/import` | schema v1 JSON 的 `skip`/`duplicate`/`overwrite` 导入 |
 | `POST` | `/api/conversations/import.zip` | schema v2 ZIP 的校验与导入 |
 | `POST` | `/api/requests/:requestId/cancel` | 取消活动请求 |
+| `GET` | `/api/requests/:requestId` | 查询持久化请求终态与消息范围 |
 | `GET` | `/api/runtime-config` | 非敏感运行配置和模型能力目录 |
 
 ## 检查与测试
@@ -204,6 +205,7 @@ pnpm run test:unit             # 全部后端 Node tests + React Vitest
 pnpm run build                 # 全部静态检查 + React 生产构建
 pnpm run audit:production      # 整个 workspace 生产依赖审计
 pnpm run test:cdp:all-mock     # React-only 全量 mock 浏览器回归
+pnpm run test:cdp:request-recovery # 丢失 done 后的持久化结果恢复专项
 pnpm run test:cdp:authentication # 登录门禁、内存 Token、401 单次刷新重放和退出
 pnpm run test:cdp:image-attachments # 图片上传、预览、分支、停止和移动端 Mock 专项
 pnpm run test:cdp:all-real     # DeepSeek/OpenAI 全量真实链路、参数矩阵与 Vision 真实图片门禁

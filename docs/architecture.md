@@ -112,19 +112,19 @@ flowchart LR
 | `server/services/conversationSummaryService.ts` | 覆盖边界后的增量滚动摘要、输入预算及会话变化检测 |
 | `server/services/conversationService.ts` | 会话列表/标题/搜索、模型配置保存，以及继承配置但只复制目标消息前缀的普通会话分支 |
 | `server/services/attachmentService.ts` | 图片魔数/尺寸校验、原子文件和 sidecar、本地读取、会话绑定、引用状态、TTL 与孤儿清理 |
-| `server/services/conversationExportService.ts` / `conversationImportService.ts` | schema v1 JSON 兼容、schema v2 ZIP 附件清单/校验和、ID 重映射和单会话附件失败清理；当前批量导入不是全局事务 |
+| `server/services/conversationExportService.ts` / `conversationImportService.ts` | schema v1 JSON 兼容、schema v2 ZIP 附件清单/校验和、ID 重映射、完整预检和批次级附件回滚 |
 | `server/services/toolService.ts` | 工具参数校验、失败隔离、耗时和生命周期事件 |
 | `server/services/healthService.ts` | 启动级配置校验和当前会话 store 的实际读写探针；仅输出稳定状态 |
 | `server/tools/*` | 单工具 schema、validator 和 handler |
 | `server/utils/llm/providerConfig.ts` | HTTP/HTTPS endpoint、凭据和默认模型 |
 | `server/utils/llm/modelCatalog.ts` | 公共模型能力与禁用状态 |
 | `server/utils/llm/adapters/*` | provider body、SSE 语义与 continuation |
-| `server/utils/requestRegistry.ts` | requestId 与单会话活动请求互斥、取消信号和请求完成通知 |
+| `server/utils/requestRegistry.ts` | 当前进程的 requestId 与单会话活动请求互斥、取消信号和请求完成通知；持久终态由 conversation store 管理 |
 | `server/utils/conversationStore.ts` | 稳定 facade；按运行配置选择 file/SQLite 实现并保持既有导出 |
 | `server/utils/conversationStore/contracts.ts` | 存储公共契约和默认标题 |
 | `server/utils/conversationStore/normalization.ts` | ID、消息、时间、摘要、标题、模型配置安全降级和深副本规范化 |
 | `server/utils/conversationStore/migration.ts` | file/legacy aggregate 的共享迁移读取 |
-| `server/utils/conversationStore/fileStore.ts` | 原子 JSON 文件、同会话 mutation queue 和 legacy file 迁移 |
+| `server/utils/conversationStore/fileStore.ts` | 原子 JSON 文件、全局 mutation queue、批次 staging/backup/rename/rollback 和 legacy file 迁移 |
 | `server/utils/conversationStore/sqliteStore.ts` | SQLite schema/WAL、幂等 `model_options` 迁移、JSON 迁移、CRUD 和连接关闭 |
 
 Provider 特有字段只存在于 adapter。控制器不拼 prompt，工具注册表不内嵌天气/计算器实现。附件原图始终以本地文件为准；DeepSeek adapter 只在最终请求组装时读取图片并创建 Base64 Data URL，文本消息仍保持字符串 content。
@@ -338,7 +338,9 @@ flowchart TD
 - 前端对取消确认设置 500ms 等待上限，仅作为取消接口异常时的 UI 降级；它不被当作服务端持久化完成的证据。
 - 超时、页面卸载和新建/切换会话分别标记原因；这些路径即使已有部分正文也不落库。
 - `stopped` assistant 可刷新恢复，但会从后续原始上下文和新摘要中排除；异常 EOF 仍保持 R11 的“不落库”语义。
-- 当前 `requestId` 只存在于进程内 registry。若回答已落库但应用层 `done` 在传输中丢失，客户端无法可靠区分“未保存”和“已保存未确认”；持久化幂等与断线结果恢复属于 R22 规划范围。
+- request registry 只负责当前进程互斥；会话的可选 `requests` 保存 requestId、请求指纹、终态和消息范围。答案消息与 `completed/stopped` 在同一 store mutation/SQLite transaction 中提交。
+- `GET /api/requests/:requestId` 受单用户认证保护；活动请求最多等待 1 秒完成，非活动的遗留 `processing` 收敛为 `failed`。前端异常 EOF/网络失败先查询该入口，已完成或已停止则回拉持久化详情。
+- 相同 requestId 与相同请求重放只返回 `done` 并回拉原消息；绑定到其他会话或不同 payload 时返回 409，不再次调用 Provider。
 
 ## 存储一致性
 
@@ -362,9 +364,10 @@ flowchart TD
 
 ### 批量导入边界
 
-- JSON/ZIP 会先完成 schema、数量、路径、附件绑定、图片元数据和 SHA-256 校验，再逐会话写入。
-- 单个 ZIP 会话写入失败时会清理该会话刚创建的附件，但之前已经创建或覆盖的会话不会整体回滚；当前 API 因此不是批次级 all-or-nothing 事务。
-- R22 计划在不破坏 `skip`、`duplicate`、`overwrite` 和旧备份兼容的前提下，为 file/SQLite 补齐暂存、提交和批次回滚语义。
+- JSON/ZIP 先完成 schema、数量、路径、附件绑定、图片元数据、SHA-256 和 requestId 绑定预检。
+- file store 将整批目标写入 staging，覆盖目标先移动到 backup，再逐项 rename；任一提交失败会删除本批已提交目标并恢复所有 backup。读写共用全局 mutation queue，外部不会观察到测试注入的半批状态。
+- SQLite 在单个 `BEGIN IMMEDIATE` transaction 中处理整批冲突策略和 upsert，任一失败统一 rollback。
+- ZIP 为本批附件生成新 ID；附件写入或会话批次提交失败时删除全部新附件。成功时仍保持 `skip/duplicate/overwrite` 和附件 ID 重映射语义。
 
 ## 输入与错误边界
 

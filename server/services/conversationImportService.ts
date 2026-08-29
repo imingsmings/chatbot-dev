@@ -1,6 +1,10 @@
 import crypto from 'node:crypto'
 import { strFromU8, unzipSync } from 'fflate'
-import { getConversation, importConversation } from '../utils/conversationStore.ts'
+import {
+  findConversationRequest,
+  getConversation,
+  importConversations
+} from '../utils/conversationStore.ts'
 import {
   MAX_CONVERSATION_TITLE_LENGTH,
   MAX_IMPORT_CONVERSATIONS,
@@ -27,6 +31,7 @@ import type {
   ConversationImportConflictStrategy,
   ConversationImportResult,
   ConversationImportItemResult,
+  ConversationRequestRecord,
   ImageAttachment,
   StoredMessage
 } from '../types/conversation.ts'
@@ -290,6 +295,50 @@ function parseContextSummary(value: unknown): ConversationContextSummary | undef
   }
 }
 
+function parseConversationRequests(
+  value: unknown,
+  path: string
+): ConversationRequestRecord[] | undefined {
+  if (value === undefined) return undefined
+  if (!Array.isArray(value)) throw new Error(`${path} 必须是数组`)
+  const seen = new Set<string>()
+  return value.map((item, index) => {
+    const itemPath = `${path}[${index}]`
+    if (!isRecord(item)) throw new Error(`${itemPath} 必须是对象`)
+    const requestId = readRequiredString(item, 'requestId')
+    if (!/^[A-Za-z0-9_-]{8,120}$/.test(requestId) || seen.has(requestId)) {
+      throw new Error(`${itemPath}.requestId 不合法或重复`)
+    }
+    seen.add(requestId)
+    if (typeof item.requestHash !== 'string' || !/^[0-9a-f]{64}$/.test(item.requestHash)) {
+      throw new Error(`${itemPath}.requestHash 不合法`)
+    }
+    if (!['processing', 'completed', 'stopped', 'failed'].includes(String(item.status))) {
+      throw new Error(`${itemPath}.status 不合法`)
+    }
+    const request: ConversationRequestRecord = {
+      requestId,
+      requestHash: item.requestHash,
+      status: item.status as ConversationRequestRecord['status'],
+      createdAt: readTimestamp(item, 'createdAt'),
+      updatedAt: readTimestamp(item, 'updatedAt')
+    }
+    if (item.messageStartIndex !== undefined || item.messageCount !== undefined) {
+      request.messageStartIndex = readNonNegativeNumber(
+        item.messageStartIndex,
+        `${itemPath}.messageStartIndex`,
+        true
+      )
+      request.messageCount = readNonNegativeNumber(
+        item.messageCount,
+        `${itemPath}.messageCount`,
+        true
+      )
+    }
+    return request
+  })
+}
+
 function parseConversation(value: unknown, index: number, allowAttachments = false): Conversation {
   if (!isRecord(value)) {
     throw new Error(`conversations[${index}] 必须是对象`)
@@ -347,6 +396,20 @@ function parseConversation(value: unknown, index: number, allowAttachments = fal
     }
   }
 
+  const requests = parseConversationRequests(value.requests, `conversations[${index}].requests`)
+  if (requests?.length) {
+    for (const request of requests) {
+      if (
+        request.messageStartIndex !== undefined &&
+        request.messageCount !== undefined &&
+        request.messageStartIndex + request.messageCount > conversation.messages.length
+      ) {
+        throw new Error(`conversations[${index}] 的请求消息范围越界`)
+      }
+    }
+    conversation.requests = requests
+  }
+
   return conversation
 }
 
@@ -360,6 +423,28 @@ function parseConflictStrategy(value: unknown): ConversationImportConflictStrate
   }
 
   throw new Error('conflictStrategy 只能是 skip、duplicate 或 overwrite')
+}
+
+async function assertImportRequestBindings(
+  conversations: Conversation[],
+  strategy: ConversationImportConflictStrategy
+): Promise<void> {
+  const batchBindings = new Map<string, string>()
+  for (const conversation of conversations) {
+    const existing = await getConversation(conversation.id)
+    if (existing && (strategy === 'skip' || strategy === 'duplicate')) continue
+    for (const request of conversation.requests ?? []) {
+      const batchConversationId = batchBindings.get(request.requestId)
+      if (batchConversationId && batchConversationId !== conversation.id) {
+        throw new Error(`requestId ${request.requestId} 在多个会话中重复`)
+      }
+      batchBindings.set(request.requestId, conversation.id)
+      const stored = await findConversationRequest(request.requestId)
+      if (stored && stored.conversationId !== conversation.id) {
+        throw new Error(`requestId ${request.requestId} 已绑定到其他会话`)
+      }
+    }
+  }
 }
 
 async function importConversationBackup(
@@ -395,20 +480,8 @@ async function importConversationBackup(
     }
     conversationIds.add(conversation.id)
   }
-  const items = []
-
-  for (const conversation of conversations) {
-    items.push(await importConversation(conversation, strategy))
-  }
-
-  return {
-    total: items.length,
-    created: items.filter((item) => item.status === 'created').length,
-    duplicated: items.filter((item) => item.status === 'duplicated').length,
-    overwritten: items.filter((item) => item.status === 'overwritten').length,
-    skipped: items.filter((item) => item.status === 'skipped').length,
-    items
-  }
+  await assertImportRequestBindings(conversations, strategy)
+  return summarizeImportItems(await importConversations(conversations, strategy))
 }
 
 function summarizeImportItems(items: ConversationImportItemResult[]): ConversationImportResult {
@@ -558,6 +631,8 @@ async function importConversationZip(
 
   const strategy = parseConflictStrategy(conflictStrategyValue)
   const items: ConversationImportItemResult[] = []
+  const preparedConversations: Conversation[] = []
+  const preparedAttachments: Array<{ record: StoredAttachmentRecord; data: Buffer }> = []
   for (const source of conversations) {
     const existing = await getConversation(source.id)
     if (existing && strategy === 'skip') {
@@ -579,39 +654,48 @@ async function importConversationZip(
       }
     }
     const remapped = remapConversationAttachments(target, attachmentIds)
-    const createdAttachmentIds: string[] = []
-
-    try {
-      for (const [sourceId, targetId] of attachmentIds) {
-        const archived = records.get(sourceId)
-        if (!archived) throw new Error(`附件 ${sourceId} 缺失`)
-        const record: StoredAttachmentRecord = {
+    for (const [sourceId, targetId] of attachmentIds) {
+      const archived = records.get(sourceId)
+      if (!archived) throw new Error(`附件 ${sourceId} 缺失`)
+      preparedAttachments.push({
+        record: {
           ...archived.record,
           id: targetId,
           conversationId: remapped.id,
           createdAt: new Date().toISOString(),
-        }
-        await writeStoredAttachment(record, archived.data)
-        createdAttachmentIds.push(targetId)
-      }
-
-      const status = existing
-        ? strategy === 'duplicate' ? 'duplicated' : 'overwritten'
-        : 'created'
-      const imported = await importConversation(
-        remapped,
-        existing && strategy === 'overwrite' ? 'overwrite' : 'skip',
-      )
-      if (!imported.conversationId) throw new Error(`会话 ${source.id} 导入冲突`)
-      items.push({
-        sourceId: source.id,
-        conversationId: imported.conversationId,
-        status,
+        },
+        data: archived.data,
       })
-    } catch (error) {
-      await removeAttachmentFiles(createdAttachmentIds)
-      throw error
     }
+    preparedConversations.push(remapped)
+    items.push({
+      sourceId: source.id,
+      conversationId: remapped.id,
+      status: existing
+        ? strategy === 'duplicate' ? 'duplicated' : 'overwritten'
+        : 'created',
+    })
+  }
+
+  const createdAttachmentIds: string[] = []
+  try {
+    await assertImportRequestBindings(preparedConversations, strategy)
+    for (const attachment of preparedAttachments) {
+      await writeStoredAttachment(attachment.record, attachment.data)
+      createdAttachmentIds.push(attachment.record.id)
+    }
+    const committed = await importConversations(
+      preparedConversations,
+      strategy === 'skip' ? 'skip' : 'overwrite'
+    )
+    for (const [index, item] of committed.entries()) {
+      if (item.conversationId !== preparedConversations[index]?.id) {
+        throw new Error(`会话 ${items[index]?.sourceId ?? index} 导入冲突`)
+      }
+    }
+  } catch (error) {
+    await removeAttachmentFiles(createdAttachmentIds)
+    throw error
   }
 
   return summarizeImportItems(items)

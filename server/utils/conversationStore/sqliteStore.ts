@@ -10,6 +10,8 @@ import type {
   ConversationImportConflictStrategy,
   ConversationImportItemResult,
   ConversationModelOptions,
+  ConversationRequestRecord,
+  ConversationRequestStatus,
   StoredMessage
 } from '../../types/conversation.ts'
 import { DEFAULT_TITLE, type ConversationStore } from './contracts.ts'
@@ -19,6 +21,7 @@ import {
 } from './migration.ts'
 import {
   applyAppendedMessages,
+  assertUniqueRequestBindings,
   cloneConversation,
   createId,
   createImportedDuplicate,
@@ -48,6 +51,11 @@ type SqliteConversationRow = {
   messages: string
   summary: string | null
   model_options: string | null
+  requests: string | null
+}
+
+type SqliteConversationStoreOptions = {
+  beforeImportCommit?: (index: number) => void
 }
 
 let migrationPromise: Promise<void> | null = null
@@ -88,7 +96,8 @@ function getSqliteDb(): DatabaseSync {
       title_manually_edited INTEGER NOT NULL,
       messages TEXT NOT NULL,
       summary TEXT,
-      model_options TEXT
+      model_options TEXT,
+      requests TEXT
     );
     CREATE TABLE IF NOT EXISTS storage_meta (
       key TEXT PRIMARY KEY,
@@ -102,6 +111,9 @@ function getSqliteDb(): DatabaseSync {
   }
   if (!columns.some((column) => column.name === 'model_options')) {
     db.exec('ALTER TABLE conversations ADD COLUMN model_options TEXT')
+  }
+  if (!columns.some((column) => column.name === 'requests')) {
+    db.exec('ALTER TABLE conversations ADD COLUMN requests TEXT')
   }
   sqliteDb = db
   return sqliteDb
@@ -156,7 +168,8 @@ function conversationFromSqliteRow(row: SqliteConversationRow): Conversation {
       titleManuallyEdited: Boolean(row.title_manually_edited),
       messages: JSON.parse(row.messages) as unknown,
       summary: row.summary ? (JSON.parse(row.summary) as unknown) : undefined,
-      modelOptions
+      modelOptions,
+      requests: row.requests ? (JSON.parse(row.requests) as unknown) : undefined
     },
     row.id
   )
@@ -165,8 +178,8 @@ function conversationFromSqliteRow(row: SqliteConversationRow): Conversation {
 function upsertConversation(conversation: Conversation): void {
   getSqliteDb()
     .prepare(`
-      INSERT INTO conversations (id, title, created_at, updated_at, title_manually_edited, messages, summary, model_options)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO conversations (id, title, created_at, updated_at, title_manually_edited, messages, summary, model_options, requests)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         title = excluded.title,
         created_at = excluded.created_at,
@@ -174,7 +187,8 @@ function upsertConversation(conversation: Conversation): void {
         title_manually_edited = excluded.title_manually_edited,
         messages = excluded.messages,
         summary = excluded.summary,
-        model_options = excluded.model_options
+        model_options = excluded.model_options,
+        requests = excluded.requests
     `)
     .run(
       conversation.id,
@@ -184,15 +198,16 @@ function upsertConversation(conversation: Conversation): void {
       conversation.titleManuallyEdited ? 1 : 0,
       JSON.stringify(conversation.messages),
       conversation.summary ? JSON.stringify(conversation.summary) : null,
-      conversation.modelOptions ? JSON.stringify(conversation.modelOptions) : null
+      conversation.modelOptions ? JSON.stringify(conversation.modelOptions) : null,
+      conversation.requests ? JSON.stringify(conversation.requests) : null
     )
 }
 
 function insertConversationIfAbsent(conversation: Conversation): void {
   getSqliteDb()
     .prepare(`
-      INSERT OR IGNORE INTO conversations (id, title, created_at, updated_at, title_manually_edited, messages, summary, model_options)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT OR IGNORE INTO conversations (id, title, created_at, updated_at, title_manually_edited, messages, summary, model_options, requests)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `)
     .run(
       conversation.id,
@@ -202,7 +217,8 @@ function insertConversationIfAbsent(conversation: Conversation): void {
       conversation.titleManuallyEdited ? 1 : 0,
       JSON.stringify(conversation.messages),
       conversation.summary ? JSON.stringify(conversation.summary) : null,
-      conversation.modelOptions ? JSON.stringify(conversation.modelOptions) : null
+      conversation.modelOptions ? JSON.stringify(conversation.modelOptions) : null,
+      conversation.requests ? JSON.stringify(conversation.requests) : null
     )
 }
 
@@ -343,6 +359,64 @@ async function appendMessages(
   return cloneConversation(conversation)
 }
 
+async function beginRequest(
+  id: string,
+  request: ConversationRequestRecord
+): Promise<ConversationRequestRecord | null> {
+  await migrateJsonStore()
+  return withSqliteTransaction(() => {
+    const conversation = getConversationSync(id)
+    if (!conversation) return null
+    const existing = conversation.requests?.find(({ requestId }) => requestId === request.requestId)
+    if (existing) return { ...existing }
+    conversation.requests = [...(conversation.requests ?? []), { ...request }]
+    upsertConversation(conversation)
+    return { ...request }
+  })
+}
+
+async function findRequest(requestId: string): Promise<{
+  conversationId: string
+  request: ConversationRequestRecord
+} | null> {
+  await migrateJsonStore()
+  const rows = getSqliteDb()
+    .prepare('SELECT * FROM conversations WHERE requests IS NOT NULL')
+    .all() as SqliteConversationRow[]
+  for (const row of rows) {
+    const request = conversationFromSqliteRow(row).requests?.find(
+      (item) => item.requestId === requestId
+    )
+    if (request) return { conversationId: row.id, request: { ...request } }
+  }
+  return null
+}
+
+async function finalizeRequest(
+  id: string,
+  requestId: string,
+  status: Exclude<ConversationRequestStatus, 'processing'>,
+  messages: StoredMessage[] = []
+): Promise<ConversationRequestRecord | null> {
+  await migrateJsonStore()
+  return withSqliteTransaction(() => {
+    const conversation = getConversationSync(id)
+    if (!conversation) return null
+    const request = conversation.requests?.find((item) => item.requestId === requestId)
+    if (!request) return null
+    if (request.status !== 'processing') return { ...request }
+    if (messages.length) {
+      request.messageStartIndex = conversation.messages.length
+      request.messageCount = messages.length
+      applyAppendedMessages(conversation, messages)
+    }
+    request.status = status
+    request.updatedAt = now()
+    upsertConversation(conversation)
+    return { ...request }
+  })
+}
+
 async function updateSummary(
   id: string,
   summary: ConversationContextSummary | null
@@ -404,6 +478,47 @@ async function importConversation(
   }
 }
 
+async function importConversations(
+  sourceConversations: Conversation[],
+  strategy: ConversationImportConflictStrategy,
+  options: SqliteConversationStoreOptions = {}
+): Promise<ConversationImportItemResult[]> {
+  await migrateJsonStore()
+  return withSqliteTransaction(() => {
+    const sourceIds = new Set<string>()
+    const items = sourceConversations.map((sourceConversation, index): ConversationImportItemResult => {
+      if (sourceIds.has(sourceConversation.id)) {
+        throw new Error(`批次包含重复会话 ID：${sourceConversation.id}`)
+      }
+      sourceIds.add(sourceConversation.id)
+      options.beforeImportCommit?.(index)
+      const conversation = normalizeConversation(sourceConversation)
+      const existing = getConversationSync(conversation.id)
+      if (existing && strategy === 'skip') {
+        return { sourceId: sourceConversation.id, conversationId: null, status: 'skipped' }
+      }
+      if (existing && strategy === 'duplicate') {
+        const duplicate = createImportedDuplicate(conversation)
+        upsertConversation(duplicate)
+        return {
+          sourceId: sourceConversation.id,
+          conversationId: duplicate.id,
+          status: 'duplicated'
+        }
+      }
+      upsertConversation(conversation)
+      return {
+        sourceId: sourceConversation.id,
+        conversationId: conversation.id,
+        status: existing ? 'overwritten' : 'created'
+      }
+    })
+    const rows = getSqliteDb().prepare('SELECT * FROM conversations').all() as SqliteConversationRow[]
+    assertUniqueRequestBindings(rows.map(conversationFromSqliteRow))
+    return items
+  })
+}
+
 async function clearConversation(id: string): Promise<Conversation | null> {
   await migrateJsonStore()
   const conversation = getConversationSync(id)
@@ -411,6 +526,7 @@ async function clearConversation(id: string): Promise<Conversation | null> {
 
   conversation.messages = []
   delete conversation.summary
+  delete conversation.requests
   conversation.updatedAt = now()
   upsertConversation(conversation)
   return cloneConversation(conversation)
@@ -433,7 +549,9 @@ function close(): void {
   }
 }
 
-export function createSqliteConversationStore(): ConversationStore {
+export function createSqliteConversationStore(
+  options: SqliteConversationStoreOptions = {}
+): ConversationStore {
   return {
     checkHealth,
     listConversations,
@@ -441,9 +559,14 @@ export function createSqliteConversationStore(): ConversationStore {
     createConversation,
     renameConversation,
     appendMessages,
+    beginRequest,
+    findRequest,
+    finalizeRequest,
     updateSummary,
     updateModelOptions,
     importConversation,
+    importConversations: (conversations, strategy) =>
+      importConversations(conversations, strategy, options),
     clearConversation,
     deleteConversation,
     close

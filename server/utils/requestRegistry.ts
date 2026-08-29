@@ -72,6 +72,10 @@ function cancelRequest(requestId: string, reason = 'explicit_cancel'): boolean {
   return true
 }
 
+function isRequestActive(requestId: string): boolean {
+  return activeRequests.has(requestId)
+}
+
 async function waitForRequestCompletion(requestId: string): Promise<void> {
   await activeRequests.get(requestId)?.completion
 }
@@ -99,6 +103,7 @@ export {
   cancelAllRequests,
   cancelRequest,
   completeRequest,
+  isRequestActive,
   parseRequestId,
   registerRequest,
   waitForRequestCompletion

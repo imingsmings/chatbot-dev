@@ -68,6 +68,7 @@
     "test:cdp:model-options-persistence": "node tests/cdp/run-cdp-regression.mjs model-options-persistence",
     "test:cdp:prompt-templates": "node tests/cdp/run-cdp-regression.mjs prompt-templates",
     "test:cdp:stream-performance": "node tests/cdp/run-cdp-regression.mjs stream-performance",
+    "test:cdp:request-recovery": "node tests/cdp/run-cdp-regression.mjs request-recovery",
     "test:cdp:authentication": "node tests/cdp/run-cdp-regression.mjs authentication",
     "test:cdp:image-attachments": "node tests/cdp/run-cdp-regression.mjs image-attachments",
     "test:cdp:all-mock": "node tests/cdp/run-cdp-regression.mjs all-mock",

@@ -27,7 +27,7 @@
 | conversation reducer | 不可变 upsert/sort；删除 active 立即清空 ID、summary、messages、模型配置；选择/应用/清空恢复配置；服务端详情映射真实 `persistedIndex` 和生成元数据 |
 | useConversations | Strict Mode 初始化去重；选择乱序；删除后继加载失败不保留已删除详情；创建分支后选中新会话 |
 | useConversationModelOptions | runtime/详情乱序、A/B 恢复、乐观保存、服务端规范化、快速点击、失败回滚/重试和切换后过期响应隔离 |
-| useChatStream | delta/reasoning/tool/done；显式新分支 ID；取消完成握手；成功/停止后详情回拉；首包/流空闲超时；协议错误后恢复；卸载清理 |
+| useChatStream | delta/reasoning/tool/done；显式新分支 ID；取消完成握手；成功/停止后详情回拉；丢失 done 后请求终态查询与持久化答案恢复；首包/流空闲超时；协议错误后恢复；卸载清理 |
 | message branching | 多行编辑、取消/未修改、最近用户消息定位、分支创建失败恢复 |
 | stream protocol | v2 六类事件；拆包；未知/损坏 JSON；负耗时；空 tool/error 字段 |
 | model catalog | provider/model 能力；disabled；空/损坏运行目录 fallback |
@@ -46,6 +46,8 @@
 | chat persistence | 会话在回答完成前删除时拒绝假成功；不完整 Provider 流不落库且后续请求恢复 |
 | summary | 空/不存在、持久化、清空；边界后增量滚动、输入预算、无新增时零调用、stopped 排除并推进边界；完整消息快照竞态；shutdown 取消上游 |
 | request registry | requestId 校验、同会话单活动请求、abort 后保持占用、取消等待 `completeRequest`、完成后清理和复用 |
+| request persistence | file/SQLite processing/终态、消息与终态原子提交、并发/顺序重放、存储重开、stale processing 失败收敛和受认证查询 |
+| atomic import | file staging/backup/rollback 与 SQLite transaction；首项/中间项/末项故障注入后会话快照不变，ZIP 新附件失败整批清理 |
 | NDJSON | backpressure 不误判关闭；destroyed/writableEnded 不再写入 |
 | test process lifecycle | child exit 等待、脚本超时、进程组终止与临时目录清理 |
 | model options | 完整快照、范围/能力/禁用模型、运行时默认、旧会话回填、更新不改排序、file/SQLite 重开、SQLite 幂等增列、损坏字段安全降级 |
@@ -69,6 +71,7 @@
 | P1 | `pnpm run test:cdp:p1` | UI、Markdown、高亮、边界状态 |
 | UI | `pnpm run test:cdp:ui` | 七个独立入口：会话操作、流式恢复、滚动/布局、流性能、模型菜单、会话模型配置、自定义模板 |
 | Stream performance | `pnpm run test:cdp:stream-performance` | 4KB/24KB/80KB、200 条历史、更新次数、可见延迟、long task、历史行渲染和滚动次数 |
+| Request recovery | `pnpm run test:cdp:request-recovery` | 服务端已保存答案但流缺失 done 时查询一次终态、回拉原回答且不重复持久化 |
 | Context | `pnpm run test:cdp:context-debug` | 实际上下文、统计、移动布局 |
 | Search | `pnpm run test:cdp:conversation-search` | 输入、跳转、空/错/竞态 |
 | Export | `pnpm run test:cdp:conversation-export` | 下载、文件名、JSON 备份 |
@@ -91,7 +94,7 @@ UI 七个入口位于 `tests/cdp/scenarios/ui/`，分别包含会话操作、流
 - 只有带服务端 `persistedIndex` 的消息显示编辑/重新生成；流成功或停止后 optimistic 行与服务端详情完全对齐。
 - 用户接近底部时跟随正文/reasoning/代码块；上滚查看历史时保持位置并显示快速到底按钮，点击后恢复当前流的持续跟随。
 - 代码块最后增长时 bottom gap 保持在阈值内。
-- 停止、HTTP 失败、网络断开、损坏 NDJSON、缺少 done、Provider 不完整错误和超时后均可恢复；用户手动停止且已收到正文或 reasoning 时落为 `stopped`，其他中断的部分内容仅保留在当前 UI 且不落库。
+- 停止、HTTP 失败、网络断开、损坏 NDJSON、缺少 done、Provider 不完整错误和超时后均可恢复；若服务端已保存回答但应用 `done` 丢失，结果查询会恢复唯一的持久化回答；用户手动停止且已收到正文或 reasoning 时落为 `stopped`，其他中断的部分内容仅保留在当前 UI 且不落库。
 - 刷新后 generation、usage、裁剪工具轨迹和 `stopped` 状态可恢复；缺失 usage 显示未知，`stopped` 不进入上下文或摘要。
 - 明暗主题刷新保持；390px 无页面级横向溢出。
 - 图标按钮有可读 `aria-label`；Dialog/Dropdown 的 Escape、focus 和 disabled 状态正确。

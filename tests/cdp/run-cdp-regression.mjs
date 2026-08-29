@@ -129,6 +129,14 @@ const SUITES = {
       needsVite: true,
     },
   ],
+  'request-recovery': [
+    {
+      name: 'UI persisted request recovery scenarios',
+      script: 'tests/cdp/scenarios/ui/stream-recovery.mjs',
+      needsVite: true,
+      env: { APP_URL },
+    },
+  ],
   authentication: [
     {
       name: 'Authentication UI and refresh scenarios',

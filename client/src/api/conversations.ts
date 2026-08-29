@@ -3,6 +3,7 @@ import type {
   ConversationDetail,
   ConversationImportResult,
   ConversationModelOptions,
+  ConversationRequestResult,
   ConversationSearchResult,
   ConversationSummary,
   ImageAttachment,
@@ -329,4 +330,10 @@ export async function cancelRequest(
     completed?: boolean
   } | null
   return data?.cancelled === true && data.completed === true
+}
+
+export async function getRequestResult(requestId: string) {
+  const response = await apiFetch(`/api/requests/${encodeURIComponent(requestId)}`)
+  const data = await readJson<{ request: ConversationRequestResult }>(response)
+  return data.request
 }

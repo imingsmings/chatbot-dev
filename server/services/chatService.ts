@@ -1,4 +1,8 @@
-import { appendMessages, updateConversationModelOptions } from '../utils/conversationStore.ts'
+import {
+  appendMessages,
+  finalizeConversationRequest,
+  updateConversationModelOptions
+} from '../utils/conversationStore.ts'
 import {
   callLLMStream,
   callLLMStreamAfterTools,
@@ -25,6 +29,7 @@ type GenerateConversationAnswerOptions = {
   onDelta: (chunk: string, type: LlmStreamChunkType) => void
   onToolEvent?: (event: ToolExecutionEvent) => void
   modelOptions?: ModelRequestOptions
+  requestId?: string
 }
 
 type GenerateConversationAnswerResult = {
@@ -69,7 +74,8 @@ async function generateConversationAnswer({
   signal,
   onDelta,
   onToolEvent,
-  modelOptions
+  modelOptions,
+  requestId
 }: GenerateConversationAnswerOptions): Promise<GenerateConversationAnswerResult> {
   const startedAt = Date.now()
   const effectiveOptions = resolveModelOptions(modelOptions)
@@ -163,7 +169,7 @@ async function generateConversationAnswer({
       assistantMessage.toolTrace = toolTrace.slice(0, MAX_STORED_TOOL_TRACE_ITEMS)
     }
 
-    const persistedConversation = await appendMessages(conversationId, [
+    const messages: StoredMessage[] = [
       {
         role: 'user',
         content: question,
@@ -172,7 +178,10 @@ async function generateConversationAnswer({
           : {}),
       },
       assistantMessage
-    ])
+    ]
+    const persistedConversation = requestId
+      ? await finalizeConversationRequest(conversationId, requestId, status, messages)
+      : await appendMessages(conversationId, messages)
 
     if (!persistedConversation) {
       throw new Error('会话已被删除，响应未保存')

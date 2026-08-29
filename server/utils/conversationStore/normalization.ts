@@ -11,6 +11,7 @@ import {
 import type {
   Conversation,
   ConversationContextSummary,
+  ConversationRequestRecord,
   ConversationSummary,
   ImageAttachment,
   StoredMessage
@@ -247,6 +248,45 @@ function normalizeConversationSummary(
   }
 }
 
+function normalizeConversationRequests(value: unknown): ConversationRequestRecord[] | undefined {
+  if (!Array.isArray(value)) return undefined
+
+  const seen = new Set<string>()
+  const requests = value.flatMap((item): ConversationRequestRecord[] => {
+    if (
+      !isRecord(item) ||
+      typeof item.requestId !== 'string' ||
+      !/^[A-Za-z0-9_-]{8,120}$/.test(item.requestId) ||
+      seen.has(item.requestId) ||
+      typeof item.requestHash !== 'string' ||
+      !/^[0-9a-f]{64}$/.test(item.requestHash) ||
+      !['processing', 'completed', 'stopped', 'failed'].includes(String(item.status))
+    ) {
+      return []
+    }
+    const createdAt = normalizeTimestamp(item.createdAt, '')
+    const updatedAt = normalizeTimestamp(item.updatedAt, createdAt)
+    if (!createdAt) return []
+
+    seen.add(item.requestId)
+    const request: ConversationRequestRecord = {
+      requestId: item.requestId,
+      requestHash: item.requestHash,
+      status: item.status as ConversationRequestRecord['status'],
+      createdAt,
+      updatedAt
+    }
+    const messageStartIndex = normalizeNonNegativeNumber(item.messageStartIndex, true)
+    const messageCount = normalizeNonNegativeNumber(item.messageCount, true)
+    if (messageStartIndex !== undefined && messageCount !== undefined) {
+      request.messageStartIndex = messageStartIndex
+      request.messageCount = messageCount
+    }
+    return [request]
+  })
+  return requests.length ? requests : undefined
+}
+
 export function normalizeConversation(conversation: unknown, expectedId?: string): Conversation {
   const rawConversation = isRecord(conversation) ? conversation : {}
   const createdAt = normalizeTimestamp(rawConversation.createdAt, now())
@@ -281,6 +321,11 @@ export function normalizeConversation(conversation: unknown, expectedId?: string
     normalized.modelOptions = modelOptions
   }
 
+  const requests = normalizeConversationRequests(rawConversation.requests)
+  if (requests) {
+    normalized.requests = requests
+  }
+
   return normalized
 }
 
@@ -299,7 +344,8 @@ export function cloneConversation(conversation: Conversation): Conversation {
       attachments: message.attachments?.map((attachment) => ({ ...attachment }))
     })),
     summary: conversation.summary ? { ...conversation.summary } : undefined,
-    modelOptions: conversation.modelOptions ? { ...conversation.modelOptions } : undefined
+    modelOptions: conversation.modelOptions ? { ...conversation.modelOptions } : undefined,
+    requests: conversation.requests?.map((request) => ({ ...request }))
   }
 }
 
@@ -329,6 +375,19 @@ export function sortConversationSummaries(
     .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
 }
 
+export function assertUniqueRequestBindings(conversations: Conversation[]): void {
+  const bindings = new Map<string, string>()
+  for (const conversation of conversations) {
+    for (const request of conversation.requests ?? []) {
+      const existingConversationId = bindings.get(request.requestId)
+      if (existingConversationId && existingConversationId !== conversation.id) {
+        throw new Error(`requestId ${request.requestId} 已绑定到其他会话`)
+      }
+      bindings.set(request.requestId, conversation.id)
+    }
+  }
+}
+
 export function applyAppendedMessages(
   conversation: Conversation,
   messages: StoredMessage[]
@@ -354,6 +413,7 @@ export function createImportedDuplicate(conversation: Conversation): Conversatio
     id: createId(),
     title: `${conversation.title} (导入)`,
     createdAt: timestamp,
-    updatedAt: timestamp
+    updatedAt: timestamp,
+    requests: undefined
   }
 }

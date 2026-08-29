@@ -128,6 +128,37 @@ test('file import preserves optional generation and tool metadata while acceptin
   assert.equal(stored?.messages[1]?.toolTrace?.[0]?.summary, '计算结果：42')
 })
 
+test('file import preserves request records while duplicate import drops their conversation binding', async () => {
+  const imported = backup('request record question')
+  imported.conversations[0].id = 'conv_import_request_records'
+  Object.assign(imported.conversations[0], {
+    messages: [
+      { role: 'user', content: 'request record question' },
+      { role: 'assistant', content: 'request record answer', status: 'completed' }
+    ],
+    requests: [{
+      requestId: 'request_import_record_123',
+      requestHash: 'e'.repeat(64),
+      status: 'completed',
+      createdAt: '2026-08-29T00:00:00.000Z',
+      updatedAt: '2026-08-29T00:00:01.000Z',
+      messageStartIndex: 0,
+      messageCount: 2
+    }]
+  })
+
+  await importConversationBackup(imported)
+  assert.equal(
+    (await getConversation('conv_import_request_records'))?.requests?.[0]?.status,
+    'completed'
+  )
+  const duplicate = await importConversationBackup(imported, 'duplicate')
+  assert.equal(
+    (await getConversation(duplicate.items[0].conversationId!))?.requests,
+    undefined
+  )
+})
+
 test('file import rejects unsupported and malformed backups without partial writes', async () => {
   const countBeforeValidationFailures = (await listConversations()).length
 

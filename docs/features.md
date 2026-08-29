@@ -22,6 +22,8 @@
 - 运行时目录异常或为空时使用安全的 DeepSeek fallback，不崩溃。
 - 流式正文、reasoning、耗时、停止、错误和后续恢复；DeepSeek/OpenAI 完成事件缺失时不发送成功 `done` 且不落库。
 - 同一会话禁止并发 ask；客户端快速连续提交只发出一次。
+- ask 的 `requestId`、会话绑定、请求指纹和 `processing/completed/stopped/failed` 状态随会话持久化；并发、顺序重放和存储重开后重放不会追加第二组消息。
+- 流异常结束时前端先查询受认证保护的请求结果；服务端已保存答案但浏览器未收到 `done` 时回拉原回答，重启遗留的 `processing` 收敛为 `failed`。
 - 成功或确认停止后回拉服务端详情；只有已保存消息可编辑或重新生成。
 
 ### 图片附件与 Vision
@@ -53,7 +55,7 @@
 
 - 单会话 Markdown 导出。
 - 全量 schema v2 ZIP 便携备份，包含 `manifest.json` 与附件二进制；保留 schema v1 JSON 导出 API和导入兼容。
-- JSON/ZIP 导入前完整校验；支持 skip、duplicate、overwrite，ZIP 同时校验路径、绑定、大小和 SHA-256。
+- JSON/ZIP 导入采用完整预检、暂存和整批提交；支持 skip、duplicate、overwrite，ZIP 同时校验路径、绑定、大小和 SHA-256，任一会话失败会回滚本批会话、覆盖目标和新附件。
 - file/SQLite、schema v1 备份和 duplicate/overwrite/skip 导入均保留合法的会话模型配置、reasoning 和 summary。
 - 自动化使用临时数据目录，不删除用户已有会话。
 

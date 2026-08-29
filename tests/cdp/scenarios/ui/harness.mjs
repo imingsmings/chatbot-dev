@@ -357,6 +357,7 @@ const mockScript = `
   let conversationSeq = 0;
   const requests = [];
   const conversations = new Map();
+  const requestResults = new Map();
   const STORAGE_KEY = '__cdpMockConversations';
   const flags = {
     failNextCreate: false,
@@ -371,11 +372,13 @@ const mockScript = `
   };
   window.__abortCount = 0;
   window.__askCount = 0;
+  window.__requestResultQueryCount = 0;
 
   window.__setAskPlans = (nextPlans) => {
     plans = nextPlans.slice();
     window.__abortCount = 0;
     window.__askCount = 0;
+    window.__requestResultQueryCount = 0;
   };
 
   window.__setMockFlags = (nextFlags) => {
@@ -746,6 +749,13 @@ const mockScript = `
       return json({ cancelled: true });
     }
 
+    const requestResultMatch = pathname.match(/^\\/requests\\/([^/]+)$/);
+    if (requestResultMatch && method === 'GET') {
+      window.__requestResultQueryCount += 1;
+      const request = requestResults.get(decodeURIComponent(requestResultMatch[1]));
+      return request ? json({ request }) : json({ message: 'request not found' }, 404);
+    }
+
     if (url.includes('/api/history')) {
       return new Response(JSON.stringify({ conversations: [] }), {
         status: 200,
@@ -772,15 +782,27 @@ const mockScript = `
     window.__askCount += 1;
     const body = JSON.parse(init.body || '{}');
     const question = body.question || '';
+    const requestId = body.requestId || '';
+    if (requestId) {
+      requestResults.set(requestId, {
+        requestId,
+        conversationId: conversation.id,
+        status: 'processing',
+        createdAt: now(),
+        updatedAt: now(),
+      });
+    }
     conversation.modelOptions = body.options ? { ...body.options } : defaultModelOptions();
     persistMockData();
     const plan = plans.shift() || { kind: 'success', chunks: ['默认回复'], interval: 40 };
 
     if (plan.kind === 'httpError') {
+      if (requestId) requestResults.get(requestId).status = 'failed';
       return new Response('failed', { status: plan.status || 500 });
     }
 
     if (plan.kind === 'networkError') {
+      if (requestId) requestResults.get(requestId).status = 'failed';
       throw new TypeError(plan.message || 'Failed to fetch');
     }
 
@@ -813,6 +835,7 @@ const mockScript = `
           if (closed) return;
 
           if (plan.kind === 'malformedNdjson') {
+            if (requestId) requestResults.get(requestId).status = 'failed';
             controller.enqueue(encoder.encode('{bad json\\n'));
             closed = true;
             controller.close();
@@ -859,6 +882,7 @@ const mockScript = `
           }
 
           if (plan.kind === 'streamError') {
+            if (requestId) requestResults.get(requestId).status = 'failed';
             controller.enqueue(line({ type: 'error', message: plan.message || '模拟失败' }));
             closed = true;
             controller.close();
@@ -866,6 +890,7 @@ const mockScript = `
           }
 
           if (plan.kind === 'abruptClose') {
+            if (requestId) requestResults.get(requestId).status = 'failed';
             closed = true;
             controller.error(new TypeError(plan.message || 'network lost'));
             return;
@@ -877,6 +902,27 @@ const mockScript = `
           }
 
           if (plan.kind === 'noDoneClose') {
+            if (requestId) requestResults.get(requestId).status = 'failed';
+            closed = true;
+            controller.close();
+            return;
+          }
+
+          if (plan.kind === 'persistedNoDone') {
+            conversation.messages.push(
+              { role: 'user', content: question },
+              { role: 'assistant', content: answer, status: 'completed' },
+            );
+            conversation.updatedAt = now();
+            if (requestId) {
+              Object.assign(requestResults.get(requestId), {
+                status: 'completed',
+                updatedAt: now(),
+                messageStartIndex: conversation.messages.length - 2,
+                messageCount: 2,
+              });
+            }
+            persistMockData();
             closed = true;
             controller.close();
             return;
@@ -914,6 +960,7 @@ const mockScript = `
             },
           );
           conversation.updatedAt = now();
+          if (requestId) requestResults.get(requestId).status = 'completed';
           persistMockData();
           closed = true;
           controller.close();
