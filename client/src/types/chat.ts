@@ -16,6 +16,7 @@ export type ModelCapabilities = {
   reasoningEfforts: string[]
   temperature: boolean
   maxOutputTokens: number
+  contextWindowTokens?: number
   inputModalities?: Array<'text' | 'image'>
   imageDetailLevels?: Array<'auto' | 'low' | 'original'>
   experimental?: boolean
@@ -187,6 +188,25 @@ export type ContextPreview = {
     droppedImages: number
     selectedImageBytes: number
     summaryIncluded: boolean
+    summaryDroppedByTokenBudget: boolean
+    legacyDroppedHistoryMessages: number
+    tokenDroppedHistoryMessages: number
+    estimatedInputTokens: number
+    outputReserveTokens: number
+    estimatedTotalTokens: number
+    contextWindowTokens: number
+    remainingInputTokens: number
+    estimator: string
+    tokenBreakdown: {
+      system: number
+      summary: number
+      history: number
+      currentQuestion: number
+      images: number
+      tools: number
+      framing: number
+      toolContinuationReserve: number
+    }
   }
   model: {
     provider: string
@@ -200,6 +220,7 @@ export type ContextPreview = {
     storageBackend: 'file' | 'sqlite'
     temperature: number | null
     maxTokens: number | null
+    contextWindowTokens: number
   }
   tools: {
     count: number

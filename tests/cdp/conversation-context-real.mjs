@@ -189,6 +189,35 @@ async function cleanupTestConversations() {
   )
 }
 
+async function getConversationByTitle(title) {
+  const listResponse = await authenticatedFetch(`${API_BASE}/conversations`)
+  if (!listResponse.ok) throw new Error(`Failed to list conversations: ${listResponse.status}`)
+  const list = await listResponse.json()
+  const summary = list.conversations?.find((conversation) => conversation.title === title)
+  if (!summary) throw new Error(`Cannot find conversation by title: ${title}`)
+  const detailResponse = await authenticatedFetch(
+    `${API_BASE}/conversations/${encodeURIComponent(summary.id)}`,
+  )
+  if (!detailResponse.ok) throw new Error(`Failed to read conversation: ${detailResponse.status}`)
+  return (await detailResponse.json()).conversation
+}
+
+async function previewContext(conversation, question) {
+  const response = await authenticatedFetch(
+    `${API_BASE}/conversations/${encodeURIComponent(conversation.id)}/context-preview`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        question,
+        options: { ...conversation.modelOptions, maxTokens: 4096 },
+      }),
+    },
+  )
+  if (!response.ok) throw new Error(`Failed to preview context: ${response.status} ${await response.text()}`)
+  return (await response.json()).context
+}
+
 async function clickText(client, selector, text) {
   await evaluate(
     client,
@@ -447,6 +476,21 @@ async function main() {
       SECRET_A,
     )
     await askAndWait(client, '上一条暗号是什么？只输出暗号，不要解释。', SECRET_A)
+    const conversationA = await getConversationByTitle(TITLE_A)
+    const budgetPreview = await previewContext(conversationA, 'R23 真实纯文本预算预览。')
+    const expectedEstimator = `${conversationA.modelOptions.provider}-utf8-conservative-v1`
+    if (budgetPreview.stats.estimator !== expectedEstimator) {
+      throw new Error(`Unexpected real context estimator: ${budgetPreview.stats.estimator}`)
+    }
+    if (budgetPreview.stats.estimatedTotalTokens > budgetPreview.stats.contextWindowTokens) {
+      throw new Error('Real text context preview exceeds the configured model context window')
+    }
+    if (budgetPreview.stats.tokenBreakdown.currentQuestion <= 0 || budgetPreview.stats.tokenBreakdown.tools <= 0) {
+      throw new Error('Real text context preview omitted question or tool budget')
+    }
+    if (budgetPreview.stats.selectedHistoryMessages < 2) {
+      throw new Error('Real text context preview did not include persisted history')
+    }
     await screenshot(client, '03-conversation-a-two-turn-context')
 
     await createAndRenameConversation(client, TITLE_B)
@@ -526,6 +570,14 @@ async function main() {
       isolationState: {
         containsA: isolationState.containsA,
         containsB: isolationState.containsB,
+      },
+      providerAwareBudget: {
+        estimator: budgetPreview.stats.estimator,
+        estimatedInputTokens: budgetPreview.stats.estimatedInputTokens,
+        outputReserveTokens: budgetPreview.stats.outputReserveTokens,
+        estimatedTotalTokens: budgetPreview.stats.estimatedTotalTokens,
+        contextWindowTokens: budgetPreview.stats.contextWindowTokens,
+        selectedHistoryMessages: budgetPreview.stats.selectedHistoryMessages,
       },
       finalState,
     }, null, 2))

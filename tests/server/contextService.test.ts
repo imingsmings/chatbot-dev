@@ -2,9 +2,10 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import assert from 'node:assert/strict'
-import { after, test } from 'node:test'
+import { after, afterEach, test } from 'node:test'
 import { buildContextPreview } from '../../server/services/contextDebugService.ts'
 import { buildContextMessages } from '../../server/services/contextService.ts'
+import { assertToolContinuationWithinBudget } from '../../server/services/contextBudgetService.ts'
 import type {
   Conversation,
   ImageAttachment,
@@ -17,6 +18,7 @@ const answerDataDir = await mkdtemp(path.join(tmpdir(), 'chatbot-context-answer-
 const originalEnv = {
   CONTEXT_MAX_HISTORY_MESSAGES: process.env.CONTEXT_MAX_HISTORY_MESSAGES,
   CONTEXT_MAX_HISTORY_CHARS: process.env.CONTEXT_MAX_HISTORY_CHARS,
+  DEEPSEEK_CONTEXT_WINDOW_TOKENS: process.env.DEEPSEEK_CONTEXT_WINDOW_TOKENS,
   CONVERSATION_DATA_DIR: process.env.CONVERSATION_DATA_DIR,
   LLM_ENDPOINT: process.env.LLM_ENDPOINT,
   LLM_MODEL: process.env.LLM_MODEL,
@@ -147,6 +149,14 @@ after(async () => {
   restoreEnv()
   globalThis.fetch = originalFetch
   await rm(answerDataDir, { recursive: true, force: true })
+})
+
+afterEach(() => {
+  if (originalEnv.DEEPSEEK_CONTEXT_WINDOW_TOKENS === undefined) {
+    delete process.env.DEEPSEEK_CONTEXT_WINDOW_TOKENS
+  } else {
+    process.env.DEEPSEEK_CONTEXT_WINDOW_TOKENS = originalEnv.DEEPSEEK_CONTEXT_WINDOW_TOKENS
+  }
 })
 
 test('buildContextMessages keeps only the latest configured history messages', () => {
@@ -394,6 +404,236 @@ test('buildContextMessages always keeps the current question outside the history
   assert(!content.includes('OLD_SHOULD_DROP'))
 })
 
+test('provider-aware budget conservatively distinguishes UTF-8 Chinese from ASCII input', () => {
+  process.env.DEEPSEEK_CONTEXT_WINDOW_TOKENS = '5000'
+  process.env.CONTEXT_MAX_HISTORY_MESSAGES = '20'
+  process.env.CONTEXT_MAX_HISTORY_CHARS = '10000'
+
+  const ascii = buildContextMessages(makeConversation([]), 'a'.repeat(2000), {
+    modelOptions: {
+      provider: 'deepseek',
+      model: 'deepseek-v4-pro',
+      maxTokens: 200,
+    },
+    tools: [],
+  })
+  assert.equal(ascii.tokenBudget.overflowTokens, 0)
+  assert(ascii.tokenBudget.breakdown.currentQuestion < 3000)
+
+  assert.throws(
+    () => buildContextMessages(makeConversation([]), '中'.repeat(2000), {
+      modelOptions: {
+        provider: 'deepseek',
+        model: 'deepseek-v4-pro',
+        maxTokens: 200,
+      },
+      tools: [],
+    }),
+    /context.*5000|上下文上限 5000/,
+  )
+})
+
+test('provider-aware budget resolves the selected OpenAI model profile', () => {
+  const result = buildContextMessages(makeConversation([user('OPENAI_HISTORY')]), 'OPENAI_CURRENT', {
+    modelOptions: {
+      provider: 'openai',
+      model: 'gpt-5.6-luna',
+      maxTokens: 1000,
+    },
+    tools: [],
+  })
+
+  assert.equal(result.tokenBudget.provider, 'openai')
+  assert.equal(result.tokenBudget.estimator, 'openai-utf8-conservative-v1')
+  assert.equal(result.tokenBudget.contextWindowTokens, 400000)
+  assert.equal(result.tokenBudget.outputReserveTokens, 1000)
+  assert(result.tokenBudget.totalTokens <= result.tokenBudget.contextWindowTokens)
+})
+
+test('provider-aware budget trims the oldest history until input plus output reserve fits', () => {
+  process.env.DEEPSEEK_CONTEXT_WINDOW_TOKENS = '4000'
+  process.env.CONTEXT_MAX_HISTORY_MESSAGES = '20'
+  process.env.CONTEXT_MAX_HISTORY_CHARS = '10000'
+  const conversation = makeConversation([
+    user(`OLDEST_${'a'.repeat(1200)}`),
+    assistant(`MIDDLE_${'b'.repeat(1200)}`),
+    user(`LATEST_${'c'.repeat(1200)}`),
+  ])
+
+  const result = buildContextMessages(conversation, 'CURRENT', {
+    modelOptions: {
+      provider: 'deepseek',
+      model: 'deepseek-v4-pro',
+      maxTokens: 500,
+    },
+    tools: [],
+  })
+  const content = promptContent(result.messages)
+
+  assert.equal(result.legacyDroppedHistoryMessages, 0)
+  assert.equal(result.tokenDroppedHistoryMessages, 1)
+  assert.equal(result.selectedHistoryMessages, 2)
+  assert(!content.includes('OLDEST_'))
+  assert(content.includes('MIDDLE_'))
+  assert(content.includes('LATEST_'))
+  assert(result.tokenBudget.totalTokens <= result.tokenBudget.contextWindowTokens)
+  assert.equal(
+    result.tokenBudget.remainingInputTokens,
+    result.tokenBudget.contextWindowTokens - result.tokenBudget.totalTokens,
+  )
+})
+
+test('provider-aware budget drops an oversized summary without reopening its coverage boundary', () => {
+  process.env.DEEPSEEK_CONTEXT_WINDOW_TOKENS = '2500'
+  const conversation = makeConversation([
+    user('SUMMARY_SOURCE_USER'),
+    assistant('SUMMARY_SOURCE_ASSISTANT'),
+    user('LATEST_USER'),
+  ])
+  conversation.summary = {
+    content: '摘要'.repeat(1000),
+    sourceMessageCount: 2,
+    updatedAt: '2026-08-29T00:00:00.000Z',
+  }
+
+  const result = buildContextMessages(conversation, 'CURRENT', {
+    modelOptions: {
+      provider: 'deepseek',
+      model: 'deepseek-v4-pro',
+      maxTokens: 300,
+    },
+    tools: [],
+  })
+  const content = promptContent(result.messages)
+
+  assert.equal(result.summaryCoveredMessages, 2)
+  assert.equal(result.summaryIncluded, false)
+  assert.equal(result.summaryDroppedByTokenBudget, true)
+  assert(!content.includes('SUMMARY_SOURCE_USER'))
+  assert(!content.includes('SUMMARY_SOURCE_ASSISTANT'))
+  assert(content.includes('LATEST_USER'))
+  assert(result.tokenBudget.totalTokens <= result.tokenBudget.contextWindowTokens)
+})
+
+test('provider-aware image budget keeps current images and removes oversized historical images first', () => {
+  process.env.DEEPSEEK_CONTEXT_WINDOW_TOKENS = '5000'
+  const historical = {
+    ...image('8', 6 * 1024 * 1024),
+    width: 4096,
+    height: 4096,
+    detail: 'original' as const,
+  }
+  const current = {
+    ...image('9', 1000),
+    width: 500,
+    height: 500,
+  }
+  const conversation = makeConversation([{ ...user('history'), attachments: [historical] }])
+
+  const result = buildContextMessages(conversation, 'current', {
+    currentAttachments: [current],
+    includeImages: true,
+    modelOptions: {
+      provider: 'deepseek',
+      model: 'deepseek-v4-flash-vision-exp',
+      maxTokens: 500,
+    },
+    tools: [],
+  })
+
+  assert.equal(result.selectedImages, 1)
+  assert.equal(result.droppedImages, 1)
+  assert.equal(result.messages.at(-1)?.attachments?.[0]?.id, current.id)
+  assert(result.messages.some((message) => message.content?.includes('图片预算未发送')))
+  assert(result.tokenBudget.totalTokens <= result.tokenBudget.contextWindowTokens)
+})
+
+test('chat orchestration rejects an oversized fixed input before calling the provider', async () => {
+  const mock = createMockLlmFetch()
+  process.env.DEEPSEEK_CONTEXT_WINDOW_TOKENS = '5000'
+  process.env.CONVERSATION_DATA_DIR = answerDataDir
+  process.env.LLM_PROVIDER = 'deepseek'
+  process.env.LLM_ENDPOINT = 'http://mock.local/chat/completions'
+  process.env.DEEPSEEK_API_KEY = 'context-test-key'
+
+  try {
+    const { generateConversationAnswer } = await import('../../server/services/chatService.ts')
+    const { importConversation } = await import('../../server/utils/conversationStore.ts')
+    const conversation = {
+      ...makeConversation([]),
+      id: 'conv_context_budget_preflight',
+    }
+    await importConversation(conversation, 'overwrite')
+
+    await assert.rejects(
+      generateConversationAnswer({
+        conversation,
+        conversationId: conversation.id,
+        question: '中'.repeat(2000),
+        signal: new AbortController().signal,
+        onDelta: () => {},
+        modelOptions: {
+          provider: 'deepseek',
+          model: 'deepseek-v4-pro',
+          maxTokens: 200,
+        },
+      }),
+      /上下文上限 5000/,
+    )
+    assert.equal(mock.requests.length, 0)
+  } finally {
+    mock.restore()
+  }
+})
+
+test('tool continuation rechecks actual tool calls and results against the same model budget', () => {
+  process.env.DEEPSEEK_CONTEXT_WINDOW_TOKENS = '5000'
+  const context = buildContextMessages(makeConversation([]), 'calculate', {
+    modelOptions: {
+      provider: 'deepseek',
+      model: 'deepseek-v4-pro',
+      maxTokens: 500,
+    },
+  })
+  const firstResponse = {
+    provider: 'deepseek' as const,
+    model: 'deepseek-v4-pro',
+    content: '',
+    reasoningContent: '',
+    toolCalls: [{
+      id: 'call-budget',
+      type: 'function' as const,
+      function: { name: 'calculate', arguments: '{"expression":"1+1"}' },
+    }],
+  }
+
+  const estimate = assertToolContinuationWithinBudget({
+    config: context.tokenBudget,
+    baseEstimate: context.tokenBudget,
+    firstResponse,
+    toolResults: [{
+      id: 'call-budget',
+      function: 'calculate',
+      args: { expression: '1+1' },
+      result: '2',
+    }],
+  })
+  assert.equal(estimate.overflowTokens, 0)
+  assert(estimate.breakdown.toolContinuationReserve < context.tokenBudget.toolContinuationReserveTokens)
+
+  assert.throws(() => assertToolContinuationWithinBudget({
+    config: context.tokenBudget,
+    baseEstimate: context.tokenBudget,
+    firstResponse,
+    toolResults: [{
+      id: 'call-budget',
+      function: 'calculate',
+      args: { expression: '1+1' },
+      result: 'x'.repeat(5000),
+    }],
+  }), /上下文上限 5000/)
+})
+
 test('buildContextPreview exposes managed context details without leaking secrets', () => {
   process.env.CONTEXT_MAX_HISTORY_MESSAGES = '2'
   process.env.CONTEXT_MAX_HISTORY_CHARS = '1000'
@@ -423,12 +663,23 @@ test('buildContextPreview exposes managed context details without leaking secret
   assert.equal(preview.stats.excludedStoppedMessages, 0)
   assert.equal(preview.stats.selectedHistoryMessages, 2)
   assert.equal(preview.stats.droppedHistoryMessages, 1)
+  assert.equal(preview.stats.legacyDroppedHistoryMessages, 1)
+  assert.equal(preview.stats.tokenDroppedHistoryMessages, 0)
   assert.deepEqual(preview.stats.selectedHistoryRange, { start: 2, end: 3 })
   assert.equal(preview.stats.maxHistoryMessages, 2)
   assert.equal(preview.model.model, 'deepseek-v4-pro')
+  assert.equal(preview.model.contextWindowTokens, 131072)
   assert.equal(preview.model.apiKeyConfigured, true)
   assert.equal(preview.model.reasoningEffort, 'medium')
   assert.equal(preview.tools.count, 3)
+  assert.equal(preview.stats.estimator, 'deepseek-utf8-conservative-v1')
+  assert.equal(
+    preview.stats.estimatedTotalTokens,
+    preview.stats.estimatedInputTokens + preview.stats.outputReserveTokens,
+  )
+  assert(preview.stats.estimatedTotalTokens <= preview.stats.contextWindowTokens)
+  assert(preview.stats.tokenBreakdown.tools > 0)
+  assert(preview.stats.tokenBreakdown.toolContinuationReserve > 0)
   assert(!serializedPreview.includes('context-preview-secret'))
   assert(!content.includes('PREVIEW_OLD_SHOULD_DROP'))
   assert(content.includes('PREVIEW_KEEP_ASSISTANT'))

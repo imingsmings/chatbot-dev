@@ -11,6 +11,7 @@ export type LlmModelCapabilities = {
   reasoningEfforts: string[]
   temperature: boolean
   maxOutputTokens: number
+  contextWindowTokens?: number
   inputModalities: Array<'text' | 'image'>
   imageDetailLevels?: Array<'auto' | 'low' | 'original'>
   experimental?: boolean

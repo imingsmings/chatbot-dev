@@ -53,8 +53,15 @@ export function ContextDebugModal({ context, open, onClose }: ContextDebugModalP
                     ['Selected Range', selectedHistoryRange],
                     ['Dropped', context.stats.droppedHistoryMessages],
                     ['Characters', `${context.stats.selectedHistoryChars}/${context.stats.maxHistoryChars}`],
+                    ['Input Estimate', `${context.stats.estimatedInputTokens}/${context.stats.contextWindowTokens - context.stats.outputReserveTokens}`],
+                    ['Output Reserve', context.stats.outputReserveTokens],
+                    ['Total Estimate', `${context.stats.estimatedTotalTokens}/${context.stats.contextWindowTokens}`],
+                    ['Input Remaining', context.stats.remainingInputTokens],
+                    ['Token Trimmed', context.stats.tokenDroppedHistoryMessages],
                     ['Tools', context.tools.count],
-                    ['Summary', context.stats.summaryIncluded ? 'Included' : 'None'],
+                    ['Summary', context.stats.summaryIncluded
+                      ? 'Included'
+                      : context.stats.summaryDroppedByTokenBudget ? 'Budget Dropped' : 'None'],
                   ].map(([label, value]) => (
                     <div className="context-debug-stat min-w-0 rounded-[7px] border border-[var(--border-soft)] bg-[var(--surface)] px-2.5 py-[9px]" key={label}>
                       <span className="block text-[11px] text-[var(--text-secondary)]">{label}</span>
@@ -77,6 +84,7 @@ export function ContextDebugModal({ context, open, onClose }: ContextDebugModalP
                     ['Storage', formatStorageBackend(context.model.storageBackend)],
                     ['Temperature', context.model.temperature ?? 'Provider Default'],
                     ['Max Tokens', context.model.maxTokens ?? 'Provider Default'],
+                    ['Context Window', context.model.contextWindowTokens],
                   ].map(([label, value]) => (
                     <div className="min-w-0 rounded-[7px] border border-[var(--border-soft)] bg-[var(--surface)] px-2.5 py-[9px]" key={label}>
                       <dt className="block text-[11px] text-[var(--text-secondary)]">{label}</dt>
@@ -84,6 +92,30 @@ export function ContextDebugModal({ context, open, onClose }: ContextDebugModalP
                     </div>
                   ))}
                 </dl>
+              </section>
+
+              <section aria-label="Token Budget Breakdown" className="context-debug-section">
+                <h4 className="mt-0 mb-[9px] text-[13px] font-semibold">Token Budget</h4>
+                <dl className="context-debug-meta grid grid-cols-4 gap-[7px] max-[820px]:grid-cols-2">
+                  {[
+                    ['System', context.stats.tokenBreakdown.system],
+                    ['Summary', context.stats.tokenBreakdown.summary],
+                    ['History', context.stats.tokenBreakdown.history],
+                    ['Question', context.stats.tokenBreakdown.currentQuestion],
+                    ['Images', context.stats.tokenBreakdown.images],
+                    ['Tools', context.stats.tokenBreakdown.tools],
+                    ['Framing', context.stats.tokenBreakdown.framing],
+                    ['Tool Reserve', context.stats.tokenBreakdown.toolContinuationReserve],
+                  ].map(([label, value]) => (
+                    <div className="min-w-0 rounded-[7px] border border-[var(--border-soft)] bg-[var(--surface)] px-2.5 py-[9px]" key={label}>
+                      <dt className="block text-[11px] text-[var(--text-secondary)]">{label}</dt>
+                      <dd className="mt-1 mb-0 text-xs font-semibold [overflow-wrap:anywhere]">{value}</dd>
+                    </div>
+                  ))}
+                </dl>
+                <p className="mt-2 mb-0 text-[11px] text-[var(--text-secondary)]">
+                  Estimator: {context.stats.estimator}. UTF-8 conservative estimate; actual Provider usage may be lower.
+                </p>
               </section>
 
               <section aria-label="Messages Sent to Model" className="context-debug-section">

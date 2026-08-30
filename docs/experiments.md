@@ -100,3 +100,22 @@
 - Result：全量真实入口通过；完整图片识别报告为 1,851 个可见字符，包含书堆、容器、相对位置、色彩、构图和不确定信息。
 - Conclusion：当前 Provider 的当轮图片输入、应用 NDJSON v2 输出、附件持久化与 React 展示已连通。停止后恢复与完整识图分离验证，避免把历史图片是否重发的模型波动误当成恢复链路失败。
 - Reproduction：`pnpm run test:cdp:real-vision` 或全量 `pnpm run test:cdp:all-real`；脚本自动清理测试会话、附件、临时服务与浏览器 Profile。
+
+## 2026-08-29 字符数无法预测模型上下文边界
+
+- Goal：验证旧的消息数/字符数护栏不能稳定代表不同文本的 Provider 输入规模，为 R23 统一上下文预算提供进入证据。
+- Input：两条长度都为 2,000 字符的当前问题，一条全 ASCII，一条全中文；上下文上限固定为 5,000，输出预留 200，不带历史、图片或工具。
+- Provider/model：本地 DeepSeek V4 Pro 配置，仅使用估算器，不调用外部模型。
+- Context strategy：`deepseek-utf8-conservative-v1` 按 JSON 序列化后的 UTF-8 字节计算保守上界。
+- Test mode：mock/unit。
+- Script：`pnpm run test:context`。
+- Assertions：两条输入在旧字符预算中完全相同；ASCII 输入估算总量不超限，中文输入固定部分超过 5,000 并在 Provider 前被拒绝。
+- Result：自动化断言通过，证明“相同字符数”不能稳定预测当前兼容链路的输入规模。
+- Conclusion：R23 以 Provider/model 本地上限和统一组成项估算作为主预算，旧消息数/字符数仅保留为二级护栏。该实验验证预检契约，不代表真实 tokenizer 精度或模型质量。
+
+## 2026-08-30 R23 真实 Provider 上下文预算门禁
+
+- Goal：验证统一预算在真实 DeepSeek/OpenAI 文本、工具续调和 DeepSeek Vision 图片链路中不会超过本地模型上限，并保持既有停止、恢复、分支和持久化语义。
+- Test mode：真实接口；`CDP_SCREENSHOTS=0 CDP_REAL_SCRIPT_RETRIES=0 pnpm run test:cdp:all-real`。
+- Result：三个隔离套件均一次通过。DeepSeek V4 Pro 文本上下文总估算为 7,947/131,072；Vision 上下文总估算为 70,203/131,072，其中真实 34,429 字节图片估算 896 tokens；DeepSeek 8 组模型/推理配置、OpenAI Responses、Vision 完整识别和 schema v2 ZIP 均通过。
+- Conclusion：R23 的 Provider-aware 保守预算已在当前配置的真实文本、工具和图片路径闭环；这些数字是本地预检上界，不是 Provider 精确 tokenizer 或计费 usage。Docker 按用户要求未纳入本次实验。

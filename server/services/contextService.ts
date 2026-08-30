@@ -1,11 +1,22 @@
 import { buildStandardPrompt } from '../utils/promptTemplates.ts'
 import { MAX_IMAGE_ATTACHMENTS_PER_MESSAGE } from '../config/productLimits.ts'
+import { resolveModelOptions } from '../utils/modelOptions.ts'
+import { getToolDefinitions } from './toolService.ts'
+import {
+  ContextBudgetExceededError,
+  estimateContextTokens,
+  resolveContextTokenBudget,
+  type ContextTokenBudgetConfig,
+  type ContextTokenEstimate,
+} from './contextBudgetService.ts'
 import type {
   Conversation,
   ImageAttachment,
   PromptMessage,
   StoredMessage,
 } from '../types/conversation.ts'
+import type { ModelRequestOptions } from '../types/llm.ts'
+import type { FunctionToolDefinition } from '../types/tools.ts'
 
 const DEFAULT_MAX_HISTORY_MESSAGES = 20
 const DEFAULT_MAX_HISTORY_CHARS = 12000
@@ -33,6 +44,10 @@ type ContextBuildResult = {
     end: number
   } | null
   summaryIncluded: boolean
+  summaryDroppedByTokenBudget: boolean
+  legacyDroppedHistoryMessages: number
+  tokenDroppedHistoryMessages: number
+  tokenBudget: ContextTokenBudgetConfig & ContextTokenEstimate
 }
 
 function readPositiveInteger(value: string | undefined, fallback: number): number {
@@ -178,9 +193,14 @@ function buildContextMessages(
   options: {
     currentAttachments?: ImageAttachment[]
     includeImages?: boolean
+    modelOptions?: ModelRequestOptions
+    tools?: FunctionToolDefinition[]
   } = {},
 ): ContextBuildResult {
   const config = getContextConfig()
+  const effectiveOptions = resolveModelOptions(options.modelOptions)
+  const tools = options.tools ?? getToolDefinitions()
+  const tokenBudgetConfig = resolveContextTokenBudget(effectiveOptions, tools)
   const totalHistoryMessages = conversation.messages.length
   const summaryCoveredMessages = getSummaryCoveredMessageCount(conversation)
   const postSummaryHistory = conversation.messages
@@ -190,17 +210,64 @@ function buildContextMessages(
     ({ message }) => !(message.role === 'assistant' && message.status === 'stopped')
   )
   const recentHistory = selectRecentHistory(eligibleHistory, config)
-  const selectedHistoryChars = recentHistory.reduce(
-    (total, { message }) => total + getMessageCharLength(message),
-    0
-  )
-  const selectedMessages = recentHistory.map(({ message }) => message)
+  const selectedHistory = [...recentHistory]
   const currentAttachments = options.currentAttachments ?? []
-  const imageContext = buildImageAwareHistory(
-    selectedMessages,
-    currentAttachments,
-    options.includeImages === true,
-    config.maxImages,
+  let allowedHistoricalImages = Math.max(0, config.maxImages - currentAttachments.length)
+  let summaryIncluded = Boolean(conversation.summary)
+  let summaryDroppedByTokenBudget = false
+  let imageContext = buildImageAwareHistory([], currentAttachments, options.includeImages === true, config.maxImages)
+  let messages: PromptMessage[] = []
+  let tokenEstimate: ContextTokenEstimate
+
+  while (true) {
+    imageContext = buildImageAwareHistory(
+      selectedHistory.map(({ message }) => message),
+      currentAttachments,
+      options.includeImages === true,
+      currentAttachments.length + allowedHistoricalImages,
+    )
+    messages = buildStandardPrompt(
+      question,
+      imageContext.messages,
+      summaryIncluded ? conversation.summary : undefined,
+      options.includeImages ? currentAttachments : [],
+    )
+    const systemMessage = messages[0]
+    const currentMessage = messages[messages.length - 1]
+    const summaryMessage = summaryIncluded ? messages[1] : undefined
+    const historyStart = summaryIncluded ? 2 : 1
+    const historyMessages = messages.slice(historyStart, -1)
+    tokenEstimate = estimateContextTokens({
+      systemMessage,
+      summaryMessage,
+      historyMessages,
+      currentMessage,
+      config: tokenBudgetConfig,
+    })
+
+    if (tokenEstimate.overflowTokens === 0) break
+
+    const selectedHistoryImages = imageContext.selectedImages - currentAttachments.length
+    if (selectedHistoryImages > 0 && allowedHistoricalImages > 0) {
+      allowedHistoricalImages -= 1
+      continue
+    }
+    if (summaryIncluded) {
+      summaryIncluded = false
+      summaryDroppedByTokenBudget = true
+      continue
+    }
+    if (selectedHistory.length > 0) {
+      selectedHistory.shift()
+      continue
+    }
+
+    throw new ContextBudgetExceededError(tokenBudgetConfig, tokenEstimate)
+  }
+
+  const selectedHistoryChars = selectedHistory.reduce(
+    (total, { message }) => total + getMessageCharLength(message),
+    0,
   )
   const eligibleImageCount = currentAttachments.length + eligibleHistory.reduce(
     (total, { message }) => total + (message.attachments?.length ?? 0),
@@ -208,29 +275,31 @@ function buildContextMessages(
   )
 
   return {
-    messages: buildStandardPrompt(
-      question,
-      imageContext.messages,
-      conversation.summary,
-      options.includeImages ? currentAttachments : [],
-    ),
+    messages,
     config,
     summaryCoveredMessages,
     postSummaryMessages: postSummaryHistory.length,
     excludedStoppedMessages: postSummaryHistory.length - eligibleHistory.length,
-    selectedHistoryMessages: recentHistory.length,
-    droppedHistoryMessages: Math.max(0, eligibleHistory.length - recentHistory.length),
+    selectedHistoryMessages: selectedHistory.length,
+    droppedHistoryMessages: Math.max(0, eligibleHistory.length - selectedHistory.length),
     selectedHistoryChars,
     selectedImages: imageContext.selectedImages,
     droppedImages: Math.max(0, eligibleImageCount - imageContext.selectedImages),
     selectedImageBytes: imageContext.selectedImageBytes,
-    selectedHistoryRange: recentHistory.length > 0
+    selectedHistoryRange: selectedHistory.length > 0
       ? {
-          start: recentHistory[0].index + 1,
-          end: recentHistory[recentHistory.length - 1].index + 1
+          start: selectedHistory[0].index + 1,
+          end: selectedHistory[selectedHistory.length - 1].index + 1
         }
       : null,
-    summaryIncluded: Boolean(conversation.summary)
+    summaryIncluded,
+    summaryDroppedByTokenBudget,
+    legacyDroppedHistoryMessages: Math.max(0, eligibleHistory.length - recentHistory.length),
+    tokenDroppedHistoryMessages: Math.max(0, recentHistory.length - selectedHistory.length),
+    tokenBudget: {
+      ...tokenBudgetConfig,
+      ...tokenEstimate,
+    },
   }
 }
 

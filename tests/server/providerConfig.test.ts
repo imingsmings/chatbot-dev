@@ -82,6 +82,7 @@ test('public model catalog exposes provider-specific capabilities without creden
   assert.equal(luna?.capabilities.reasoningSummary, true)
   assert.equal(luna?.capabilities.temperature, false)
   assert.equal(luna?.capabilities.maxOutputTokens, 128000)
+  assert.equal(luna?.capabilities.contextWindowTokens, 400000)
   assert.equal(luna?.disabled, false)
   assert.equal(sol?.disabled, true)
   assert.equal(pro?.disabled, true)

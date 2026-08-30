@@ -15,6 +15,7 @@ import { executeToolCalls, getToolDefinitions } from './toolService.ts'
 import { MAX_STORED_TOOL_TRACE_ITEMS } from '../config/productLimits.ts'
 import { findModelDescriptor } from '../utils/llm/modelCatalog.ts'
 import { materializePromptAttachments } from './attachmentService.ts'
+import { assertToolContinuationWithinBudget } from './contextBudgetService.ts'
 import type { Conversation, ImageAttachment, StoredMessage } from '../types/conversation.ts'
 import type { GenerationMetadata, StoredToolTrace, TokenUsage } from '../types/generation.ts'
 import type { LlmStreamChunkType, ModelRequestOptions } from '../types/llm.ts'
@@ -97,9 +98,12 @@ async function generateConversationAnswer({
   let terminalFinishReason: string | undefined
   const completedUsages: Array<TokenUsage | undefined> = []
   const toolTrace: StoredToolTrace[] = []
+  const toolDefinitions = getToolDefinitions()
   const context = buildContextMessages(persistedModelOptions, question, {
     currentAttachments: attachments,
     includeImages: supportsImages,
+    modelOptions: boundOptions,
+    tools: toolDefinitions,
   })
   const prompt = await materializePromptAttachments(conversationId, context.messages)
   const forwardStreamChunk = (chunk: string, type: LlmStreamChunkType = 'content'): void => {
@@ -202,7 +206,7 @@ async function generateConversationAnswer({
 
   try {
     const firstResponse = await callLLMStreamWithTools(prompt, forwardStreamChunk, {
-      tools: getToolDefinitions(),
+      tools: toolDefinitions,
       toolChoice: 'auto',
       signal,
       modelOptions: boundOptions
@@ -236,6 +240,12 @@ async function generateConversationAnswer({
         })
 
         throwIfAborted(signal)
+        assertToolContinuationWithinBudget({
+          config: context.tokenBudget,
+          baseEstimate: context.tokenBudget,
+          firstResponse,
+          toolResults,
+        })
         const answerResponse = await callLLMStreamAfterTools(
           prompt,
           firstResponse,

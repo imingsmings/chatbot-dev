@@ -28,7 +28,7 @@ Vue 客户端已在 2026-08-09 完成下线，`client/` 现在是唯一的 React
 - provider SSE 到应用 NDJSON v2 的稳定流式协议；客户端有界合并文本事件，异常 EOF 不发送成功 `done` 且不落库。
 - reasoning 展示、耗时、持久化和历史恢复。
 - 天气、当前时间和安全表达式计算器 Function Calling。
-- 摘要覆盖边界后的消息/字符上下文窗口、有输入预算的增量摘要和带覆盖范围统计的实际上下文预览。
+- Provider-aware 统一上下文预算：当前问题、摘要、历史、图片、工具和输出预留共同受所选模型本地上限约束，并在实际上下文预览中解释估算与裁剪。
 - 6 个内置 Prompt 模板，以及浏览器本地自定义模板 CRUD、JSON 导入导出和变量替换。
 - Markdown 净化、代码高亮/复制和安全外链。
 - 前端 fetch abort、cancel API、后端 registry 与上游 AbortSignal 全链路停止；确认清理后回拉持久化详情。
@@ -99,9 +99,10 @@ pnpm --dir server auth:generate-secrets
 | `DEEPSEEK_TEMPERATURE` / `DEEPSEEK_MAX_TOKENS` | 非默认 DeepSeek provider 的独立生成参数 |
 | `DEEPSEEK_REASONING_ENABLED` / `DEEPSEEK_REASONING_EFFORT` | 非默认 DeepSeek provider 的独立 reasoning 配置 |
 | `OPENAI_MAX_TOKENS` / `OPENAI_REASONING_ENABLED` / `OPENAI_REASONING_EFFORT` | 非默认 OpenAI provider 的独立生成配置 |
+| `DEEPSEEK_CONTEXT_WINDOW_TOKENS` / `OPENAI_CONTEXT_WINDOW_TOKENS` | 可选的 Provider 上下文上限覆盖；默认使用本地模型目录的 `131072` / `400000` |
 | `HEFENG_API_HOST` / `HEFENG_API_KEY` | 天气工具配置，仅调用时需要 |
-| `CONTEXT_MAX_HISTORY_MESSAGES` | 历史消息上限，默认 `20` |
-| `CONTEXT_MAX_HISTORY_CHARS` | 历史字符预算，默认 `12000` |
+| `CONTEXT_MAX_HISTORY_MESSAGES` | 历史消息二级护栏，默认 `20` |
+| `CONTEXT_MAX_HISTORY_CHARS` | 历史字符二级护栏，默认 `12000` |
 | `SUMMARY_MAX_INPUT_CHARS` | 单次滚动摘要的输入字符预算，默认 `24000`，最小 `8000` |
 | `CONVERSATION_STORE` | `file`/`json`/`fs` 或 `sqlite`/`sqlite3`，默认 `sqlite` |
 | `CONVERSATION_DATA_DIR` | 数据根目录覆盖 |
@@ -231,6 +232,8 @@ pnpm run test:docker           # Docker HTTPS、认证、SQLite、Volume 恢复�
 
 ### 方案与验收记录
 
+- [R23 Provider-aware 上下文预算验收记录（2026-08-29）](docs/r23-provider-aware-context-budget-2026-08-29.md)
+- [R22 请求一致性与原子导入验收记录（2026-08-29）](docs/r22-request-consistency-atomic-import-2026-08-29.md)
 - [R21 图片附件与 Vision 验收记录（2026-08-24）](docs/r21-multimodal-vision-2026-08-24.md)
 - [R20 JWT 单用户认证方案与实施说明（2026-08-19）](docs/r20-jwt-authentication-plan.md)
 - [R11 流完整性与摘要覆盖验收记录（2026-08-12）](docs/r11-stream-context-2026-08-12.md)

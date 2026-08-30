@@ -13,6 +13,7 @@
 | [回归测试矩阵](regression-test-cases.md) | 当前测试入口、断言范围、真实接口授权与清理规则 |
 | [生产部署](production-deployment.md) | Node HTTPS 非容器部署 |
 | [Docker 局域网部署](docker-deployment.md) | 单容器、TLS、SQLite Volume、备份恢复与迁移 |
+| [R23 Provider-aware 上下文预算](r23-provider-aware-context-budget-2026-08-29.md) | 模型上限、统一估算、裁剪顺序、上下文预览与验证证据 |
 | [R22 请求一致性与原子导入](r22-request-consistency-atomic-import-2026-08-29.md) | requestId 幂等、断线恢复、file/SQLite/附件批次事务与验证证据 |
 | [Roadmap](roadmap.md) | 当前基线、候选范围、选择与实施授权规则 |
 | [实验记录](experiments.md) | 可重复模型、上下文、工具与渲染实验 |
@@ -35,6 +36,8 @@
 - [R20 JWT 单用户认证](r20-jwt-authentication-plan.md)
 - [R21 图片附件与多模态理解方案](r21-multimodal-vision-plan.md)
 - [R21 图片附件与 Vision 验收记录](r21-multimodal-vision-2026-08-24.md)
+- [R22 请求一致性与原子导入](r22-request-consistency-atomic-import-2026-08-29.md)
+- [R23 Provider-aware 上下文预算](r23-provider-aware-context-budget-2026-08-29.md)
 - [会话级模型配置持久化方案](conversation-model-options-plan.md)
 - [流式渲染平滑度优化方案](streaming-rendering-optimization-plan.md)
 - [DeepSeek V4 Pro 0813 启用与验收](deepseek-v4-pro-0813-validation-2026-08-13.md)

@@ -69,27 +69,49 @@ async function uploadImage(client) {
 }
 
 async function submit(client, question) {
+  const before = await evaluate(client, `({
+    userRows: document.querySelectorAll('.message-row.user').length,
+    assistantRows: document.querySelectorAll('.message-row.assistant').length,
+  })`)
   await evaluate(client, `(() => {
     const textarea = document.querySelector('.composer textarea');
     const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set;
     setter.call(textarea, ${JSON.stringify(question)});
     textarea.dispatchEvent(new Event('input', { bubbles: true }));
-    document.querySelector('.composer').dispatchEvent(new Event('submit', {
-      bubbles: true,
-      cancelable: true,
-    }));
   })()`)
-}
-
-async function waitForCompletedAnswer(client) {
   await waitForEval(
     client,
-    `Boolean(document.querySelector('button[aria-label="停止生成"]'))`,
+    `document.querySelector('.composer textarea')?.value === ${JSON.stringify(question)} &&
+      document.querySelector('button[aria-label="发送消息"]')?.disabled === false`,
+    30_000,
+  )
+  const clicked = await evaluate(client, `(() => {
+    const button = document.querySelector('button[aria-label="发送消息"]');
+    if (!button || button.disabled) return false;
+    button.click();
+    return true;
+  })()`)
+  assert(clicked, 'real Vision send button was not clickable')
+  await waitForEval(
+    client,
+    `document.querySelectorAll('.message-row.user').length > ${before.userRows} ||
+      Boolean(document.querySelector('button[aria-label="停止生成"]'))`,
+    30_000,
+  )
+  return before
+}
+
+async function waitForCompletedAnswer(client, before) {
+  await waitForEval(
+    client,
+    `Boolean(document.querySelector('button[aria-label="停止生成"]')) ||
+      document.querySelectorAll('.message-row.assistant').length > ${before.assistantRows}`,
     WAIT_TIMEOUT_MS,
   )
   await waitForEval(
     client,
     `!document.querySelector('button[aria-label="停止生成"]') &&
+      document.querySelectorAll('.message-row.assistant').length > ${before.assistantRows} &&
       [...document.querySelectorAll('.message-row.assistant .message-text')]
         .at(-1)?.textContent.trim().length > 0`,
     WAIT_TIMEOUT_MS,
@@ -148,11 +170,11 @@ async function main() {
       `document.querySelector('.model-menu-trigger')?.textContent.includes('Vision')`,
     )
 
-    await submit(
+    const pureTextBefore = await submit(
       client,
       '这是 Vision 纯文本工具测试，不要分析图片。必须调用 calculate 工具计算 6 * 7，并在最终回答中包含 PURE-VISION=42。',
     )
-    const pureTextAnswer = await waitForCompletedAnswer(client)
+    const pureTextAnswer = await waitForCompletedAnswer(client, pureTextBefore)
     assert(/PURE-VISION\s*=\s*42/i.test(pureTextAnswer), `real Vision pure-text tool answer is wrong: ${pureTextAnswer}`)
     const pureTextConversation = await latestConversation()
     const pureTextUser = pureTextConversation.messages.at(-2)
@@ -168,11 +190,11 @@ async function main() {
 
     await uploadImage(client)
     screenshots.push(await screenshot(client, OUT_DIR, '01-real-downloads-image-ready', CAPTURE_SCREENSHOTS))
-    await submit(
+    const recognitionBefore = await submit(
       client,
       '请识别图片主体，并严格包含两行：BOOKS=yes 或 BOOKS=no；VESSEL=yes 或 VESSEL=no。BOOKS 表示一摞书，VESSEL 表示书上方的饮用容器。',
     )
-    const recognitionText = await waitForCompletedAnswer(client)
+    const recognitionText = await waitForCompletedAnswer(client, recognitionBefore)
     assert(/BOOKS\s*=\s*yes/i.test(recognitionText), `real Vision did not recognize books: ${recognitionText}`)
     assert(/VESSEL\s*=\s*yes/i.test(recognitionText), `real Vision did not recognize the vessel: ${recognitionText}`)
     screenshots.push(await screenshot(client, OUT_DIR, '02-real-vision-recognition-completed', CAPTURE_SCREENSHOTS))
@@ -202,6 +224,15 @@ async function main() {
     const preview = (await previewResponse.json()).context
     assert(preview.stats.selectedImages === 1, 'real context preview did not select the historical image')
     assert(preview.stats.selectedImageBytes === source.length, 'real context preview image byte count is wrong')
+    assert(preview.stats.tokenBreakdown.images > 0, 'real Vision context preview omitted image tokens')
+    assert(
+      preview.stats.estimatedTotalTokens <= preview.stats.contextWindowTokens,
+      'real Vision context preview exceeds the configured model context window',
+    )
+    assert(
+      preview.stats.estimator === 'deepseek-utf8-conservative-v1',
+      `real Vision context preview used an unexpected estimator: ${preview.stats.estimator}`,
+    )
 
     await evaluate(client, `document.querySelector('button[aria-label^="预览图片"]')?.click()`)
     await waitForEval(client, `Boolean(document.querySelector('[role="dialog"] img'))`)
@@ -217,13 +248,20 @@ async function main() {
 
     const beforeBranchIds = new Set((await summaries()).map((conversation) => conversation.id))
     await evaluate(client, `document.querySelector('button[aria-label="重新生成回答"]')?.click()`)
-    await waitForCompletedAnswer(client)
     const branch = await waitForNode(async () => {
       const list = await summaries()
       const created = list.find((conversation) => !beforeBranchIds.has(conversation.id))
       if (!created) return null
-      return (await (await api(`conversations/${encodeURIComponent(created.id)}`)).json()).conversation
-    }, 'real Vision regeneration did not create a branch')
+      const detail = (await (await api(`conversations/${encodeURIComponent(created.id)}`)).json()).conversation
+      return detail.messages.at(-1)?.status === 'completed' ? detail : null
+    }, 'real Vision regeneration branch did not complete')
+    await waitForEval(
+      client,
+      `!document.querySelector('button[aria-label="停止生成"]') &&
+        [...document.querySelectorAll('.message-row.assistant .message-text')]
+          .at(-1)?.textContent.trim().length > 0`,
+      WAIT_TIMEOUT_MS,
+    )
     assert(branch.messages.at(-2)?.attachments?.length === 1, 'real Vision branch lost the image')
     assert(branch.messages.at(-2).attachments[0].id !== attachment.id, 'real Vision branch reused the parent attachment id')
     const parentAfterBranch = (await (await api(`conversations/${encodeURIComponent(first.id)}`)).json()).conversation
@@ -232,8 +270,8 @@ async function main() {
 
     await startNewConversation(client)
     await uploadImage(client)
-    await submit(client, '')
-    const imageOnlyText = await waitForCompletedAnswer(client)
+    const imageOnlyBefore = await submit(client, '')
+    const imageOnlyText = await waitForCompletedAnswer(client, imageOnlyBefore)
     assert(imageOnlyText.length > 0, 'real image-only message returned an empty answer')
     const imageOnly = await latestConversation()
     assert(imageOnly.messages.at(-2)?.content === '', 'real image-only user message gained text content')
@@ -263,8 +301,8 @@ async function main() {
     assert(stopped.messages.at(-2)?.attachments?.length === 1, 'real Vision stopped message lost its image')
     screenshots.push(await screenshot(client, OUT_DIR, '08-real-vision-stopped', CAPTURE_SCREENSHOTS))
 
-    await submit(client, '停止后恢复测试：请确认你仍可以继续回答，无需分析历史图片。')
-    const recoveryText = await waitForCompletedAnswer(client)
+    const recoveryBefore = await submit(client, '停止后恢复测试：请确认你仍可以继续回答，无需分析历史图片。')
+    const recoveryText = await waitForCompletedAnswer(client, recoveryBefore)
     assert(recoveryText.length > 0, 'real Vision recovery returned an empty answer')
     const recovered = await latestConversation()
     assert(recovered.messages.at(-3)?.status === 'stopped', 'real Vision recovery replaced the stopped answer')
@@ -272,11 +310,11 @@ async function main() {
 
     await startNewConversation(client)
     await uploadImage(client)
-    await submit(
+    const fullRecognitionBefore = await submit(
       client,
       '完整图片识别测试：请从头完整输出这张图片的中文识别报告，不少于 600 个汉字。至少覆盖主体、关键物品、相对位置、颜色、构图和不确定信息，使用完整句子，不要输出测试标记。',
     )
-    const fullRecognitionText = await waitForCompletedAnswer(client)
+    const fullRecognitionText = await waitForCompletedAnswer(client, fullRecognitionBefore)
     assert(
       fullRecognitionText.length >= 500,
       `real Vision full recognition is too short (${fullRecognitionText.length} chars): ${fullRecognitionText}`,

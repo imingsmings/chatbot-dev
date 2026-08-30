@@ -4,12 +4,11 @@
 
 ## 当前结论
 
-- P0-P7、R8.0-R8.9、R9-R22 已完成功能落地；R11-R22 均有明确验收记录。
-- 最近完成阶段是 R22：持久化请求幂等、丢失 `done` 后结果恢复和批次原子导入。
+- P0-P7、R8.0-R8.9、R9-R23 已完成；R23 的非 Docker 功能与验收门禁已全部通过。
+- 最近落地阶段是 R23：Provider-aware 统一上下文预算、可解释裁剪、预检和上下文预览。
 - R21 静态、单元/API、构建、18/18 全量 Mock 与全量真实 Provider 已通过；Docker 实机新 Volume 恢复门禁按用户要求暂缓。
-- R22 静态检查、160 项服务端单测、113 项 React 单测和请求恢复 CDP Mock 已通过；Docker 重启与真实 Provider 最小门禁未在本轮执行。
-- R23 保留为 Provider-aware 上下文预算候选，不在 R22 中顺带实施。
-- 详细历史范围和交付证据见 [P0-R21 历史阶段记录](roadmap-history.md)与 [R22 验收记录](r22-request-consistency-atomic-import-2026-08-29.md)。
+- R23 静态检查、168 项服务端单测、114 项 React 单测、无重试 18/18 全量 Mock 和无重试全量真实 Provider 已通过；Docker 按用户要求不验证。
+- 详细历史范围和交付证据见 [P0-R21 历史阶段记录](roadmap-history.md)、[R22 验收记录](r22-request-consistency-atomic-import-2026-08-29.md)与 [R23 验收记录](r23-provider-aware-context-budget-2026-08-29.md)。
 
 ## 当前基线
 
@@ -26,9 +25,9 @@
 
 - file/SQLite 会话存储、JSON 到 SQLite 迁移、搜索、导入导出、历史消息分支和重新生成。
 - 会话级 provider/model/reasoning/temperature/max tokens 配置可跨刷新、分支、导入导出、Docker 重启和 Volume 恢复。
-- 摘要覆盖边界、增量滚动摘要、消息数/字符预算和上下文预览统计。
+- 摘要覆盖边界、增量滚动摘要、Provider-aware 统一上下文预算、消息数/字符二级护栏和可解释上下文预览。
 - assistant 生成元数据、裁剪工具轨迹和 `completed`/`stopped` 状态；停止正文默认不进入后续模型上下文。
-- JPEG/PNG/WebP 图片附件、本地文件持久化、DeepSeek Vision 请求时 Base64、独立图片上下文预算和 schema v2 ZIP 便携备份。
+- JPEG/PNG/WebP 图片附件、本地文件持久化、DeepSeek Vision 请求时 Base64、统一图片 token 估算和 schema v2 ZIP 便携备份。
 
 ### 前端与流式状态
 
@@ -63,7 +62,7 @@
 | R20 | JWT 单用户认证、Refresh 轮换、Session 撤销和登录 UI | 完成并验证 |
 | R21 | 图片附件、DeepSeek Vision 多模态输入、本地持久化和备份恢复 | 完成（Docker 实机恢复暂缓） |
 | R22 | 请求幂等、断线结果恢复和批量导入原子性 | 功能与非 Docker 验收完成 |
-| R23 | Provider-aware 上下文预算 | 候选，未立项 |
+| R23 | Provider-aware 上下文预算 | 完成并验证（Docker 按要求未跑） |
 
 ## R21 图片附件与多模态理解
 
@@ -126,10 +125,10 @@ R21 不新增功能，只补齐部署证据：
 
 ## R23 Provider-aware 上下文预算
 
-状态：候选，未立项。
+状态：功能与非 Docker 验收已完成；静态、单元、构建、全量 Mock 和全量真实 Provider 均已通过，Docker 按用户要求不在本阶段验证。实现与证据见 [R23 验收记录](r23-provider-aware-context-budget-2026-08-29.md)。
 
 - 直接价值：让当前问题、历史消息、摘要、工具结果、图片和预留输出共享同一模型上下文预算，减少长中文、代码或未来文件内容触发 Provider 拒绝的概率。
-- 进入条件：R22 完成，且真实使用或实验记录证明当前消息数/字符预算无法稳定预测至少一个已接入模型的上下文边界。
+- 进入条件已满足：R22 完成；2,000 字符 ASCII/中文对照实验证明相同字符数无法稳定代表兼容链路输入规模，记录见 [实验记录](experiments.md#2026-08-29-字符数无法预测模型上下文边界)。
 - 首期边界：先提供 Provider-aware token 估算、裁剪统计和上下文预览，不追求跨模型完全精确计数。
 - 验收：边界输入不会超过所选模型配置上限；裁剪结果可解释、摘要覆盖语义不倒退、纯文本与图片请求均有 Mock 和最小真实验证。
 - 非目标：不随本阶段引入 RAG、Embedding、向量数据库或通用文档检索。

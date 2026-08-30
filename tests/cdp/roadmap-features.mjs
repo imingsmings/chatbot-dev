@@ -611,28 +611,12 @@ async function main() {
     })()`)
 
     await client.send('Page.bringToFront').catch(() => {})
-    const copyPoint = await evaluate(client, `(() => {
+    await evaluate(client, `(() => {
       const row = [...document.querySelectorAll('.message-row.assistant')]
         .find((item) => item.innerText.includes('LONG-STREAM'));
       const button = row.querySelector('[data-code-copy]');
-      button.scrollIntoView({ block: 'center' });
-      const rect = button.getBoundingClientRect();
-      return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+      button.click();
     })()`)
-    await client.send('Input.dispatchMouseEvent', {
-      type: 'mousePressed',
-      button: 'left',
-      clickCount: 1,
-      x: copyPoint.x,
-      y: copyPoint.y
-    })
-    await client.send('Input.dispatchMouseEvent', {
-      type: 'mouseReleased',
-      button: 'left',
-      clickCount: 1,
-      x: copyPoint.x,
-      y: copyPoint.y
-    })
     await waitForEval(client, `[...document.querySelectorAll('[data-code-copy]')].some((button) => button.textContent === '已复制')`)
     assertions.codeCopy = await evaluate(client, `navigator.clipboard.readText().then((text) =>
       text.includes('roadmapLine1499') && !text.includes('<span'))`)

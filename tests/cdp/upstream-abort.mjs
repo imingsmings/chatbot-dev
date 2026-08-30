@@ -194,6 +194,10 @@ async function newChat(client) {
   await clickText(client, 'button', '新建')
   await waitFor(client, `document.querySelector('.conversation-item-shell.active')?.textContent.includes('0 条消息')`)
   await waitFor(client, `Boolean(document.querySelector('.empty-state') && document.querySelector('textarea'))`)
+  // The POST response observer parses a cloned response asynchronously. The UI can
+  // become empty before that promise publishes the id, so wait for the observable
+  // test id instead of treating the short instrumentation race as an app failure.
+  await waitFor(client, `window.__abortTest.createdIds.length > 0`)
   const createdIds = await evaluate(client, `window.__abortTest.createdIds`)
   const id = createdIds.length > previousCount ? createdIds.at(-1) : previousId
   if (!id) {
@@ -365,6 +369,7 @@ function createMockLlmServer() {
     stop: () =>
       new Promise((resolve) => {
         server.close(() => resolve())
+        server.closeAllConnections?.()
       }),
   }
 }
@@ -372,6 +377,7 @@ function createMockLlmServer() {
 function spawnProcess(command, args, options) {
   const child = spawn(command, args, {
     stdio: ['ignore', 'pipe', 'pipe'],
+    detached: process.platform !== 'win32',
     ...options,
   })
 
@@ -382,10 +388,38 @@ function spawnProcess(command, args, options) {
 }
 
 async function stopProcess(child) {
-  if (!child || child.killed) return
-  child.kill('SIGTERM')
-  await delay(600)
-  if (!child.killed) child.kill('SIGKILL')
+  if (!child || child.exitCode !== null || child.signalCode !== null) return
+  const signal = (name) => {
+    if (process.platform !== 'win32' && child.pid) {
+      try {
+        process.kill(-child.pid, name)
+        return
+      } catch {
+        // Fall through when the process group has already exited.
+      }
+    }
+    child.kill(name)
+  }
+  const waitForExit = (timeoutMs) => {
+    if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve(true)
+    return new Promise((resolve) => {
+      const handleExit = () => {
+        clearTimeout(timer)
+        resolve(true)
+      }
+      const timer = setTimeout(() => {
+        child.off('exit', handleExit)
+        resolve(false)
+      }, timeoutMs)
+      child.once('exit', handleExit)
+    })
+  }
+
+  signal('SIGTERM')
+  if (!await waitForExit(3000)) {
+    signal('SIGKILL')
+    await waitForExit(2000)
+  }
 }
 
 async function main() {

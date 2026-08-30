@@ -16,6 +16,7 @@ const PROVIDERS: readonly LlmProviderDescriptor[] = [
           reasoningEfforts: ['low', 'medium', 'high', 'max'],
           temperature: true,
           maxOutputTokens: 65536,
+          contextWindowTokens: 131072,
           inputModalities: ['text']
         }
       },
@@ -30,6 +31,7 @@ const PROVIDERS: readonly LlmProviderDescriptor[] = [
           reasoningEfforts: ['low', 'medium', 'high', 'max'],
           temperature: true,
           maxOutputTokens: 65536,
+          contextWindowTokens: 131072,
           inputModalities: ['text']
         }
       },
@@ -44,6 +46,7 @@ const PROVIDERS: readonly LlmProviderDescriptor[] = [
           reasoningEfforts: ['low', 'medium', 'high', 'max'],
           temperature: true,
           maxOutputTokens: 65536,
+          contextWindowTokens: 131072,
           inputModalities: ['text', 'image'],
           imageDetailLevels: ['auto', 'low', 'original'],
           experimental: true
@@ -66,6 +69,7 @@ const PROVIDERS: readonly LlmProviderDescriptor[] = [
           reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
           temperature: false,
           maxOutputTokens: 128000,
+          contextWindowTokens: 400000,
           inputModalities: ['text']
         }
       },
@@ -80,6 +84,7 @@ const PROVIDERS: readonly LlmProviderDescriptor[] = [
           reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
           temperature: false,
           maxOutputTokens: 128000,
+          contextWindowTokens: 400000,
           inputModalities: ['text']
         }
       },
@@ -94,6 +99,7 @@ const PROVIDERS: readonly LlmProviderDescriptor[] = [
           reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
           temperature: false,
           maxOutputTokens: 128000,
+          contextWindowTokens: 400000,
           inputModalities: ['text']
         }
       }

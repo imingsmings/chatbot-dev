@@ -148,6 +148,8 @@ function validateStartupConfig(): void {
 
   validatePositiveIntegerEnv('LLM_TIMEOUT_MS', issues)
   validatePositiveIntegerEnv('LLM_MAX_TOKENS', issues, MAX_MODEL_TOKENS)
+  validatePositiveIntegerEnv('DEEPSEEK_CONTEXT_WINDOW_TOKENS', issues)
+  validatePositiveIntegerEnv('OPENAI_CONTEXT_WINDOW_TOKENS', issues)
   validateNumberRangeEnv('LLM_TEMPERATURE', 0, 2, issues)
   validateBooleanEnv('LLM_REASONING_ENABLED', issues)
 

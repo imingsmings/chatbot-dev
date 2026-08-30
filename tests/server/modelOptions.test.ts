@@ -141,6 +141,21 @@ test('startup validation uses the same max-token boundary as request options', (
   assert.doesNotThrow(() => validateStartupConfig())
 })
 
+test('startup validation rejects malformed provider context-window overrides', () => {
+  process.env.LLM_PROVIDER = 'deepseek'
+  process.env.LLM_ENDPOINT = 'https://mock.local/chat/completions'
+  process.env.LLM_MODEL = 'deepseek-v4-flash'
+  process.env.DEEPSEEK_API_KEY = 'test-key'
+  process.env.CONVERSATION_STORE = 'file'
+  process.env.DEEPSEEK_CONTEXT_WINDOW_TOKENS = 'not-a-number'
+
+  assert.throws(() => validateStartupConfig(), /DEEPSEEK_CONTEXT_WINDOW_TOKENS 必须是正整数/)
+
+  process.env.DEEPSEEK_CONTEXT_WINDOW_TOKENS = '131072'
+  process.env.OPENAI_CONTEXT_WINDOW_TOKENS = '400000'
+  assert.doesNotThrow(() => validateStartupConfig())
+})
+
 test('startup validation rejects unsupported OpenAI defaults before serving requests', () => {
   process.env.LLM_PROVIDER = 'openai'
   process.env.LLM_ENDPOINT = 'https://mock.local/v1/responses'

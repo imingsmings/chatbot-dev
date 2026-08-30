@@ -72,7 +72,30 @@ const mockScript = `
         selectedHistoryRange: { start: 2, end: 3 },
         maxHistoryMessages: 2,
         maxHistoryChars: 1000,
-        summaryIncluded: false
+        maxImages: 4,
+        selectedImages: 0,
+        droppedImages: 0,
+        selectedImageBytes: 0,
+        summaryIncluded: false,
+        summaryDroppedByTokenBudget: false,
+        legacyDroppedHistoryMessages: 1,
+        tokenDroppedHistoryMessages: 0,
+        estimatedInputTokens: 2048,
+        outputReserveTokens: 4096,
+        estimatedTotalTokens: 6144,
+        contextWindowTokens: 131072,
+        remainingInputTokens: 124928,
+        estimator: 'deepseek-utf8-conservative-v1',
+        tokenBreakdown: {
+          system: 84,
+          summary: 0,
+          history: 128,
+          currentQuestion: 34,
+          images: 0,
+          tools: 1214,
+          framing: 32,
+          toolContinuationReserve: 556
+        }
       },
       model: {
         provider: 'deepseek',
@@ -85,7 +108,8 @@ const mockScript = `
         toolChoice: 'auto',
         storageBackend: 'file',
         temperature: null,
-        maxTokens: null
+        maxTokens: null,
+        contextWindowTokens: 131072
       },
       tools: {
         count: 3,
@@ -144,6 +168,7 @@ const mockScript = `
                 reasoningEfforts: ['low', 'medium', 'high', 'max'],
                 temperature: true,
                 maxOutputTokens: 65536,
+                contextWindowTokens: 131072,
               },
             }],
           }],
@@ -270,16 +295,23 @@ async function readModalState(client) {
         hasToolDefinition: text.includes('getWeather'),
         hasStandardLabels:
           Boolean(modal?.querySelector('section[aria-label="Context Statistics"]')) &&
+          Boolean(modal?.querySelector('section[aria-label="Token Budget Breakdown"]')) &&
           [
             'Model Context', 'Model Parameters', 'Provider', 'Model', 'Streaming',
             'Tool Choice', 'Reasoning', 'API Key', 'Storage', 'Temperature', 'Max Tokens',
-            'Summary Covered', 'After Summary', 'Stopped Excluded', 'Selected Range', 'Messages', 'Tool Definitions'
+            'Summary Covered', 'After Summary', 'Stopped Excluded', 'Selected Range',
+            'Input Estimate', 'Output Reserve', 'Total Estimate', 'Input Remaining',
+            'Token Budget', 'Estimator', 'Context Window', 'Messages', 'Tool Definitions'
           ].every((label) => text.includes(label)),
         hasCoverageStats:
           readStat('Summary Covered') === '0' &&
           readStat('After Summary') === '3' &&
           readStat('Stopped Excluded') === '0' &&
-          readStat('Selected Range') === '2-3',
+          readStat('Selected Range') === '2-3' &&
+          readStat('Input Estimate') === '2048/126976' &&
+          readStat('Output Reserve') === '4096' &&
+          readStat('Total Estimate') === '6144/131072' &&
+          readStat('Input Remaining') === '124928',
         hasStandardValues: [
           'DeepSeek', 'Enabled', 'Auto', 'Max', 'Configured', 'File', 'Provider Default'
         ].every((value) => text.includes(value)),

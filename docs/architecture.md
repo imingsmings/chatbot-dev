@@ -108,7 +108,8 @@ flowchart LR
 | `server/config/clientHosting.ts` | `client/dist` 校验、静态缓存与 HTML SPA 回退 |
 | `server/controllers/*` | HTTP 输入、长度边界、状态码和流响应 |
 | `server/services/chatService.ts` | ask 前绑定完整会话模型配置、上下文、工具两阶段、生成元数据聚合和完成/手动停止持久化 |
-| `server/services/contextService.ts` | 摘要覆盖边界、安全截断、消息数和字符预算 |
+| `server/services/contextService.ts` | 摘要覆盖边界、历史/图片裁剪顺序、消息数/字符二级护栏与统一 token 预算编排 |
+| `server/services/contextBudgetService.ts` | Provider/model 上下文配置、保守 token/图片估算、输出和工具续调预留及超限错误 |
 | `server/services/conversationSummaryService.ts` | 覆盖边界后的增量滚动摘要、输入预算及会话变化检测 |
 | `server/services/conversationService.ts` | 会话列表/标题/搜索、模型配置保存，以及继承配置但只复制目标消息前缀的普通会话分支 |
 | `server/services/attachmentService.ts` | 图片魔数/尺寸校验、原子文件和 sidecar、本地读取、会话绑定、引用状态、TTL 与孤儿清理 |
@@ -282,7 +283,11 @@ sequenceDiagram
 
 assistant 的可选 `generation` 保存 provider、model、finish reason、首 token 延迟、总耗时和 Provider usage；多阶段工具调用只聚合所有已完成请求共同提供的 usage 字段。可选 `toolTrace` 只保留裁剪后的工具名、成功状态、耗时和可读摘要。file store 直接写入兼容 JSON，SQLite 继续把 messages 保存为 JSON，因此不提升备份 schema 或数据库表结构。
 
-存在会话摘要时，`summary.sourceMessageCount` 先安全截断到 `0..messages.length`，上下文窗口只在该边界之后的原始消息中按消息数和字符数选择最近后缀。上下文预览同时返回摘要覆盖数、摘要后消息数和最终选择的会话消息序号范围，便于确认摘要历史没有重复进入模型。
+存在会话摘要时，`summary.sourceMessageCount` 先安全截断到 `0..messages.length`，上下文窗口只在该边界之后的原始消息中按消息数和字符数选择最近后缀。这两个旧限制继续作为二级护栏；最终 prompt 还要按当前 provider/model 的本地上下文上限，将 system、摘要、历史、当前问题、图片、工具定义、framing、工具续调预留和输出预留纳入统一预算。
+
+估算器按 JSON 序列化后的 UTF-8 字节进行保守文本估算，图片按 Provider、尺寸和 detail 估算，不引入 tokenizer 依赖。超限时先去掉较早历史图片，再去掉摘要正文，最后从最旧历史开始裁剪；当前问题和当前图片保持完整。摘要正文即使被预算移除，覆盖边界也不会回退，因此不会把已摘要的原始历史重新注入。若固定输入仍超限，服务在 Provider 调用前抛出内部 `ContextBudgetExceededError`，并通过既有 NDJSON v2 `error.message` 返回可读原因。工具阶段结束后，实际 tool calls、reasoning 和 tool results 会替换静态续调预留并在第二次 Provider 请求前复检。
+
+上下文预览返回上下文上限、输入/输出/总估算、剩余空间、组成项、旧护栏与 token 预算各自裁掉的消息数、摘要预算状态和最终会话消息范围。该值是本地保守预检和解释数据，不等同 Provider 账单或精确 tokenizer 结果；兼容 endpoint 可用 Provider 级环境变量覆盖本地目录上限。
 
 重新生成摘要时只处理覆盖边界之后的新消息，并把旧摘要作为滚动基线；单次 prompt 中的消息输入由 `SUMMARY_MAX_INPUT_CHARS` 限制，默认 `24000` 字符、最小 `8000`，输出最多 `1024` tokens。没有新增消息时不调用 Provider；`stopped` assistant 不写入摘要正文，但会推进覆盖边界，避免后续重复扫描。
 

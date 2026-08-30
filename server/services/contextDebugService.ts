@@ -20,6 +20,7 @@ type ContextPreviewModel = {
   storageBackend: 'file' | 'sqlite'
   temperature: number | null
   maxTokens: number | null
+  contextWindowTokens: number
 }
 
 type ContextPreviewStats = {
@@ -41,6 +42,25 @@ type ContextPreviewStats = {
   maxHistoryChars: number
   maxImages: number
   summaryIncluded: boolean
+  summaryDroppedByTokenBudget: boolean
+  legacyDroppedHistoryMessages: number
+  tokenDroppedHistoryMessages: number
+  estimatedInputTokens: number
+  outputReserveTokens: number
+  estimatedTotalTokens: number
+  contextWindowTokens: number
+  remainingInputTokens: number
+  estimator: string
+  tokenBreakdown: {
+    system: number
+    summary: number
+    history: number
+    currentQuestion: number
+    images: number
+    tools: number
+    framing: number
+    toolContinuationReserve: number
+  }
 }
 
 type ContextPreview = {
@@ -55,9 +75,13 @@ type ContextPreview = {
   }
 }
 
-function readContextPreviewModel(options: ModelRequestOptions = {}): ContextPreviewModel {
+function readContextPreviewModel(
+  options: ModelRequestOptions = {},
+  contextWindowTokens?: number,
+): ContextPreviewModel {
   const effectiveOptions = resolveModelOptions(options)
   const config = getProviderConfig(effectiveOptions.provider)
+  const descriptor = getModelDescriptor(effectiveOptions.provider, effectiveOptions.model)
 
   return {
     provider: effectiveOptions.provider,
@@ -70,7 +94,9 @@ function readContextPreviewModel(options: ModelRequestOptions = {}): ContextPrev
     toolChoice: 'auto',
     storageBackend: readConversationStoreKind(),
     temperature: effectiveOptions.temperature ?? null,
-    maxTokens: effectiveOptions.maxTokens ?? null
+    maxTokens: effectiveOptions.maxTokens ?? null,
+    contextWindowTokens: contextWindowTokens ?? descriptor?.capabilities.contextWindowTokens ??
+      (effectiveOptions.provider === 'openai' ? 400000 : 131072),
   }
 }
 
@@ -84,11 +110,13 @@ function buildContextPreview(
   const descriptor = effectiveOptions.model
     ? getModelDescriptor(effectiveOptions.provider, effectiveOptions.model)
     : undefined
+  const tools = getToolDefinitions()
   const context = buildContextMessages(conversation, question, {
     currentAttachments,
     includeImages: descriptor?.capabilities.inputModalities.includes('image') === true,
+    modelOptions: effectiveOptions,
+    tools,
   })
-  const tools = getToolDefinitions()
 
   return {
     conversationId: conversation.id,
@@ -109,9 +137,19 @@ function buildContextPreview(
       maxHistoryMessages: context.config.maxHistoryMessages,
       maxHistoryChars: context.config.maxHistoryChars,
       maxImages: context.config.maxImages,
-      summaryIncluded: context.summaryIncluded
+      summaryIncluded: context.summaryIncluded,
+      summaryDroppedByTokenBudget: context.summaryDroppedByTokenBudget,
+      legacyDroppedHistoryMessages: context.legacyDroppedHistoryMessages,
+      tokenDroppedHistoryMessages: context.tokenDroppedHistoryMessages,
+      estimatedInputTokens: context.tokenBudget.inputTokens,
+      outputReserveTokens: context.tokenBudget.outputReserveTokens,
+      estimatedTotalTokens: context.tokenBudget.totalTokens,
+      contextWindowTokens: context.tokenBudget.contextWindowTokens,
+      remainingInputTokens: context.tokenBudget.remainingInputTokens,
+      estimator: context.tokenBudget.estimator,
+      tokenBreakdown: context.tokenBudget.breakdown,
     },
-    model: readContextPreviewModel(options),
+    model: readContextPreviewModel(options, context.tokenBudget.contextWindowTokens),
     tools: {
       count: tools.length,
       definitions: tools

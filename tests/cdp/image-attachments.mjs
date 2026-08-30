@@ -407,6 +407,7 @@ async function main() {
     await submit(client, '描述这张图片')
     await waitForEval(client, `document.body.innerText.includes('MOCK_VISION_ANSWER_1')`)
     await waitForEval(client, `Boolean(document.querySelector('button[aria-label="预览图片 ready.png"]'))`)
+    await waitForEval(client, `Boolean(document.querySelector('.message-row.user img[alt="ready.png"]'))`)
     screenshots.push(await screenshot(client, OUT_DIR, '02-completed-image-message', CAPTURE_SCREENSHOTS))
     assertions.completed = await evaluate(client, `(() => {
       const state = window.__visionState();

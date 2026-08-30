@@ -942,6 +942,14 @@ const mockScript = `
             return;
           }
 
+          if (!answer.trim()) {
+            if (requestId) requestResults.get(requestId).status = 'failed';
+            controller.enqueue(line({ type: 'error', message: '模型未返回内容' }));
+            closed = true;
+            controller.close();
+            return;
+          }
+
           controller.enqueue(line({
             type: 'done',
             reasoningDurationMs: typeof plan.reasoningDurationMs === 'number'
