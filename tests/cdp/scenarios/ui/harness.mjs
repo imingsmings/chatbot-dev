@@ -372,12 +372,16 @@ const mockScript = `
   };
   window.__abortCount = 0;
   window.__askCount = 0;
+  window.__cancelCount = 0;
+  window.__cancelCompletedCount = 0;
   window.__requestResultQueryCount = 0;
 
   window.__setAskPlans = (nextPlans) => {
     plans = nextPlans.slice();
     window.__abortCount = 0;
     window.__askCount = 0;
+    window.__cancelCount = 0;
+    window.__cancelCompletedCount = 0;
     window.__requestResultQueryCount = 0;
   };
 
@@ -743,10 +747,18 @@ const mockScript = `
     const askMatch = pathname.match(/^\\/conversations\\/([^/]+)\\/ask$/);
 
     if (pathname.startsWith('/requests/') && pathname.endsWith('/cancel') && method === 'POST') {
+      window.__cancelCount += 1;
       if (flags.cancelDelayMs > 0) {
         await new Promise((resolve) => setTimeout(resolve, flags.cancelDelayMs));
       }
-      return json({ cancelled: true });
+      const requestId = decodeURIComponent(pathname.split('/')[2] || '');
+      const request = requestResults.get(requestId);
+      if (request?.status === 'processing') {
+        request.status = requestBody?.reason === 'manual' ? 'stopped' : 'failed';
+        request.updatedAt = now();
+      }
+      window.__cancelCompletedCount += 1;
+      return json({ cancelled: true, completed: true });
     }
 
     const requestResultMatch = pathname.match(/^\\/requests\\/([^/]+)$/);
@@ -821,6 +833,27 @@ const mockScript = `
           closed = true;
           window.__abortCount += 1;
           window.clearTimeout(timer);
+          const request = requestId ? requestResults.get(requestId) : null;
+          if (request?.status === 'stopped' && (answer.trim() || reasoning.trim())) {
+            const messageStartIndex = conversation.messages.length;
+            conversation.messages.push(
+              { role: 'user', content: question },
+              {
+                role: 'assistant',
+                content: answer,
+                reasoningContent: reasoning || undefined,
+                reasoningDurationMs: reasoning ? 123 : undefined,
+                status: 'stopped',
+              },
+            );
+            conversation.updatedAt = now();
+            Object.assign(request, {
+              messageStartIndex,
+              messageCount: 2,
+              updatedAt: now(),
+            });
+            persistMockData();
+          }
           controller.error(new DOMException('Aborted', 'AbortError'));
         };
 

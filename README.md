@@ -32,6 +32,8 @@ Vue 客户端已在 2026-08-09 完成下线，`client/` 现在是唯一的 React
 - 6 个内置 Prompt 模板，以及浏览器本地自定义模板 CRUD、JSON 导入导出和变量替换。
 - Markdown 净化、代码高亮/复制和安全外链。
 - 前端 fetch abort、cancel API、后端 registry 与上游 AbortSignal 全链路停止；确认清理后回拉持久化详情。
+- 超时或手动停止期间保持当前会话发送互斥，服务端取消完成后才允许立即重试，避免清理窗口内的短暂 409。
+- 轻量 liveness、配置/存储 readiness，以及限长、脱敏并带 correlation id 的 Provider 非 2xx 诊断。
 - 明暗主题、响应式布局、尺寸驱动滚动跟随、离开底部后的快速到底按钮及流式代码块自动滚动。
 - 单用户登录、短期 JWT Access Token、HttpOnly Refresh Token 轮换/重放撤销、登录限速和跨标签页退出同步。
 
@@ -178,7 +180,9 @@ tsconfig.base.json             前后端共用 TypeScript 严格规则
 | `POST` | `/api/auth/login` | 密码登录；返回内存 Access Token 并设置 HttpOnly Refresh Cookie |
 | `POST` | `/api/auth/refresh` | 轮换 Refresh Token 并返回新 Access Token |
 | `POST` | `/api/auth/logout` | 撤销当前 Session 并清除 Cookie |
-| `GET` | `/api/health` | 公开的配置、会话存储与认证 Session Store 健康探针 |
+| `GET` | `/api/health/live` | 公开的轻量进程存活检查 |
+| `GET` | `/api/health/ready` | 公开的配置、会话存储与认证 Session Store readiness |
+| `GET` | `/api/health` | 与 readiness 等价的兼容入口 |
 | `GET/POST` | `/api/conversations` | 列表、新建 |
 | `GET/PATCH/DELETE` | `/api/conversations/:id` | 详情、重命名、删除 |
 | `PATCH` | `/api/conversations/:id/model-options` | 保存当前会话的完整模型配置 |
@@ -210,7 +214,7 @@ pnpm run test:cdp:request-recovery # 丢失 done 后的持久化结果恢复专�
 pnpm run test:cdp:authentication # 登录门禁、内存 Token、401 单次刷新重放和退出
 pnpm run test:cdp:image-attachments # 图片上传、预览、分支、停止和移动端 Mock 专项
 pnpm run test:cdp:all-real     # DeepSeek/OpenAI 全量真实链路、参数矩阵与 Vision 真实图片门禁
-pnpm run test:docker           # Docker HTTPS、认证、SQLite、Volume 恢复与 SIGTERM 冒烟
+pnpm run test:docker           # Docker HTTPS、认证、SQLite、附件、请求重放、Volume 恢复与 SIGTERM 冒烟
 ```
 
 专项入口仍保留在根 `package.json`。自动化默认使用 mock、fixture 和临时存储；真实模型只在明确确认后执行。
@@ -233,6 +237,7 @@ pnpm run test:docker           # Docker HTTPS、认证、SQLite、Volume 恢复�
 ### 方案与验收记录
 
 - [R23 Provider-aware 上下文预算验收记录（2026-08-29）](docs/r23-provider-aware-context-budget-2026-08-29.md)
+- [P1 工程可靠性优化验收记录（2026-08-31）](docs/engineering-hardening-2026-08-31.md)
 - [R22 请求一致性与原子导入验收记录（2026-08-29）](docs/r22-request-consistency-atomic-import-2026-08-29.md)
 - [R21 图片附件与 Vision 验收记录（2026-08-24）](docs/r21-multimodal-vision-2026-08-24.md)
 - [R20 JWT 单用户认证方案与实施说明（2026-08-19）](docs/r20-jwt-authentication-plan.md)

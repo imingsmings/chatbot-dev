@@ -4,6 +4,7 @@ import { readLinesFromStream } from '../streamReader.ts'
 import { resolveModelOptions } from '../modelOptions.ts'
 import { assertProviderConfigured, getProviderConfig } from './providerConfig.ts'
 import { getProviderAdapter } from './providerRegistry.ts'
+import { createProviderHttpError } from './providerDiagnostics.ts'
 import type {
   LlmAdapter,
   LlmCallOptions,
@@ -196,7 +197,12 @@ async function callLLM({
 
   try {
     if (!response.ok) {
-      throw new Error(`Failed to request model：${response.status} : ${response.statusText}`)
+      throw await createProviderHttpError({
+        response,
+        provider: effectiveOptions.provider,
+        signal: upstream.signal,
+        abortUpstream: upstream.abortUpstream,
+      })
     }
 
     if (!stream) {
@@ -309,7 +315,12 @@ async function callLLMStreamWithTools(
 
   try {
     if (!response.ok) {
-      throw new Error(`Failed to request model：${response.status} : ${response.statusText}`)
+      throw await createProviderHttpError({
+        response,
+        provider: effectiveOptions.provider,
+        signal: upstream.signal,
+        abortUpstream: upstream.abortUpstream,
+      })
     }
 
     if (!response.body) {

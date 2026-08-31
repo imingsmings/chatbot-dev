@@ -253,9 +253,36 @@ export async function runStreamRecovery(client) {
       { kind: 'success', chunks: ['这条不会及时返回。'], firstDelay: 16000, interval: 20 },
       { kind: 'success', chunks: ['超时后恢复成功。'], interval: 20 },
     ])
+    await setMockFlags(client, { cancelDelayMs: 2500 })
     await ask(client, '等待超时')
     await waitFor(client, `document.body.innerText.includes('响应超时或连接中断')`, 20000)
+    const asksBeforePrematureRetry = await evaluate(client, `window.__askCount`)
+    await typeText(client, '取消完成前不发送')
+    await evaluate(
+      client,
+      `document.querySelector('form')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))`,
+    )
+    await delay(100)
+    const timeoutCancellationState = await evaluate(
+      client,
+      `(() => ({
+        askCountUnchanged: window.__askCount === ${asksBeforePrematureRetry},
+        cancelStarted: window.__cancelCount === 1,
+        cancelCompleted: window.__cancelCompletedCount,
+        textareaDisabled: document.querySelector('textarea')?.disabled === true,
+      }))()`,
+    )
+    if (
+      !timeoutCancellationState.askCountUnchanged ||
+      !timeoutCancellationState.cancelStarted ||
+      timeoutCancellationState.cancelCompleted !== 0 ||
+      !timeoutCancellationState.textareaDisabled
+    ) {
+      throw new Error(`Timeout cancellation lock failed: ${JSON.stringify(timeoutCancellationState)}`)
+    }
+    await waitFor(client, `window.__cancelCompletedCount === 1`)
     await waitIdle(client)
+    await setMockFlags(client, { cancelDelayMs: 0 })
     await ask(client, '超时后恢复')
     await waitFor(client, `document.body.innerText.includes('超时后恢复成功。')`)
     await waitIdle(client)
@@ -370,6 +397,7 @@ export async function runStreamRecovery(client) {
     Object.assign(groupResults, {
       extraAfterDoneState,
       fastSubmitState,
+      timeoutCancellationState,
       timeoutRecoveryState,
       persistedDoneRecoveryState,
       incompleteStreamState,

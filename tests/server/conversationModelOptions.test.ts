@@ -168,7 +168,7 @@ test('context preview is read-only while failed first ask persists the effective
         onDelta: () => undefined,
         modelOptions: proOptions,
       }),
-      /Failed to request model/,
+      /模型服务请求失败/,
     )
   } finally {
     globalThis.fetch = originalFetch

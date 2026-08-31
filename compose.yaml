@@ -38,7 +38,7 @@ services:
         - node
         - -e
         - >-
-          require('node:https').get({hostname:'127.0.0.1',port:7001,path:'/api/health',rejectUnauthorized:false},response=>{response.resume();process.exit(response.statusCode===200?0:1)}).on('error',()=>process.exit(1))
+          require('node:https').get({hostname:'127.0.0.1',port:7001,path:'/api/health/live',rejectUnauthorized:false},response=>{response.resume();process.exit(response.statusCode===200?0:1)}).on('error',()=>process.exit(1))
       interval: 15s
       timeout: 5s
       retries: 3

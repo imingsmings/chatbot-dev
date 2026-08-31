@@ -100,7 +100,8 @@ pnpm run start:production
 
 ```bash
 curl --fail --show-error https://localhost:7001/
-curl --fail --show-error https://localhost:7001/api/health
+curl --fail --show-error https://localhost:7001/api/health/live
+curl --fail --show-error https://localhost:7001/api/health/ready
 ```
 
 浏览器还应验证：
@@ -114,11 +115,14 @@ curl --fail --show-error https://localhost:7001/api/health
 - HTTPS 响应包含 HSTS、`nosniff` 和 frame 防护头；
 - ask、停止、模型/推理强度、搜索和导入导出通过既有 CDP mock 回归。
 
+`/api/health/live` 适合高频进程探活；`/api/health/ready` 会执行运行配置、会话 store 和认证 Session Store 的实际读写探针，适合发布、数据目录切换和故障诊断。兼容 `/api/health` 继续等价于 readiness。
+
 ## 运维边界
 
 - 启动前备份完整 `CONVERSATION_DATA_DIR`，同时覆盖会话和认证 Session SQLite/WAL。
 - 怀疑 Refresh Token 泄漏时运行 `pnpm --dir server auth:revoke-all` 或轮换 Refresh secret；两种方式都会要求重新登录。
 - 使用 launchd、systemd 或受控进程管理器负责开机启动、崩溃重启和日志轮转；仓库不绑定具体平台。
+- Provider 非 2xx 日志只保留限长、脱敏的结构化错误、Provider request id 和内部 correlation id。按客户端显示的 reference 定位日志，不要临时改为记录完整 Prompt、响应 body、Cookie、Token 或 API key。
 - 证书续期或主机/IP 变化后替换证书并重启，启动校验只检查有效期和密钥匹配，不负责自动续期。
 - 公网部署仍需真实域名 CA 证书、分布式限流、防火墙/WAF、可信代理与审计日志；当前单用户登录不覆盖这些平台能力。
 

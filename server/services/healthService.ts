@@ -6,7 +6,11 @@ import { checkAttachmentStorageHealth } from './attachmentService.ts'
 
 type HealthCheckStatus = 'ok' | 'error'
 
-type HealthStatus = {
+type LivenessStatus = {
+  status: 'ok'
+}
+
+type ReadinessStatus = {
   status: 'ok' | 'unhealthy'
   checks: {
     configuration: HealthCheckStatus
@@ -35,7 +39,11 @@ async function checkStorage(): Promise<HealthCheckStatus> {
   }
 }
 
-async function getHealthStatus(): Promise<HealthStatus> {
+function getLivenessStatus(): LivenessStatus {
+  return { status: 'ok' }
+}
+
+async function getReadinessStatus(): Promise<ReadinessStatus> {
   const [configuration, storage] = await Promise.all([
     checkConfiguration(),
     checkStorage()
@@ -51,5 +59,9 @@ async function getHealthStatus(): Promise<HealthStatus> {
   }
 }
 
-export { getHealthStatus }
-export type { HealthStatus }
+export {
+  getLivenessStatus,
+  getReadinessStatus,
+  getReadinessStatus as getHealthStatus,
+}
+export type { LivenessStatus, ReadinessStatus }

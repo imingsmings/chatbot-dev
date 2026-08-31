@@ -54,3 +54,9 @@ Mock 专项覆盖上传中/完成/失败/重试/删除、不支持模型、文�
 - `deepseek-v4-flash-vision-exp` 是实验模型，标识、价格、输入限制和历史图片处理行为可能改变；变更 Provider 请求形状前应重跑 adapter fixture 和最小真实门禁。
 - Docker 新 Volume 恢复未本轮执行。现有 R14 备份设计会备份整个 `/app/data`，但附件恢复、缩略图读取和再次发送仍需后续实机证据。
 - 回滚时可通过现有禁用模型配置关闭 Vision；关闭模型不删除附件或改写旧会话。
+
+## 2026-08-31 补充
+
+- Docker smoke 脚本现已覆盖附件二进制/sidecar、manifest SHA-256、新 Volume 恢复、认证缩略图/原图预览、历史图片续问、requestId 跨重启重放和源 Volume 数据树不变。
+- 用户随后要求本轮不验证 Docker，因此没有启动镜像、容器或 Volume；上述内容仍是脚本能力，不是新的 Docker 实机证据，原暂缓结论保持不变。
+- 非 Docker 的 `all-real` 已重新无重试执行，Vision 纯文本工具、真实识图、刷新、分支、仅图片、停止恢复、ZIP 和移动布局均再次通过。当前证据汇总见 [P1 工程可靠性优化验收记录](engineering-hardening-2026-08-31.md)。

@@ -54,16 +54,30 @@ test('health reports configuration and storage readiness without sensitive detai
   const server = await startTestServer()
 
   try {
-    const response = await fetch(`${server.origin}/api/health`)
+    const [compatibilityResponse, readinessResponse, livenessResponse] = await Promise.all([
+      fetch(`${server.origin}/api/health`),
+      fetch(`${server.origin}/api/health/ready`),
+      fetch(`${server.origin}/api/health/live`),
+    ])
 
-    assert.equal(response.status, 200)
-    assert.deepEqual(await response.json(), {
+    assert.equal(compatibilityResponse.status, 200)
+    assert.deepEqual(await compatibilityResponse.json(), {
       status: 'ok',
       checks: {
         configuration: 'ok',
         storage: 'ok'
       }
     })
+    assert.equal(readinessResponse.status, 200)
+    assert.deepEqual(await readinessResponse.json(), {
+      status: 'ok',
+      checks: {
+        configuration: 'ok',
+        storage: 'ok'
+      }
+    })
+    assert.equal(livenessResponse.status, 200)
+    assert.deepEqual(await livenessResponse.json(), { status: 'ok' })
   } finally {
     await server.close()
   }
@@ -75,7 +89,10 @@ test('health returns 503 when the data directory is not writable', async () => {
   const server = await startTestServer()
 
   try {
-    const response = await fetch(`${server.origin}/api/health`)
+    const [response, livenessResponse] = await Promise.all([
+      fetch(`${server.origin}/api/health/ready`),
+      fetch(`${server.origin}/api/health/live`),
+    ])
 
     assert.equal(response.status, 503)
     assert.deepEqual(await response.json(), {
@@ -85,6 +102,8 @@ test('health returns 503 when the data directory is not writable', async () => {
         storage: 'error'
       }
     })
+    assert.equal(livenessResponse.status, 200)
+    assert.deepEqual(await livenessResponse.json(), { status: 'ok' })
   } finally {
     await server.close()
     await rm(dataDir, { force: true })
@@ -98,7 +117,7 @@ test('health returns 503 for invalid runtime configuration while storage remains
   const server = await startTestServer()
 
   try {
-    const response = await fetch(`${server.origin}/api/health`)
+    const response = await fetch(`${server.origin}/api/health/ready`)
 
     assert.equal(response.status, 503)
     assert.deepEqual(await response.json(), {

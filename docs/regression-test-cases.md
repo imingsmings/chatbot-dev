@@ -13,12 +13,14 @@
 | 生产构建 | `pnpm run build:client` | Vite 8 bundle、chunk 拆分、无 Vue runtime |
 | 生产托管 | `tests/server/clientHosting.test.ts` | 构建 fail-fast、SPA、API 隔离、缓存和安全头 |
 | HTTPS 配置 | `tests/server/deploymentConfig.test.ts` | production defaults、路径、布尔/端口和证书异常 |
-| Docker 容器 | `pnpm run test:docker` | Compose、运行镜像小于 300MB 且无 pnpm/Corepack 缓存、证书覆盖、HTTPS、health、SQLite、会话模型配置跨重启、停止备份、新卷恢复、语义一致性和 SIGTERM；R21 附件新卷恢复仍待补证 |
-| Docker 页面 | `pnpm run test:cdp:docker-ui` | 容器 HTTPS 页面、侧栏、输入区、模型控件和横向溢出；截图可选 |
+| Docker 容器 | `pnpm run test:docker` | Compose、运行镜像约束、证书覆盖、HTTPS、live/ready、SQLite、附件、requestId 跨重启重放、停止备份、新卷恢复、校验和、源卷不变和 SIGTERM |
+| Docker 页面 | `pnpm run test:cdp:docker-ui` | 容器 HTTPS 页面、登录、附件缩略图/受保护原图预览、历史图片续问、模型控件和横向溢出；截图可选 |
 | 浏览器回归 | `pnpm run test:cdp:all-mock` | 完整 React UI/API mock 矩阵 |
 | 图片附件浏览器专项 | `pnpm run test:cdp:image-attachments` | 上传、文本加图/仅图片、受保护预览、刷新、失败重试、模型拦截、分支、停止和 390px 边界 |
 | 真实接口套件 | `pnpm run test:cdp:all-real` | 隔离端口/临时 file store；DeepSeek V4 Pro UI/上下文/Markdown、OpenAI Responses、DeepSeek Flash/Pro 8 组参数，以及使用固定非隐私图片的 DeepSeek Vision 识图/刷新/分支/仅图片/停止/ZIP；需明确确认 |
 | 生产依赖审计 | `pnpm run audit:production` | 根 workspace 全部生产依赖，要求 0 已知漏洞 |
+
+2026-08-31 的 Docker 脚本已扩展到表中范围，但按用户要求未执行容器、镜像、页面或 Volume 门禁，因此这些条目是可执行测试契约，不是本轮运行证据。当前非 Docker 结果见 [P1 工程可靠性优化验收记录](engineering-hardening-2026-08-31.md)。
 
 ## React 单元边界
 
@@ -27,7 +29,7 @@
 | conversation reducer | 不可变 upsert/sort；删除 active 立即清空 ID、summary、messages、模型配置；选择/应用/清空恢复配置；服务端详情映射真实 `persistedIndex` 和生成元数据 |
 | useConversations | Strict Mode 初始化去重；选择乱序；删除后继加载失败不保留已删除详情；创建分支后选中新会话 |
 | useConversationModelOptions | runtime/详情乱序、A/B 恢复、乐观保存、服务端规范化、快速点击、失败回滚/重试和切换后过期响应隔离 |
-| useChatStream | delta/reasoning/tool/done；显式新分支 ID；取消完成握手；成功/停止后详情回拉；丢失 done 后请求终态查询与持久化答案恢复；首包/流空闲超时；协议错误后恢复；卸载清理 |
+| useChatStream | delta/reasoning/tool/done；显式新分支 ID；取消完成握手；取消未完成时保持发送锁且确认后立即重试；成功/停止后详情回拉；丢失 done 后请求终态查询与持久化答案恢复；首包/流空闲超时；协议错误后恢复；卸载清理 |
 | message branching | 多行编辑、取消/未修改、最近用户消息定位、分支创建失败恢复 |
 | stream protocol | v2 六类事件；拆包；未知/损坏 JSON；负耗时；空 tool/error 字段 |
 | model catalog | provider/model 能力；disabled；空/损坏运行目录 fallback |
@@ -53,15 +55,16 @@
 | model options | 完整快照、范围/能力/禁用模型、运行时默认、旧会话回填、更新不改排序、file/SQLite 重开、SQLite 幂等增列、损坏字段安全降级 |
 | model-options API | 独立 PATCH 400/404/409/200；与 ask/摘要互斥；Provider 失败前仍完成首次绑定；上下文预览只读 |
 | provider config | OpenAI URL normalization、非 HTTP/HTTPS 拒绝、凭据不公开 |
+| provider diagnostics | 非 2xx 结构化字段提取、4 KiB 读取上限、reader 取消、凭据/查询参数脱敏、安全 request id、correlation id 和稳定客户端错误 |
 | adapters | DeepSeek `[DONE]` / OpenAI `response.completed` 完成门禁、partial/reasoning/tool EOF、reasoning summary、tool arguments 聚合、call_id continuation |
 | tools | 安全计算器、IANA 时间、天气本地日期、网络/HTTP 失败隔离 |
 | production hosting | 缺失 build、SPA deep link、静态缓存、`/api` JSON 404、非 GET 不回退 |
 | TLS configuration | 生产默认值、`~/` 展开、非法布尔/端口、缺失或损坏证书 fail-fast |
-| health | file 实际目录和 SQLite 事务探针；不可写/运行配置异常 503；恢复后 200；响应不泄漏路径、endpoint 或凭据 |
+| health | `/live` 不触发深探针；`/ready` 与兼容 `/health` 执行 file/SQLite/Session Store 探针；不可写/运行配置异常 503；恢复后 200；响应不泄漏路径、endpoint 或凭据 |
 | authentication config | production 默认启用、HTTP/Secure Cookie/缺失哈希或 secret fail-fast、开发关闭兼容 |
 | authentication security | Argon2id 参数与 salt/摘要最小长度、JWT 固定 HS256/issuer/audience/type/expiry、篡改与 secret 混用拒绝 |
 | authentication sessions | 原子 Refresh 轮换、并发复用/重放撤销、logout、撤销全部、Access Session 立即失效 |
-| authentication API | health/status 公开、其他 API 401、同源 Origin、通用登录错误、限速隔离和 Cookie 属性 |
+| authentication API | live/ready/兼容 health 与 status 公开、其他 API 401、同源 Origin、通用登录错误、限速隔离和 Cookie 属性 |
 
 ## CDP suites
 
@@ -94,7 +97,7 @@ UI 七个入口位于 `tests/cdp/scenarios/ui/`，分别包含会话操作、流
 - 只有带服务端 `persistedIndex` 的消息显示编辑/重新生成；流成功或停止后 optimistic 行与服务端详情完全对齐。
 - 用户接近底部时跟随正文/reasoning/代码块；上滚查看历史时保持位置并显示快速到底按钮，点击后恢复当前流的持续跟随。
 - 代码块最后增长时 bottom gap 保持在阈值内。
-- 停止、HTTP 失败、网络断开、损坏 NDJSON、缺少 done、Provider 不完整错误和超时后均可恢复；若服务端已保存回答但应用 `done` 丢失，结果查询会恢复唯一的持久化回答；用户手动停止且已收到正文或 reasoning 时落为 `stopped`，其他中断的部分内容仅保留在当前 UI 且不落库。
+- 停止、HTTP 失败、网络断开、损坏 NDJSON、缺少 done、Provider 不完整错误和超时后均可恢复；取消确认完成前发送保持禁用，确认后立即重试成功且无短暂 409；若服务端已保存回答但应用 `done` 丢失，结果查询会恢复唯一的持久化回答；用户手动停止且已收到正文或 reasoning 时落为 `stopped`，其他中断的部分内容仅保留在当前 UI 且不落库。
 - 刷新后 generation、usage、裁剪工具轨迹和 `stopped` 状态可恢复；缺失 usage 显示未知，`stopped` 不进入上下文或摘要。
 - 明暗主题刷新保持；390px 无页面级横向溢出。
 - 图标按钮有可读 `aria-label`；Dialog/Dropdown 的 Escape、focus 和 disabled 状态正确。
@@ -116,6 +119,7 @@ UI 七个入口位于 `tests/cdp/scenarios/ui/`，分别包含会话操作、流
 | 自定义 Prompt 模板 | `check` + `test:client` + `test:cdp:prompt-templates`；不涉及服务端或 Provider |
 | 单用户认证/JWT/Session | `check` + `test:unit` + `test:cdp:authentication` + `all-mock` + `test:docker`；最终真实 Provider runner 必须在认证开启下执行 |
 | Provider/Function Calling | adapter/tool tests + P0；真实 provider 需另行确认 |
+| Provider 非 2xx 诊断 | `check` + provider diagnostics 单测 + adapter/API 错误路径；不得断言或记录原始敏感 body |
 | 构建/依赖/入口 | `check` + `build:client` + `all-mock` |
 | 托管/HTTPS | deployment/clientHosting tests + 生产 HTTPS 本机冒烟 |
 | Dockerfile/Compose/卷运维 | `test:docker`，覆盖临时证书、隔离 volume、校验失败、恢复语义和清理；涉及页面托管时再运行 `test:cdp:docker-ui` |
@@ -154,3 +158,5 @@ R17 的 file/SQLite、API、React 竞态、14-script mock 和 Docker Volume 证�
 R18-R20 的最新完整门禁分别见 [R18 自定义 Prompt 模板验收记录](r18-custom-prompt-templates-2026-08-13.md)、[R19 流式渲染验收记录](r19-streaming-rendering-2026-08-13.md)和 [R20 JWT 单用户认证实施与验证记录](r20-jwt-authentication-plan.md#2026-08-19-验证记录)。
 
 R21 的图片安全、file/SQLite、Mock、真实图片、完整识别输出和截图证据见 [R21 验收记录](r21-multimodal-vision-2026-08-24.md)。
+
+2026-08-31 的取消协调、健康拆分、Provider 诊断、172/115 单测、无重试 18/18 Mock 和全量真实接口证据见 [P1 工程可靠性优化验收记录](engineering-hardening-2026-08-31.md)；Docker 在该轮明确未执行。

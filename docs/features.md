@@ -24,7 +24,9 @@
 - 同一会话禁止并发 ask；客户端快速连续提交只发出一次。
 - ask 的 `requestId`、会话绑定、请求指纹和 `processing/completed/stopped/failed` 状态随会话持久化；并发、顺序重放和存储重开后重放不会追加第二组消息。
 - 流异常结束时前端先查询受认证保护的请求结果；服务端已保存答案但浏览器未收到 `done` 时回拉原回答，重启遗留的 `processing` 收敛为 `failed`。
+- 手动停止或超时后，当前会话保持发送互斥直到服务端取消完成；确认释放后可立即重试，不经过固定猜测等待窗口。
 - 成功或确认停止后回拉服务端详情；只有已保存消息可编辑或重新生成。
+- Provider 非 2xx 响应使用最多 4 KiB 的结构化、脱敏诊断；客户端获得 correlation reference，日志不包含完整 Prompt、Cookie、Token 或 API key。
 
 ### 图片附件与 Vision
 
@@ -76,7 +78,7 @@
 ### 单用户认证
 
 - production 默认启用认证；固定用户名、Argon2id 密码哈希和两个 JWT secret 只从服务端环境变量读取。
-- 未登录时不挂载聊天应用，也不请求 runtime、会话或 Provider；`/api/health` 和认证入口保持公开。
+- 未登录时不挂载聊天应用，也不请求 runtime、会话或 Provider；`/api/health/live`、`/api/health/ready`、兼容 `/api/health` 和认证入口保持公开。
 - Access Token 默认 15 分钟，只保存在 React 内存并通过 Bearer Header 发送，不进入 Web Storage、DOM 或导出。
 - Refresh Token 默认 7 天，只存在 `HttpOnly`、`Secure`、`SameSite=Strict`、`Path=/api/auth` Cookie；每次使用都会轮换。
 - Refresh Token 重放会撤销整个 Session family；logout 和运维撤销会立即使对应 Access Session 失效。
@@ -107,7 +109,7 @@
 - `index.html` 禁止缓存，hash assets 使用长期 immutable cache。
 - 基础安全响应头：禁用框架标识、`nosniff`、禁止 frame、同源 referrer；HTTPS 响应包含 HSTS。
 - Docker 单容器部署：Node 直接提供 HTTPS、React 和 `/api/*`，环境变量运行时注入、TLS 只读挂载，会话数据库、认证 Session 与附件共同由 `/app/data` 数据卷持久化。
-- `/api/health` 探测当前 file conversations 目录或 SQLite 数据库，以及启用时的认证 Session Store 真实读写能力。
+- `/api/health/live` 只检查进程可响应；`/api/health/ready` 与兼容 `/api/health` 探测运行配置、当前 file/SQLite 会话 store，以及启用时的认证 Session Store 真实读写能力。
 
 ## 明确不包含
 

@@ -115,10 +115,11 @@ flowchart LR
 | `server/services/attachmentService.ts` | 图片魔数/尺寸校验、原子文件和 sidecar、本地读取、会话绑定、引用状态、TTL 与孤儿清理 |
 | `server/services/conversationExportService.ts` / `conversationImportService.ts` | schema v1 JSON 兼容、schema v2 ZIP 附件清单/校验和、ID 重映射、完整预检和批次级附件回滚 |
 | `server/services/toolService.ts` | 工具参数校验、失败隔离、耗时和生命周期事件 |
-| `server/services/healthService.ts` | 启动级配置校验和当前会话 store 的实际读写探针；仅输出稳定状态 |
+| `server/services/healthService.ts` | 轻量 liveness，以及启动级配置、当前会话 store 和认证 Session Store 的 readiness 读写探针；仅输出稳定状态 |
 | `server/tools/*` | 单工具 schema、validator 和 handler |
 | `server/utils/llm/providerConfig.ts` | HTTP/HTTPS endpoint、凭据和默认模型 |
 | `server/utils/llm/modelCatalog.ts` | 公共模型能力与禁用状态 |
+| `server/utils/llm/providerDiagnostics.ts` | 非 2xx 响应限长结构化提取、凭据脱敏、Provider request id 和内部 correlation id 日志 |
 | `server/utils/llm/adapters/*` | provider body、SSE 语义与 continuation |
 | `server/utils/requestRegistry.ts` | 当前进程的 requestId 与单会话活动请求互斥、取消信号和请求完成通知；持久终态由 conversation store 管理 |
 | `server/utils/conversationStore.ts` | 稳定 facade；按运行配置选择 file/SQLite 实现并保持既有导出 |
@@ -172,7 +173,7 @@ flowchart LR
 - Node 仍是唯一 HTTPS 与应用进程，不增加反向代理或第二套前端服务。
 - `server/.env`、TLS 文件和会话数据均不进入镜像层；容器可替换，运行配置和数据独立保留。
 - Compose 只运行一个实例。file store 的队列和 SQLite 写入边界都是单进程语义，不支持横向扩容。
-- Compose healthcheck 使用公开的 `/api/health`，同时探测会话 store 与启用时的认证 Session Store；任一不可用映射为 503，且不返回路径、endpoint、凭据或底层异常。
+- Compose healthcheck 使用公开的轻量 `/api/health/live`，避免高频触发文件或 SQLite 写探针。`/api/health/ready` 在发布、数据卷切换和人工诊断时探测运行配置、会话 store 与启用时的认证 Session Store；兼容 `/api/health` 与 readiness 等价。任一 readiness 检查不可用映射为 503，且不返回路径、endpoint、凭据或底层异常。
 - `docker:backup` 只读挂载已停止的完整 `/app/data` volume，tar 与 manifest 分别提供 archive 和数据树 SHA-256；`docker:restore` 只创建新 volume，校验后通过独立 Compose override 切换。
 - 完整镜像分层和生命周期见 [Docker 部署说明](docker-deployment.md)。
 
@@ -184,7 +185,7 @@ flowchart LR
   Source -->|"read-only tar + file hashes"| Backup["tar + manifest"]
   Backup -->|"archive sha256 verified"| NewVolume["new restored volume"]
   NewVolume -->|"tree sha256 verified"| Switch["Compose external-volume override"]
-  Switch --> Health["/api/health + conversation parity"]
+  Switch --> Health["/api/health/ready + conversation parity"]
   Health -->|"pass"| Keep["keep restored service and retain source"]
   Health -->|"fail"| Rollback["switch back to untouched source"]
 ```
@@ -322,25 +323,29 @@ sequenceDiagram
 flowchart TD
   Manual["用户手动停止"] --> Flush["flush UI event buffer"]
   Flush --> Cancel["POST /api/requests/:id/cancel"]
-  Cancel --> Deadline["await ack up to 500ms"]
   Cancel --> Registry["Server request registry abort"]
   Registry --> Upstream["Provider / Tool AbortSignal"]
   Upstream --> Complete["ask finally completeRequest"]
   Complete --> Ack["cancel returns completed"]
-  Ack -.-> Deadline
-  Deadline --> LocalAbort["Client AbortController"]
+  Ack --> LocalAbort["Client AbortController"]
   LocalAbort --> Reconcile["Client reloads persisted detail"]
 
-  NonManual["超时 / 切换 / 页面卸载"] --> EarlyAbort["Client AbortController"]
-  EarlyAbort --> ReasonedCancel["POST cancel with reason"]
+  Timeout["超时"] --> ReasonedCancel["start cancel with timeout reason"]
+  Timeout --> EarlyAbort["Client AbortController"]
   ReasonedCancel --> Registry
+  Ack --> Unlock["release conversation send lock"]
+
+  Transition["切换会话"] --> TransitionCancel["await cancel, then local abort"]
+  TransitionCancel --> Registry
+  Unmount["页面卸载"] --> BestEffort["local abort + best-effort cancel"]
+  BestEffort --> Registry
 ```
 
 - 客户端超时从发起 fetch 前开始，因此覆盖“迟迟没有响应头”。
-- 同一 requestId 只取消一次；请求结束后清理取消集合、timer 和 refs。
+- 同一 requestId 只取消一次；客户端以 `requestId -> cancellation Promise` 复用取消结果，请求结束后清理 map、timer 和 refs。
 - 后端同一会话只允许一个活动 ask，避免并行回答的语义和持久化竞态。
 - 用户点击停止时先向服务端发送 `manual` 原因，再中止浏览器 fetch；服务端将已有正文保存为 `stopped`。request registry 在 abort 后仍保留占用，直到 ask `finally` 完成；取消 API 等待该信号并返回 `completed`，前端随后回拉持久化详情。
-- 前端对取消确认设置 500ms 等待上限，仅作为取消接口异常时的 UI 降级；它不被当作服务端持久化完成的证据。
+- 超时会立即中止当前浏览器流，但当前会话的发送锁保持到 cancel API 完成；因此用户不能在服务端仍占用会话时触发一次必然 409 的重试。
 - 超时、页面卸载和新建/切换会话分别标记原因；这些路径即使已有部分正文也不落库。
 - `stopped` assistant 可刷新恢复，但会从后续原始上下文和新摘要中排除；异常 EOF 仍保持 R11 的“不落库”语义。
 - request registry 只负责当前进程互斥；会话的可选 `requests` 保存 requestId、请求指纹、终态和消息范围。答案消息与 `completed/stopped` 在同一 store mutation/SQLite transaction 中提交。
@@ -357,7 +362,7 @@ flowchart TD
 - 写入先落到同目录唯一临时文件，再 rename 替换，避免进程中断留下半份 JSON。
 - 从文件读取时以文件名 ID 为准，防止 payload ID 串写其他文件。
 - 损坏时间戳回退为有效 ISO 时间；非法临时文件名不会进入会话列表。
-- 健康检查在实际 conversations 目录创建探针，完成写入、读回和删除；目录不可写时 `/api/health` 返回 503。
+- readiness 在实际 conversations 目录创建探针，完成写入、读回和删除；目录不可写时 `/api/health/ready` 与兼容 `/api/health` 返回 503，liveness 仍只反映进程可响应。
 
 ### SQLite
 
@@ -365,7 +370,7 @@ flowchart TD
 - WAL 模式；同步事务保证 migration 和批量写边界。
 - messages/summary 以 JSON 保存，模型配置使用可空 `model_options` JSON 列；包含可选 generation/tool trace/status，对外保持与 file store 相同语义。
 - 旧 JSON 迁移通过 metadata 标记实现幂等。
-- 健康检查在当前数据库执行 `BEGIN IMMEDIATE`、探针写入/读回和 `ROLLBACK`，验证真实 DB 路径和事务写能力且不留下数据。
+- readiness 在当前数据库执行 `BEGIN IMMEDIATE`、探针写入/读回和 `ROLLBACK`，验证真实 DB 路径和事务写能力且不留下数据。
 
 ### 批量导入边界
 
@@ -376,7 +381,7 @@ flowchart TD
 
 ## 输入与错误边界
 
-集中限制位于 `server/config/productLimits.ts`：自动标题、会话标题、搜索词、问题、导入会话数和单会话消息数。Provider endpoint 仅支持 HTTP/HTTPS；天气网络异常返回稳定可恢复错误；生产环境未处理的 5xx 不向客户端泄漏内部路径或上游细节。
+集中限制位于 `server/config/productLimits.ts`：自动标题、会话标题、搜索词、问题、导入会话数和单会话消息数。Provider endpoint 仅支持 HTTP/HTTPS；天气网络异常返回稳定可恢复错误；生产环境未处理的 5xx 不向客户端泄漏内部路径或上游细节。Provider 非 2xx 诊断只读取最多 4 KiB 结构化错误，先脱敏凭据再记录限长详情、Provider request id 和内部 correlation id；不记录完整 Prompt、请求 body、Cookie、Token 或原始响应 body。
 
 ## 扩展约束
 

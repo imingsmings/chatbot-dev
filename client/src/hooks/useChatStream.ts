@@ -123,7 +123,7 @@ export function useChatStream(options: UseChatStreamOptions) {
   const cancellationCompletionRef = useRef<Promise<boolean> | null>(null)
   const idleTimerRef = useRef<number | null>(null)
   const copiedTimerRef = useRef<number | null>(null)
-  const cancelledRequestIdsRef = useRef(new Set<string>())
+  const cancellationRequestsRef = useRef(new Map<string, Promise<boolean>>())
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null)
   const [isRequestActive, setIsRequestActive] = useState(false)
   const [isStopping, setIsStopping] = useState(false)
@@ -155,39 +155,24 @@ export function useChatStream(options: UseChatStreamOptions) {
   }, [])
 
   const cancelActiveRequest = useCallback(
-    async (requestId: string, reason: RequestCancellationReason): Promise<boolean> => {
-      if (cancelledRequestIdsRef.current.has(requestId)) {
-        return false
+    (requestId: string, reason: RequestCancellationReason): Promise<boolean> => {
+      const existingRequest = cancellationRequestsRef.current.get(requestId)
+      if (existingRequest) {
+        return existingRequest
       }
 
-      cancelledRequestIdsRef.current.add(requestId)
-      try {
-        return await (optionsRef.current.cancelRequest ?? cancelRequestApi)(requestId, reason)
-      } catch (error) {
-        logError('Failed to cancel active request:', error)
-        return false
-      }
+      const cancellationRequest = (async () => {
+        try {
+          return await (optionsRef.current.cancelRequest ?? cancelRequestApi)(requestId, reason)
+        } catch (error) {
+          logError('Failed to cancel active request:', error)
+          return false
+        }
+      })()
+      cancellationRequestsRef.current.set(requestId, cancellationRequest)
+      return cancellationRequest
     },
     [logError],
-  )
-
-  const cancelWithDeadline = useCallback(
-    async (requestId: string, reason: RequestCancellationReason): Promise<boolean> => {
-      let timerId: number | null = null
-      try {
-        return await Promise.race([
-          cancelActiveRequest(requestId, reason),
-          new Promise<boolean>((resolve) => {
-            timerId = window.setTimeout(() => resolve(false), 500)
-          }),
-        ])
-      } finally {
-        if (timerId !== null) {
-          window.clearTimeout(timerId)
-        }
-      }
-    },
-    [cancelActiveRequest],
   )
 
   const followNewContent = useCallback((shouldFollow: boolean) => {
@@ -233,8 +218,8 @@ export function useChatStream(options: UseChatStreamOptions) {
         }
 
         abortReasonRef.current = 'timeout'
+        cancellationCompletionRef.current = cancelActiveRequest(requestId, 'timeout')
         controller.abort()
-        void cancelActiveRequest(requestId, 'timeout')
       }, timeoutMs)
     },
     [cancelActiveRequest, clearIdleTimer],
@@ -456,8 +441,12 @@ export function useChatStream(options: UseChatStreamOptions) {
       } finally {
         clearIdleTimer()
 
+        if (cancellationCompletionRef.current) {
+          await cancellationCompletionRef.current
+        }
+
         if (requestId) {
-          cancelledRequestIdsRef.current.delete(requestId)
+          cancellationRequestsRef.current.delete(requestId)
         }
 
         if (controller && currentAbortControllerRef.current === controller) {
@@ -510,7 +499,7 @@ export function useChatStream(options: UseChatStreamOptions) {
       }
 
       const cancellationCompletion = requestId
-        ? cancelWithDeadline(requestId, reason)
+        ? cancelActiveRequest(requestId, reason)
         : Promise.resolve(false)
       cancellationCompletionRef.current = cancellationCompletion
       await cancellationCompletion
@@ -521,7 +510,7 @@ export function useChatStream(options: UseChatStreamOptions) {
         setIsStopping(false)
       }
     }
-  }, [cancelWithDeadline])
+  }, [cancelActiveRequest])
 
   const copyMessage = useCallback(
     async (message: ChatMessage) => {

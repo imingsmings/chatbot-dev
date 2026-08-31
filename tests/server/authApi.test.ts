@@ -80,12 +80,17 @@ test('status and health stay public while API and legacy roots require a bearer 
   assert.equal(status.status, 200)
   assert.deepEqual(await status.json(), { enabled: true })
 
-  const health = await fetch(`${origin}/api/health`)
-  assert.equal(health.status, 200)
-  assert.deepEqual(await health.json(), {
-    status: 'ok',
-    checks: { configuration: 'ok', storage: 'ok' },
-  })
+  for (const pathname of ['/api/health', '/api/health/ready']) {
+    const health = await fetch(`${origin}${pathname}`)
+    assert.equal(health.status, 200)
+    assert.deepEqual(await health.json(), {
+      status: 'ok',
+      checks: { configuration: 'ok', storage: 'ok' },
+    })
+  }
+  const liveness = await fetch(`${origin}/api/health/live`)
+  assert.equal(liveness.status, 200)
+  assert.deepEqual(await liveness.json(), { status: 'ok' })
 
   for (const pathname of [
     '/api/runtime-config',

@@ -119,8 +119,12 @@ async function clickSelector(client, selector) {
 async function selectConversation(client, title) {
   await waitForEval(
     client,
-    `[...document.querySelectorAll('.conversation-title')]
-      .some((item) => item.textContent.trim() === ${JSON.stringify(title)})`,
+    `[...document.querySelectorAll('.conversation-item-shell')]
+      .some((item) => {
+        const button = item.querySelector('.conversation-item');
+        return item.querySelector('.conversation-title')?.textContent.trim() === ${JSON.stringify(title)} &&
+          button && !button.disabled;
+      })`,
   )
   await evaluate(
     client,

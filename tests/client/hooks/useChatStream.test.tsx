@@ -568,6 +568,83 @@ describe('useChatStream', () => {
     expect(result.current.isResponding).toBe(false)
   })
 
+  it('keeps sending locked until timeout cancellation reaches a server terminal state', async () => {
+    let capturedSignal!: AbortSignal
+    let resolveCancellation!: (completed: boolean) => void
+    const cancellation = new Promise<boolean>((resolve) => {
+      resolveCancellation = resolve
+    })
+    const requestConversationAnswer = vi
+      .fn<RequestAnswer>()
+      .mockImplementationOnce(async ({ signal }) => {
+        capturedSignal = signal
+        return createAbortableResponse(signal).response
+      })
+      .mockResolvedValueOnce(responseFromEvents([
+        { type: 'delta', content: '释放后成功' },
+        { type: 'done' },
+      ]))
+    const cancelRequest = vi.fn<CancelRequest>().mockReturnValue(cancellation)
+    const getRequestResult = vi.fn().mockResolvedValue({
+      requestId: 'request-1',
+      conversationId: 'conversation-1',
+      status: 'processing',
+      createdAt: '2026-08-31T00:00:00.000Z',
+      updatedAt: '2026-08-31T00:00:00.000Z',
+    })
+    let requestSequence = 0
+    const { result } = renderStreamHook(createHarnessOptions({
+      cancelRequest,
+      createRequestId: () => `request-${++requestSequence}`,
+      getRequestResult,
+      idleTimeoutMs: 20,
+      requestConversationAnswer,
+    }))
+
+    let submission!: Promise<void>
+    await act(async () => {
+      submission = result.current.submitQuestion('等待取消释放', {
+        appendUser: true,
+        clearComposer: true,
+      })
+      await Promise.resolve()
+    })
+    await waitFor(() => {
+      expect(result.current.messages[1]).toMatchObject({
+        status: 'error',
+        error: '响应超时或连接中断',
+      })
+    })
+
+    expect(capturedSignal.aborted).toBe(true)
+    expect(result.current.isResponding).toBe(true)
+    await act(async () => {
+      await result.current.submitQuestion('取消未完成时不得发送', {
+        appendUser: true,
+        clearComposer: true,
+      })
+    })
+    expect(requestConversationAnswer).toHaveBeenCalledOnce()
+
+    await act(async () => {
+      resolveCancellation(true)
+      await submission
+    })
+    expect(result.current.isResponding).toBe(false)
+
+    await act(async () => {
+      await result.current.submitQuestion('释放后发送', {
+        appendUser: true,
+        clearComposer: true,
+      })
+    })
+    expect(requestConversationAnswer).toHaveBeenCalledTimes(2)
+    expect(result.current.messages.at(-1)).toMatchObject({
+      status: 'done',
+      text: '释放后成功',
+    })
+  })
+
   it('times out while waiting for response headers and cancels the backend request', async () => {
     let capturedSignal!: AbortSignal
     const requestConversationAnswer = vi

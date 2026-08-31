@@ -163,6 +163,73 @@ test('concurrent submissions with the same requestId only start one provider req
   assert.equal((await getConversation(conversation.id))?.messages.length, 2)
 })
 
+test('cancel endpoint releases the conversation before an immediate retry is accepted', async () => {
+  const conversation = await createConversation('cancel then immediate retry')
+  let markProviderStarted!: () => void
+  const providerStarted = new Promise<void>((resolve) => {
+    markProviderStarted = resolve
+  })
+  let upstreamCancelled = false
+  providerResponder = async (init) => {
+    markProviderStarted()
+    const signal = init?.signal
+    return new Response(new ReadableStream<Uint8Array>({
+      start(controller) {
+        const abort = () => {
+          upstreamCancelled = true
+          controller.error(new DOMException('Aborted', 'AbortError'))
+        }
+        if (signal?.aborted) abort()
+        else signal?.addEventListener('abort', abort, { once: true })
+      },
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'text/event-stream' },
+    })
+  }
+
+  const firstRequestId = 'request_api_cancel_first_123'
+  const first = originalFetch(`${origin}/api/conversations/${conversation.id}/ask`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ question: 'cancel me', requestId: firstRequestId }),
+  })
+  await providerStarted
+
+  const cancelled = await originalFetch(`${origin}/api/requests/${firstRequestId}/cancel`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ reason: 'timeout' }),
+  })
+  assert.equal(cancelled.status, 200)
+  assert.deepEqual(await cancelled.json(), { cancelled: true, completed: true })
+  assert.equal(upstreamCancelled, true)
+  await (await first).text()
+
+  providerResponder = async () => new Response([
+    'data: {"choices":[{"delta":{"content":"重试成功"}}]}\n\n',
+    'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n',
+    'data: [DONE]\n\n',
+  ].join(''), {
+    status: 200,
+    headers: { 'Content-Type': 'text/event-stream' },
+  })
+  const retry = await originalFetch(`${origin}/api/conversations/${conversation.id}/ask`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      question: 'retry immediately',
+      requestId: 'request_api_cancel_retry_123',
+    }),
+  })
+  assert.equal(retry.status, 200)
+  assert.match(await retry.text(), /"type":"done"/)
+  assert.deepEqual(
+    (await getConversation(conversation.id))?.messages.map(({ content }) => content),
+    ['retry immediately', '重试成功'],
+  )
+})
+
 test('status lookup marks processing left by a restart as failed', async () => {
   const conversation = await createConversation('stale processing request')
   const timestamp = '2026-08-29T00:00:00.000Z'

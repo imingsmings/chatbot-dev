@@ -146,11 +146,13 @@ provider 字段不会直接透传到浏览器。更换 provider 时，只需保�
 1. 前端先刷新已接收但尚未渲染的事件缓冲。
 2. 前端调用 `POST /api/requests/:requestId/cancel`，reason 为 `manual`。
 3. 后端 request registry 触发 `AbortController`，中止 provider fetch 或正在执行的工具，并保持 requestId 占用直到 ask 请求的 `finally` 完成清理。
-4. cancel API 等待该清理完成后返回；前端等待最多 500ms，随后中止本地 fetch。500ms 是客户端降级等待上限，不改变后端最终清理语义。
+4. cancel API 等待该清理完成后返回；前端复用同一 cancellation Promise，收到确认后中止本地 fetch，并在 ask 流完成收尾后释放当前会话发送锁。
+
+首包或流空闲超时时，前端先启动 reason 为 `timeout` 的取消请求，再立即中止本地 fetch；当前会话发送锁继续保持到取消请求完成。这样既能快速停止无效流，又不会在服务端仍持有会话锁时开放一次必然冲突的重试。会话切换和组件卸载沿用各自 reason；切换会等待取消请求完成后中止本地 fetch，卸载只做 best-effort 清理且不再更新 UI。
 
 只有显式手动停止、且后端已经收到非空正文时，当前用户消息和部分回答才持久化为 `stopped`。首个正文前停止、超时、切换会话、组件卸载、网络错误或 Provider 不完整 EOF 都不会把部分问答写入历史。成功完成或确认停止后，前端重新拉取会话详情，使 optimistic 行与持久化索引一致。
 
-request registry 完成清理后释放 requestId 和会话锁，后续请求可继续使用同一会话。
+request registry 完成清理后释放 requestId 和会话锁，后续请求可立即继续使用同一会话。取消接口异常时客户端记录错误并走既有流异常恢复；取消失败不被当作服务端清理完成证据。
 
 ## 协议演进规则
 

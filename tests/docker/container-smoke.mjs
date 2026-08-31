@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
-import { randomBytes } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
 import { mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises'
+import http from 'node:http'
 import https from 'node:https'
 import net from 'node:net'
 import { tmpdir } from 'node:os'
@@ -15,6 +16,11 @@ const COMMAND_TIMEOUT_MS = 300_000
 const CLEANUP_TIMEOUT_MS = 30_000
 const MAX_RUNTIME_IMAGE_SIZE_BYTES = 300_000_000
 let bearerToken = ''
+
+const PNG_1X1 = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9ZP4sAAAAASUVORK5CYII=',
+  'base64',
+)
 
 function run(command, args, options = {}) {
   return new Promise((resolve, reject) => {
@@ -78,7 +84,10 @@ function findAvailablePort() {
 
 function request(port, pathname, options = {}) {
   return new Promise((resolve, reject) => {
-    const body = options.body === undefined ? undefined : JSON.stringify(options.body)
+    const body = options.rawBody === undefined
+      ? options.body === undefined ? undefined : Buffer.from(JSON.stringify(options.body))
+      : Buffer.from(options.rawBody)
+    const jsonBody = options.rawBody === undefined && options.body !== undefined
     const req = https.request({
       hostname: '127.0.0.1',
       port,
@@ -90,10 +99,10 @@ function request(port, pathname, options = {}) {
         ...(bearerToken && options.auth !== false
           ? { Authorization: `Bearer ${bearerToken}` }
           : {}),
-        ...(body
+        ...(body !== undefined
           ? {
-              'Content-Type': 'application/json',
-              'Content-Length': Buffer.byteLength(body),
+              ...(jsonBody ? { 'Content-Type': 'application/json' } : {}),
+              'Content-Length': body.byteLength,
             }
           : {}),
         ...(options.headers ?? {}),
@@ -101,16 +110,44 @@ function request(port, pathname, options = {}) {
     }, (response) => {
       const chunks = []
       response.on('data', (chunk) => chunks.push(Buffer.from(chunk)))
-      response.on('end', () => resolve({
-        status: response.statusCode ?? 0,
-        headers: response.headers,
-        text: Buffer.concat(chunks).toString('utf8'),
-      }))
+      response.on('end', () => {
+        const buffer = Buffer.concat(chunks)
+        resolve({
+          status: response.statusCode ?? 0,
+          headers: response.headers,
+          buffer,
+          text: buffer.toString('utf8'),
+        })
+      })
     })
     req.once('error', reject)
-    if (body) req.write(body)
+    if (body !== undefined) req.write(body)
     req.end()
   })
+}
+
+function createMultipartImageBody(image, filename = 'docker-vision.png') {
+  const boundary = `----chatbot-docker-${randomBytes(12).toString('hex')}`
+  const body = Buffer.concat([
+    Buffer.from([
+      `--${boundary}`,
+      `Content-Disposition: form-data; name="image"; filename="${filename}"`,
+      'Content-Type: image/png',
+      '',
+      '',
+    ].join('\r\n')),
+    image,
+    Buffer.from([
+      '',
+      `--${boundary}`,
+      'Content-Disposition: form-data; name="detail"',
+      '',
+      'low',
+      `--${boundary}--`,
+      '',
+    ].join('\r\n')),
+  ])
+  return { body, contentType: `multipart/form-data; boundary=${boundary}` }
 }
 
 async function normalizeDockerDesktopBindSource(source) {
@@ -146,6 +183,10 @@ async function main() {
   const opensslConfigPath = path.join(tempDir, 'openssl.cnf')
   const backupDir = path.join(tempDir, 'backup')
   const port = await findAvailablePort()
+  let providerPort = await findAvailablePort()
+  while (providerPort === port) {
+    providerPort = await findAvailablePort()
+  }
   await mkdir(dockerConfigDir)
   await writeFile(path.join(dockerConfigDir, 'config.json'), JSON.stringify({
     auths: {},
@@ -181,16 +222,20 @@ async function main() {
   let conversationId = ''
   let sourceVolume = ''
   let runtimeImageSizeBytes = 0
+  let mockProvider
+  let providerCallCount = 0
+  const providerRequestBodies = []
   const restoredVolume = `${PROJECT_NAME}-restored`
   const rejectedVolume = `${PROJECT_NAME}-rejected`
   const authUsername = 'docker-smoke-user'
   const authPassword = `docker-smoke-password-${process.pid}`
   const authPasswordHash = await hashPassword(authPassword)
   let refreshCookie = ''
+  const imageSha256 = createHash('sha256').update(PNG_1X1).digest('hex')
 
   await writeFile(envFile, [
     'LLM_PROVIDER=deepseek',
-    'DEEPSEEK_ENDPOINT=https://mock.invalid/chat/completions',
+    `DEEPSEEK_ENDPOINT=http://host.docker.internal:${providerPort}/chat/completions`,
     'DEEPSEEK_MODEL=deepseek-v4-flash',
     'DEEPSEEK_API_KEY=docker-smoke-test-key',
     'LLM_DISABLED_MODELS=deepseek-v4-pro,gpt-5.6-sol',
@@ -230,6 +275,31 @@ async function main() {
     '-config',
     opensslConfigPath,
   ])
+
+  mockProvider = http.createServer((req, res) => {
+    const chunks = []
+    req.on('data', (chunk) => chunks.push(Buffer.from(chunk)))
+    req.on('end', () => {
+      try {
+        const body = JSON.parse(Buffer.concat(chunks).toString('utf8'))
+        providerCallCount += 1
+        providerRequestBodies.push(body)
+        res.writeHead(200, { 'Content-Type': 'text/event-stream' })
+        res.end([
+          'data: {"choices":[{"delta":{"content":"Docker 图片回答"}}]}\n\n',
+          'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n',
+          'data: [DONE]\n\n',
+        ].join(''))
+      } catch (error) {
+        res.writeHead(400, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: { message: error instanceof Error ? error.message : 'bad request' } }))
+      }
+    })
+  })
+  await new Promise((resolve, reject) => {
+    mockProvider.once('error', reject)
+    mockProvider.listen(providerPort, '0.0.0.0', resolve)
+  })
 
   try {
     const defaultComposeEnv = { ...composeEnv }
@@ -338,29 +408,38 @@ async function main() {
     assert.equal(runtimePayload.runtime.storageBackend, 'sqlite')
 
     const health = await request(port, '/api/health')
+    const readiness = await request(port, '/api/health/ready')
+    const liveness = await request(port, '/api/health/live')
     assert.equal(health.status, 200)
+    assert.equal(readiness.status, 200)
     assert.deepEqual(JSON.parse(health.text), {
       status: 'ok',
       checks: { configuration: 'ok', storage: 'ok' },
     })
+    assert.deepEqual(JSON.parse(readiness.text), JSON.parse(health.text))
+    assert.equal(liveness.status, 200)
+    assert.deepEqual(JSON.parse(liveness.text), { status: 'ok' })
 
     await run('docker', ['exec', '--user', 'root', containerId, 'chmod', '0555', '/app/data/sqlite'])
     await run('docker', [
       'exec', '--user', 'root', containerId,
       'chmod', '0444', '/app/data/sqlite/conversations.sqlite3',
     ])
-    const unwritableHealth = await request(port, '/api/health')
+    const unwritableHealth = await request(port, '/api/health/ready')
+    const unwritableLiveness = await request(port, '/api/health/live')
     assert.equal(unwritableHealth.status, 503)
     assert.deepEqual(JSON.parse(unwritableHealth.text), {
       status: 'unhealthy',
       checks: { configuration: 'ok', storage: 'error' },
     })
+    assert.equal(unwritableLiveness.status, 200)
+    assert.deepEqual(JSON.parse(unwritableLiveness.text), { status: 'ok' })
     await run('docker', [
       'exec', '--user', 'root', containerId,
       'chmod', '0644', '/app/data/sqlite/conversations.sqlite3',
     ])
     await run('docker', ['exec', '--user', 'root', containerId, 'chmod', '0755', '/app/data/sqlite'])
-    const recoveredHealth = await request(port, '/api/health')
+    const recoveredHealth = await request(port, '/api/health/ready')
     assert.equal(recoveredHealth.status, 200)
 
     const missingApi = await request(port, '/api/not-a-route', { accept: 'text/html' })
@@ -397,6 +476,70 @@ async function main() {
     assert.equal(modelOptionsUpdate.status, 200)
     assert.deepEqual(JSON.parse(modelOptionsUpdate.text).conversation.modelOptions, persistedModelOptions)
     assert.equal(JSON.parse(modelOptionsUpdate.text).conversation.updatedAt, createdConversation.updatedAt)
+
+    const visionCreated = await request(port, '/api/conversations', {
+      method: 'POST',
+      body: { title: `Docker vision recovery ${Date.now()}` },
+    })
+    assert.equal(visionCreated.status, 201)
+    const visionConversationId = JSON.parse(visionCreated.text).conversation.id
+    const visionModelOptions = {
+      provider: 'deepseek',
+      model: 'deepseek-v4-flash-vision-exp',
+      reasoningEnabled: false,
+      reasoningEffort: 'max',
+    }
+    const visionOptionsUpdate = await request(
+      port,
+      `/api/conversations/${visionConversationId}/model-options`,
+      { method: 'PATCH', body: { options: visionModelOptions } },
+    )
+    assert.equal(visionOptionsUpdate.status, 200)
+    const multipart = createMultipartImageBody(PNG_1X1)
+    const uploaded = await request(port, `/api/conversations/${visionConversationId}/attachments`, {
+      method: 'POST',
+      rawBody: multipart.body,
+      headers: { 'Content-Type': multipart.contentType },
+    })
+    assert.equal(uploaded.status, 201, uploaded.text)
+    const attachment = JSON.parse(uploaded.text).attachment
+    assert.equal(attachment.byteSize, PNG_1X1.length)
+    assert.equal(attachment.mediaType, 'image/png')
+    assert.deepEqual({ width: attachment.width, height: attachment.height }, { width: 1, height: 1 })
+    await run('docker', [
+      'exec', containerId, 'sh', '-lc',
+      `test -f /app/data/attachments/${attachment.id}.data && test -f /app/data/attachments/${attachment.id}.json`,
+    ])
+    const attachmentBeforeRestart = await request(
+      port,
+      `/api/conversations/${visionConversationId}/attachments/${attachment.id}`,
+    )
+    assert.equal(attachmentBeforeRestart.status, 200)
+    assert.equal(createHash('sha256').update(attachmentBeforeRestart.buffer).digest('hex'), imageSha256)
+
+    const visionRequestBody = {
+      question: '描述这张 Docker 测试图片',
+      requestId: `request_docker_vision_${Date.now()}`,
+      attachmentIds: [attachment.id],
+      options: visionModelOptions,
+    }
+    const visionAnswer = await request(
+      port,
+      `/api/conversations/${visionConversationId}/ask`,
+      { method: 'POST', body: visionRequestBody },
+    )
+    assert.equal(visionAnswer.status, 200, visionAnswer.text)
+    assert.match(visionAnswer.text, /"type":"delta"/)
+    assert.match(visionAnswer.text, /"type":"done"/)
+    assert.equal(providerCallCount, 1)
+    assert.match(JSON.stringify(providerRequestBodies.at(-1)), /data:image\/png;base64,/)
+    const visionDetailBeforeRestart = JSON.parse((await request(
+      port,
+      `/api/conversations/${visionConversationId}`,
+    )).text).conversation
+    assert.equal(visionDetailBeforeRestart.messages.length, 2)
+    assert.equal(visionDetailBeforeRestart.messages[0].attachments[0].id, attachment.id)
+    assert.equal(visionDetailBeforeRestart.messages[1].content, 'Docker 图片回答')
 
     const semanticConversationId = `conv_docker_backup_${Date.now()}`
     const semanticBackup = {
@@ -488,6 +631,27 @@ async function main() {
     assert.equal(persisted.status, 200)
     assert.equal(JSON.parse(persisted.text).conversation.id, conversationId)
     assert.deepEqual(JSON.parse(persisted.text).conversation.modelOptions, persistedModelOptions)
+    const attachmentAfterRestart = await request(
+      port,
+      `/api/conversations/${visionConversationId}/attachments/${attachment.id}`,
+    )
+    assert.equal(attachmentAfterRestart.status, 200)
+    assert.equal(createHash('sha256').update(attachmentAfterRestart.buffer).digest('hex'), imageSha256)
+    const providerCallsBeforeReplay = providerCallCount
+    const replayAfterRestart = await request(
+      port,
+      `/api/conversations/${visionConversationId}/ask`,
+      { method: 'POST', body: visionRequestBody },
+    )
+    assert.equal(replayAfterRestart.status, 200)
+    assert.equal(replayAfterRestart.text.trim(), '{"type":"done"}')
+    assert.equal(providerCallCount, providerCallsBeforeReplay)
+    const replayStatus = JSON.parse((await request(
+      port,
+      `/api/requests/${visionRequestBody.requestId}`,
+    )).text).request
+    assert.equal(replayStatus.status, 'completed')
+    assert.equal(replayStatus.messageCount, 2)
 
     await compose('stop', '--timeout', '15', 'chatbot')
     const exitCode = (await run('docker', [
@@ -517,6 +681,15 @@ async function main() {
     assert.match(manifest.data.treeSha256, /^[a-f0-9]{64}$/)
     assert(manifest.data.entries.some((entry) => entry.path === 'sqlite/conversations.sqlite3'))
     assert(manifest.data.entries.some((entry) => entry.path === 'auth-sessions.sqlite3'))
+    const attachmentDataEntry = manifest.data.entries.find(
+      (entry) => entry.path === `attachments/${attachment.id}.data`,
+    )
+    const attachmentRecordEntry = manifest.data.entries.find(
+      (entry) => entry.path === `attachments/${attachment.id}.json`,
+    )
+    assert.equal(attachmentDataEntry?.size, PNG_1X1.length)
+    assert.equal(attachmentDataEntry?.sha256, imageSha256)
+    assert.match(attachmentRecordEntry?.sha256 ?? '', /^[a-f0-9]{64}$/)
 
     const rejectedManifestPath = path.join(backupDir, 'rejected.manifest.json')
     await writeFile(rejectedManifestPath, JSON.stringify({
@@ -581,11 +754,66 @@ async function main() {
     assert.deepEqual(afterList, beforeList)
     assert.deepEqual(afterDetails, beforeDetails)
 
+    const attachmentAfterRestore = await request(
+      port,
+      `/api/conversations/${visionConversationId}/attachments/${attachment.id}`,
+    )
+    assert.equal(attachmentAfterRestore.status, 200)
+    assert.equal(attachmentAfterRestore.headers['content-type'], 'image/png')
+    assert.equal(attachmentAfterRestore.buffer.length, PNG_1X1.length)
+    assert.equal(createHash('sha256').update(attachmentAfterRestore.buffer).digest('hex'), imageSha256)
+
+    const dockerUiDebugPort = await findAvailablePort()
+    const dockerUi = await run('node', ['tests/cdp/docker-ui.mjs'], {
+      env: {
+        ...process.env,
+        APP_URL: `https://127.0.0.1:${port}/`,
+        DEBUG_PORT: String(dockerUiDebugPort),
+        CDP_SCREENSHOTS: '0',
+        DOCKER_UI_USERNAME: authUsername,
+        DOCKER_UI_PASSWORD: authPassword,
+        DOCKER_UI_EXPECT_CONVERSATION_TITLE: visionDetailBeforeRestart.title,
+        DOCKER_UI_EXPECT_ATTACHMENT_FILENAME: attachment.filename,
+      },
+      timeoutMs: TIMEOUT_MS,
+    })
+    assert.match(dockerUi.stdout, /"attachmentLoaded": true/)
+
+    const providerCallsBeforeHistoricalContinuation = providerCallCount
+    const historicalContinuation = await request(
+      port,
+      `/api/conversations/${visionConversationId}/ask`,
+      {
+        method: 'POST',
+        body: {
+          question: '继续根据历史图片回答',
+          requestId: `request_docker_vision_history_${Date.now()}`,
+          options: visionModelOptions,
+        },
+      },
+    )
+    assert.equal(historicalContinuation.status, 200, historicalContinuation.text)
+    assert.match(historicalContinuation.text, /"type":"done"/)
+    assert.equal(providerCallCount, providerCallsBeforeHistoricalContinuation + 1)
+    assert.match(JSON.stringify(providerRequestBodies.at(-1)), /data:image\/png;base64,/)
+
     const sourceInspect = await run('docker', ['volume', 'inspect', sourceVolume], {
       env: composeEnv,
       allowFailure: true,
     })
     assert.equal(sourceInspect.code, 0)
+    const sourceManifestAfterRestore = JSON.parse((await run('docker', [
+      'run',
+      '--rm',
+      '--entrypoint',
+      'node',
+      '--mount',
+      `type=volume,source=${sourceVolume},target=/data,readonly`,
+      'chatbot:local',
+      '/app/docker/volume-manifest.mjs',
+      '/data',
+    ])).stdout)
+    assert.equal(sourceManifestAfterRestore.treeSha256, manifest.data.treeSha256)
 
     const logout = await request(port, '/api/auth/logout', {
       auth: false,
@@ -613,20 +841,23 @@ async function main() {
         'application process runs as non-root node user',
         'React build served over HTTPS',
         'authentication fail-fast, login, secure refresh cookie, and API protection valid',
-        'runtime config, storage-aware health, and JSON 404 valid',
-        'unwritable storage reports 503 and recovers',
-        'SQLite conversation and model options persisted across restart',
+        'runtime config, compatibility health, liveness, readiness, and JSON 404 valid',
+        'unwritable storage reports readiness 503 while liveness remains 200, then recovers',
+        'SQLite conversation, model options, image attachment, and request records persist across restart',
+        'completed requestId replay after restart does not call the Provider twice',
         'authentication session persists across restart and restored volume, then logout revokes access',
         'SIGTERM shutdown exited with code 0',
         'backup refuses a volume mounted by a running container',
-        'stopped-volume backup includes checksums and SQLite data directory',
+        'stopped-volume backup includes checksums, SQLite data, and attachment data/sidecar files',
         'checksum mismatch and existing restore target fail safely',
-        'new-volume restore preserves conversations, model options, and R12 message metadata exactly',
-        'source volume remains intact after restored-volume switch',
+        'new-volume restore preserves conversations, model options, R12 metadata, and attachment SHA-256 exactly',
+        'restored protected thumbnail and full preview load in a real browser',
+        'historical image continuation works from the restored volume',
+        'source volume tree hash remains unchanged after restored-volume switch',
       ],
     }, null, 2))
   } finally {
-    await run('docker', ['compose', '-p', PROJECT_NAME, 'down', '-v', '--remove-orphans'], {
+    await run('docker', ['compose', '-p', PROJECT_NAME, 'down', '--remove-orphans'], {
       env: composeEnv,
       allowFailure: true,
       timeoutMs: CLEANUP_TIMEOUT_MS,
@@ -638,6 +869,9 @@ async function main() {
         allowFailure: true,
         timeoutMs: CLEANUP_TIMEOUT_MS,
       }).catch(() => undefined)
+    }
+    if (mockProvider) {
+      await new Promise((resolve) => mockProvider.close(() => resolve()))
     }
     await rm(tempDir, { recursive: true, force: true })
   }

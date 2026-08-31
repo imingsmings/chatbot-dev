@@ -5,10 +5,11 @@
 ## 当前结论
 
 - P0-P7、R8.0-R8.9、R9-R23 已完成；R23 的非 Docker 功能与验收门禁已全部通过。
-- 最近落地阶段是 R23：Provider-aware 统一上下文预算、可解释裁剪、预检和上下文预览。
+- 最近完成的编号阶段是 R23：Provider-aware 统一上下文预算、可解释裁剪、预检和上下文预览；其后的三个 P1 工程优化不单独占用阶段编号。
 - R21 静态、单元/API、构建、18/18 全量 Mock 与全量真实 Provider 已通过；Docker 实机新 Volume 恢复门禁按用户要求暂缓。
 - R23 静态检查、168 项服务端单测、114 项 React 单测、无重试 18/18 全量 Mock 和无重试全量真实 Provider 已通过；Docker 按用户要求不验证。
-- 详细历史范围和交付证据见 [P0-R21 历史阶段记录](roadmap-history.md)、[R22 验收记录](r22-request-consistency-atomic-import-2026-08-29.md)与 [R23 验收记录](r23-provider-aware-context-budget-2026-08-29.md)。
+- 2026-08-31 完成健康检查拆分、Provider 非 2xx 安全诊断和超时取消后立即重试协调；静态、172 项服务端单测、115 项 React 单测、18/18 全量 Mock 及全量真实 Provider 通过，Docker 运行验证按用户要求暂缓。
+- 详细范围和交付证据见 [P0-R21 历史阶段记录](roadmap-history.md)、[R22 验收记录](r22-request-consistency-atomic-import-2026-08-29.md)、[R23 验收记录](r23-provider-aware-context-budget-2026-08-29.md)与 [P1 工程可靠性优化验收记录](engineering-hardening-2026-08-31.md)。
 
 ## 当前基线
 
@@ -39,7 +40,7 @@
 
 - production 默认启用单用户认证；除健康检查与认证入口外，API 需要短期 Bearer Access Token。
 - Access Token 只保存在 React 内存；Refresh Token 只存在于受限 Cookie，并由独立 SQLite Session Store 执行轮换、重放检测和撤销。
-- 单 Node Docker HTTPS 部署、只读 TLS 挂载、非 root 应用进程、持久化 `/app/data`、健康检查和完整 Volume 备份恢复框架；R21 附件的新 Volume 实机恢复仍待补证。
+- 单 Node Docker HTTPS 部署、只读 TLS 挂载、非 root 应用进程、持久化 `/app/data`、轻量 liveness、深度 readiness 和完整 Volume 备份恢复框架；R21 附件的新 Volume 实机恢复仍待补证。
 - Node/Vitest/CDP 覆盖聊天、存储、上下文、工具、Markdown、UI、认证、Docker 和真实 Provider 隔离门禁。
 
 ## 阶段矩阵
@@ -79,14 +80,14 @@
 
 ### R21 遗留验收
 
-R21 不新增功能，只补齐部署证据：
+R21 不新增功能，只补齐部署证据。当前 Docker smoke 脚本已实现以下场景，但本轮未执行容器门禁：
 
 - Docker smoke 创建带图片消息的会话，确认附件二进制和 sidecar 位于 `/app/data/attachments`。
 - 停止容器后执行整卷备份，恢复到从未存在过的新 Volume，再验证会话详情、缩略图、原图读取和携带历史图片继续提问。
 - 比较恢复前后的附件大小与 SHA-256，并确认源 Volume 未被修改。
 - 失败时只删除本次测试创建的新恢复卷和测试数据，不使用 `docker compose down -v`。
 
-该门禁仍需要用户明确授权 Docker 实机测试；在完成前不得把“附件已通过新 Volume 恢复”写成既成事实。
+该门禁按用户最新要求暂缓；在实际执行完成前不得把“附件已通过新 Volume 恢复”写成既成事实。
 
 ## R22 请求一致性与原子导入
 
@@ -137,19 +138,19 @@ R21 不新增功能，只补齐部署证据：
 
 这些项目不单独占用 Roadmap 阶段。修改相关模块时按风险择机处理，并补对应的聚焦回归；不得为清理代码而改变既有用户行为。
 
-| 优先级 | 优化项 | 完成边界 |
-| --- | --- | --- |
-| P1 | 健康检查拆分 | Docker 高频调用轻量 liveness；实际配置/存储写探针改为低频 readiness 或受控 deep health，且继续不泄漏路径和凭据 |
-| P1 | Provider 错误诊断 | 限长、脱敏解析非 2xx 错误，增加内部 correlation id；不记录 API key、完整 Prompt、Cookie 或 Token |
-| P1 | 超时取消后的立即重试 | 取消未完成时保持当前会话发送互斥，避免短暂 409；补客户端、网络和服务端占用释放断言 |
-| P2 | NDJSON 背压 | 慢客户端下尊重 `res.write()`/`drain`，同时验证取消、连接关闭和后续请求恢复 |
-| P2 | 附件孤儿清理 | 增加扫描/删除数量和耗时的非敏感诊断；只有真实数据证明需要时才改为周期或索引清理 |
-| P2 | 模型 fallback 单一事实源 | 继续以服务端 runtime catalog 为准，收窄客户端静态 fallback，避免能力和禁用状态漂移 |
-| P3 | 大文件渐进拆分 | 仅在修改对应功能时拆分 import、chat stream、conversation controller、attachment 和 LLM orchestration；不做一次性全仓重构 |
+| 优先级 | 优化项 | 状态 | 完成边界 |
+| --- | --- | --- | --- |
+| P1 | 健康检查拆分 | 已完成；Docker 运行未复验 | Docker 高频调用轻量 liveness；实际配置/存储写探针改为 readiness，且继续不泄漏路径和凭据 |
+| P1 | Provider 错误诊断 | 已完成 | 限长、脱敏解析非 2xx 错误，增加内部 correlation id；不记录 API key、完整 Prompt、Cookie 或 Token |
+| P1 | 超时取消后的立即重试 | 已完成 | 取消未完成时保持当前会话发送互斥，避免短暂 409；客户端、网络和服务端占用释放断言已覆盖 |
+| P2 | NDJSON 背压 | 待处理 | 慢客户端下尊重 `res.write()`/`drain`，同时验证取消、连接关闭和后续请求恢复 |
+| P2 | 附件孤儿清理 | 待处理 | 增加扫描/删除数量和耗时的非敏感诊断；只有真实数据证明需要时才改为周期或索引清理 |
+| P2 | 模型 fallback 单一事实源 | 待处理 | 继续以服务端 runtime catalog 为准，收窄客户端静态 fallback，避免能力和禁用状态漂移 |
+| P3 | 大文件渐进拆分 | 按需 | 仅在修改对应功能时拆分 import、chat stream、conversation controller、attachment 和 LLM orchestration；不做一次性全仓重构 |
 
 ## 其他功能候选
 
-R21 已完成图片附件与多模态理解。以下功能继续保留为后续候选，尚未立项或分配阶段编号；其优先级低于 R22。自定义 Prompt 模板已在 R18 完成，不再列入候选。
+R21 已完成图片附件与多模态理解。以下功能继续保留为后续候选，尚未立项或分配阶段编号；其优先级低于当前 P2 可靠性优化。自定义 Prompt 模板已在 R18 完成，不再列入候选。
 
 ### 文件附件与受限文本提取
 
@@ -195,3 +196,4 @@ R21 已完成图片附件与多模态理解。以下功能继续保留为后续�
 - [R20 JWT 单用户认证方案与实施说明](r20-jwt-authentication-plan.md)
 - [R21 图片附件与多模态理解方案](r21-multimodal-vision-plan.md)
 - [R21 图片附件与 Vision 验收记录](r21-multimodal-vision-2026-08-24.md)
+- [P1 工程可靠性优化验收记录](engineering-hardening-2026-08-31.md)

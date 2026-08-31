@@ -179,19 +179,23 @@ pnpm run docker:down
 pnpm run test:docker
 ```
 
+2026-08-31 已扩展以下自动化范围，但按用户要求未执行 Docker Desktop、镜像、容器、页面或 Volume 验证。以下列表描述脚本应证明的契约，不是该日期的运行结果。
+
 它使用临时 env、随机宿主机端口、独立 Compose project 和独立 SQLite volume，验证：
 
 - 默认和覆盖后的证书源路径均可解析，镜像可构建，容器进入 healthy；
 - 应用主进程以非 root `node` 用户运行；
 - React 页面通过 Node HTTPS 返回；
 - 缺失认证 secret 时 fail-fast；未登录 API 返回 401，登录后 runtime config 正确，Refresh Cookie 属性安全；
-- `/api/health` 正常为 200、数据目录不可写为 503，认证后未知 API 返回 JSON 404；
-- 测试会话跨容器 restart 持久化；
+- `/api/health/live` 为轻量 200；`/api/health/ready` 与兼容 `/api/health` 正常为 200、数据目录不可写为 503，认证后未知 API 返回 JSON 404；
+- 带图片的测试会话跨容器 restart 持久化；相同 requestId 重放只恢复原结果，不发生第二次 Provider 调用；
 - Refresh Session 跨 restart 与新卷恢复可用，logout 后既有 Access Token 被拒绝；
 - Docker stop 触发 SIGTERM，Node 在宽限期内以 0 退出；
 - 停止后的完整 volume 可生成 tar 和带 SHA-256 的 manifest；
 - 损坏校验或已存在目标卷会在覆盖前失败；
-- 恢复到新 volume 后，会话数量、消息、reasoning、summary、generation 和 tool trace 与恢复前完全一致；当前自动化尚未覆盖 R21 附件二进制、sidecar、缩略图和原图读取；
+- 备份 manifest 包含附件二进制和 sidecar 的大小与 SHA-256；恢复到新 volume 后，会话、reasoning、summary、generation、tool trace、附件字节和校验和与恢复前完全一致；
+- 经认证的 Docker UI 可读取恢复后的缩略图、受保护原图预览，并携带历史图片继续提问；
+- 恢复与 UI 验证完成后再次比较源 volume 数据树，确认源数据未被修改；
 - 备份 manifest 同时包含独立认证 Session SQLite；
 - `finally` 只删除测试 project、测试 volume、临时证书和临时 env。
 
@@ -220,7 +224,9 @@ localhost,127.0.0.1,host.docker.internal,*.local,192.168.0.0/16
 
 ## 健康检查
 
-Compose healthcheck 请求 `GET /api/health`。该接口同时检查：
+Compose healthcheck 请求 `GET /api/health/live`。该入口只返回进程是否仍可处理 HTTP 请求，不读取配置文件、不写会话 store，也不写认证 Session SQLite。
+
+发布、切换 Volume、备份恢复后和人工诊断使用 `GET /api/health/ready`；兼容入口 `GET /api/health` 与 readiness 等价。readiness 同时检查：
 
 - 当前模型与存储运行配置可以通过启动级校验；
 - 当前存储实现可读取会话；
@@ -268,7 +274,8 @@ pnpm run docker:restore \
 ```bash
 export CHATBOT_DATA_VOLUME=chatbot-data-restored-20260812
 pnpm run docker:up:volume
-curl -sk https://127.0.0.1:7001/api/health
+curl -skf https://127.0.0.1:7001/api/health/live
+curl -skf https://127.0.0.1:7001/api/health/ready
 ```
 
 `compose.data-volume.yaml` 只把 `/app/data` 替换为指定 external volume。切换后继续启动或重建时必须保留同一个 `CHATBOT_DATA_VOLUME` 并使用 `docker:up:volume`；不要误用普通 `docker:up` 切回默认 volume。确认会话列表和重点会话内容后，仍建议保留原 volume 至少一个观察周期。

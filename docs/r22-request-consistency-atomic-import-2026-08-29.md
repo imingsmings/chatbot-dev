@@ -32,3 +32,10 @@
 - 新字段全部可选；关闭前端自动结果查询后，旧会话与原 ask/取消读取路径仍可工作。
 - SQLite 只增量添加可空 `requests` 列，不重写旧行；file 会话继续是可读 JSON。
 - 回滚应用版本前先备份 `/app/data`；不得通过清空数据库或 Docker Volume 回滚。
+
+## 2026-08-31 补充
+
+- 客户端取消改为复用单个 cancellation Promise；超时仍立即 abort 浏览器 fetch，但当前会话在 cancel endpoint 确认 ask `finally` 完成前保持发送互斥。
+- 服务端 API 回归验证 cancel 返回后会话占用已释放，使用新 requestId 立即重试不会命中短暂 409；CDP 同时断言取消确认期间按钮禁用和确认后的恢复发送。
+- 本轮最终门禁为 server 172/172、client 115/115、无重试 18/18 全量 Mock 和全量真实文本/Vision 通过。Docker requestId 跨重启脚本已补充但按用户要求未运行，因此原 Docker 暂缓边界保持不变。
+- 完整证据见 [P1 工程可靠性优化验收记录](engineering-hardening-2026-08-31.md)。
