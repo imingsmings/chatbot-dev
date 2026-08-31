@@ -37,6 +37,7 @@ import { CHAT_CONTENT_COLUMN_CLASS } from '#lib/chatLayout'
 import { cn } from '#lib/utils'
 import type { ModelRequestOptions, RuntimeInfo } from '#types/chat'
 import type { ComposerImageAttachment } from '#hooks/useImageAttachments'
+import { getImageModelSupportMessage } from '#utils/modelOptions'
 
 export type ChatComposerHandle = {
   focus: () => void
@@ -188,7 +189,7 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
               ))}
               {!props.modelSupportsImages ? (
                 <p className="w-full text-xs text-[var(--danger)]">
-                  当前模型不支持图片，请切换到 DeepSeek V4 Flash Vision Exp。
+                  {getImageModelSupportMessage(props.runtime)}
                 </p>
               ) : null}
             </div>

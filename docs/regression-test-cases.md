@@ -32,7 +32,7 @@
 | useChatStream | delta/reasoning/tool/done；显式新分支 ID；取消完成握手；取消未完成时保持发送锁且确认后立即重试；成功/停止后详情回拉；丢失 done 后请求终态查询与持久化答案恢复；首包/流空闲超时；协议错误后恢复；卸载清理 |
 | message branching | 多行编辑、取消/未修改、最近用户消息定位、分支创建失败恢复 |
 | stream protocol | v2 六类事件；拆包；未知/损坏 JSON；负耗时；空 tool/error 字段 |
-| model catalog | provider/model 能力；disabled；空/损坏运行目录 fallback |
+| model catalog | 服务端下发的未知模型 ID/标签/能力可直接使用；disabled 安全回退；空/损坏目录不合成客户端模型且 fail-closed |
 | Markdown | HTML/图片禁用；外链安全；代码语言与净化；stream/complete 模式 |
 | UI components | 模型设置能力约束、摘要可用性、有效消息操作、对话框/主题等生命周期 |
 | custom prompt templates | Unicode 变量、schema v1、localStorage 恢复、CRUD、损坏数据、非覆盖导入和导出 |
@@ -54,7 +54,7 @@
 | test process lifecycle | child exit 等待、脚本超时、进程组终止与临时目录清理 |
 | model options | 完整快照、范围/能力/禁用模型、运行时默认、旧会话回填、更新不改排序、file/SQLite 重开、SQLite 幂等增列、损坏字段安全降级 |
 | model-options API | 独立 PATCH 400/404/409/200；与 ask/摘要互斥；Provider 失败前仍完成首次绑定；上下文预览只读 |
-| provider config | OpenAI URL normalization、非 HTTP/HTTPS 拒绝、凭据不公开 |
+| provider config | OpenAI URL normalization、非 HTTP/HTTPS 拒绝、默认模型来自服务端 catalog、凭据不公开 |
 | provider diagnostics | 非 2xx 结构化字段提取、4 KiB 读取上限、reader 取消、凭据/查询参数脱敏、安全 request id、correlation id 和稳定客户端错误 |
 | adapters | DeepSeek `[DONE]` / OpenAI `response.completed` 完成门禁、partial/reasoning/tool EOF、reasoning summary、tool arguments 聚合、call_id continuation |
 | tools | 安全计算器、IANA 时间、天气本地日期、网络/HTTP 失败隔离 |
@@ -80,7 +80,7 @@
 | Export | `pnpm run test:cdp:conversation-export` | 下载、文件名、JSON 备份 |
 | Roadmap | `pnpm run test:cdp:roadmap` | 摘要、导入、模型参数、模板、工具状态、长 Markdown |
 | Sidebar | `pnpm run test:cdp:sidebar-state` | 操作等待态、连点互斥和失败恢复 |
-| Model options | `pnpm run test:cdp:model-options-persistence` | A/B/刷新恢复、保存等待态、单 PATCH、失败回滚/重试、实际 ask 参数和失效模型回退 |
+| Model options | `pnpm run test:cdp:model-options-persistence` | A/B/刷新恢复、保存等待态、单 PATCH、失败回滚/重试、实际 ask 参数、服务端独有模型/能力、禁用状态和空目录 fail-closed |
 | Prompt templates | `pnpm run test:cdp:prompt-templates` | 新增、编辑、二次确认删除、刷新持久化、变量填充、导入导出、损坏文件和 390px 布局 |
 | Image attachments | `pnpm run test:cdp:image-attachments` | 上传完成/失败、图片消息、Blob 预览、刷新、分支复制、文本模型阻止、停止持久化和移动端元素边界 |
 | Authentication | `pnpm run test:cdp:authentication` | 未登录不预载、限速提示、内存 Token、401 单次刷新重放和 logout |

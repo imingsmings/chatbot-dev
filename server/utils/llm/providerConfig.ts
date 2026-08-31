@@ -1,10 +1,5 @@
-import { isLlmProviderId } from './modelCatalog.ts'
+import { getCatalogDefaultModelId, isLlmProviderId } from './modelCatalog.ts'
 import type { LlmProviderConfig, LlmProviderId } from '../../types/llm.ts'
-
-const DEFAULT_MODELS: Record<LlmProviderId, string> = {
-  deepseek: 'deepseek-v4-flash',
-  openai: 'gpt-5.6-terra'
-}
 
 function configuredValue(value: string | undefined): string | undefined {
   const trimmed = value?.trim()
@@ -71,8 +66,8 @@ function readProviderModel(provider: LlmProviderId): string {
     ? configuredValue(process.env.LLM_MODEL)
     : undefined
   const model = provider === 'openai'
-    ? configuredValue(process.env.OPENAI_MODEL) ?? legacyModel ?? DEFAULT_MODELS.openai
-    : configuredValue(process.env.DEEPSEEK_MODEL) ?? legacyModel ?? DEFAULT_MODELS.deepseek
+    ? configuredValue(process.env.OPENAI_MODEL) ?? legacyModel ?? getCatalogDefaultModelId('openai')
+    : configuredValue(process.env.DEEPSEEK_MODEL) ?? legacyModel ?? getCatalogDefaultModelId('deepseek')
 
   return model
 }

@@ -194,6 +194,10 @@ describe('React chat app shell', () => {
     await waitFor(() => {
       expect(screen.getByRole('heading', { name: '新的聊天' })).toBeInTheDocument()
     })
+    expect(screen.getByRole('button', { name: 'Model catalog unavailable' })).toBeDisabled()
+    expect(screen.queryByText('DeepSeek V4 Flash')).not.toBeInTheDocument()
+    await waitFor(() => expect(screen.getByPlaceholderText('Ask AI')).toBeEnabled())
+    expect(screen.getByRole('button', { name: '发送消息' })).toBeDisabled()
     const newChatButton = screen.getByRole('button', { name: '新建会话' })
     await waitFor(() => expect(newChatButton).toBeEnabled())
 

@@ -67,6 +67,23 @@ const deepSeekRuntime: RuntimeInfo = {
 }
 
 describe('ModelSettingsModal', () => {
+  it('keeps settings safe when the runtime catalog is unavailable', () => {
+    const onSave = vi.fn<(options: ModelRequestOptions) => void>()
+    render(
+      <ModelSettingsModal
+        onClose={vi.fn<() => void>()}
+        onSave={onSave}
+        open
+        options={{}}
+        runtime={null}
+      />,
+    )
+
+    expect(screen.getByRole('alert')).toHaveTextContent('Model catalog is unavailable')
+    expect(screen.getByRole('button', { name: 'Apply' })).toBeDisabled()
+    expect(onSave).not.toHaveBeenCalled()
+  })
+
   it('disables repeated apply while the conversation options are saving', () => {
     render(
       <ModelSettingsModal

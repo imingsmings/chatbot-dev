@@ -145,7 +145,7 @@ R21 不新增功能，只补齐部署证据。当前 Docker smoke 脚本已实�
 | P1 | 超时取消后的立即重试 | 已完成 | 取消未完成时保持当前会话发送互斥，避免短暂 409；客户端、网络和服务端占用释放断言已覆盖 |
 | P2 | NDJSON 背压 | 待处理 | 慢客户端下尊重 `res.write()`/`drain`，同时验证取消、连接关闭和后续请求恢复 |
 | P2 | 附件孤儿清理 | 待处理 | 增加扫描/删除数量和耗时的非敏感诊断；只有真实数据证明需要时才改为周期或索引清理 |
-| P2 | 模型 fallback 单一事实源 | 待处理 | 继续以服务端 runtime catalog 为准，收窄客户端静态 fallback，避免能力和禁用状态漂移 |
+| P2 | 模型 fallback 单一事实源 | 已完成 | 服务端 model catalog 同时声明模型、能力、默认值与禁用状态；React 不再内置模型/能力 fallback，目录缺失时 fail-closed 且保留会话浏览与草稿编辑 |
 | P3 | 大文件渐进拆分 | 按需 | 仅在修改对应功能时拆分 import、chat stream、conversation controller、attachment 和 LLM orchestration；不做一次性全仓重构 |
 
 ## 其他功能候选

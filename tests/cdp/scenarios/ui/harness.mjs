@@ -315,6 +315,15 @@ async function setMockFlags(client, flags) {
   await evaluate(client, `window.__setMockFlags(${JSON.stringify(flags)})`)
 }
 
+async function setRuntimeConfiguration(client, runtime) {
+  await evaluate(
+    client,
+    runtime == null
+      ? `sessionStorage.removeItem('__cdpMockRuntime')`
+      : `sessionStorage.setItem('__cdpMockRuntime', ${JSON.stringify(JSON.stringify(runtime))})`,
+  )
+}
+
 async function typeText(client, text) {
   await waitFor(client, `document.querySelector('.composer textarea') instanceof HTMLTextAreaElement`)
   await evaluate(
@@ -359,6 +368,7 @@ const mockScript = `
   const conversations = new Map();
   const requestResults = new Map();
   const STORAGE_KEY = '__cdpMockConversations';
+  const RUNTIME_KEY = '__cdpMockRuntime';
   const flags = {
     failNextCreate: false,
     failNextDetail: false,
@@ -529,6 +539,10 @@ const mockScript = `
     }
 
     if (pathname === '/runtime-config' && method === 'GET') {
+      const runtimeOverride = sessionStorage.getItem(RUNTIME_KEY);
+      if (runtimeOverride) {
+        return json({ runtime: JSON.parse(runtimeOverride) });
+      }
       return json({
         runtime: {
           profile: {
@@ -1104,6 +1118,7 @@ export {
   seedConversations,
   setMockFlags,
   setPlan,
+  setRuntimeConfiguration,
   submitPromptDialog,
   typeText,
   waitFor,

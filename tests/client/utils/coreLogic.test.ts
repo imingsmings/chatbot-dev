@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest'
 
 import {
-  DEEPSEEK_MODELS,
-  MAX_MODEL_TOKENS,
+  getImageModelSupportMessage,
   getInitialModelOptions,
   getModelDescriptor,
+  getRuntimeProviders,
   isModelOptionsUsable,
-  normalizeDeepSeekModelId,
+  modelSupportsImages,
   parseModelSettingsDraft,
   resolveConversationModelOptions,
   selectModelOptions,
@@ -105,13 +105,19 @@ describe('framework-neutral core logic', () => {
   })
 
   it('preserves model settings validation', () => {
+    const model = getModelDescriptor(runtime, {
+      provider: 'deepseek',
+      model: 'deepseek-v4-flash',
+    })
+    if (!model) throw new Error('Expected DeepSeek runtime model')
+
     expect(
       parseModelSettingsDraft({
         temperature: '0.3',
         maxTokens: '2048',
         reasoningEnabled: true,
         reasoningEffort: 'high',
-      }),
+      }, model),
     ).toEqual({
       temperature: 0.3,
       maxTokens: 2048,
@@ -125,26 +131,66 @@ describe('framework-neutral core logic', () => {
         maxTokens: '2048',
         reasoningEnabled: true,
         reasoningEffort: 'high',
-      }),
+      }, model),
     ).toThrow(/Temperature/)
     expect(() =>
       parseModelSettingsDraft({
         temperature: '0.3',
-        maxTokens: `${MAX_MODEL_TOKENS + 1}`,
+        maxTokens: `${model.capabilities.maxOutputTokens + 1}`,
         reasoningEnabled: true,
         reasoningEffort: 'high',
-      }),
+      }, model),
     ).toThrow(/Max Tokens/)
   })
 
-  it('exposes only the official DeepSeek V4 model ids', () => {
-    expect(DEEPSEEK_MODELS).toEqual([
-      { label: 'DeepSeek V4 Flash', value: 'deepseek-v4-flash' },
-      { label: 'DeepSeek V4 Pro', value: 'deepseek-v4-pro' },
-      { label: 'DeepSeek V4 Flash Vision Exp', value: 'deepseek-v4-flash-vision-exp' },
-    ])
-    expect(normalizeDeepSeekModelId('deepseek-v4-pro')).toBe('deepseek-v4-pro')
-    expect(normalizeDeepSeekModelId('deepseek-reasoner')).toBe('deepseek-v4-flash')
+  it('accepts server-only model ids, labels and capabilities from the runtime catalog', () => {
+    const dynamicRuntime: RuntimeInfo = {
+      ...runtime,
+      provider: 'deepseek',
+      model: 'deepseek-server-only',
+      providers: [{
+        id: 'deepseek',
+        label: 'Server DeepSeek',
+        configured: true,
+        endpointConfigured: true,
+        apiKeyConfigured: true,
+        defaultModel: 'deepseek-server-only',
+        models: [{
+          provider: 'deepseek',
+          id: 'deepseek-server-only',
+          label: 'Server Catalog Only',
+          capabilities: {
+            tools: false,
+            reasoning: true,
+            reasoningSummary: false,
+            reasoningEfforts: ['low', 'ultra'],
+            temperature: false,
+            maxOutputTokens: 777,
+            inputModalities: ['text', 'image'],
+          },
+        }],
+      }],
+      defaults: {
+        temperature: 0.7,
+        maxTokens: 700,
+        reasoningEnabled: true,
+        reasoningEffort: 'ultra',
+      },
+    }
+
+    expect(getInitialModelOptions(dynamicRuntime)).toEqual({
+      provider: 'deepseek',
+      model: 'deepseek-server-only',
+      temperature: undefined,
+      maxTokens: 700,
+      reasoningEnabled: true,
+      reasoningEffort: 'ultra',
+    })
+    expect(getModelDescriptor(dynamicRuntime, {})?.label).toBe('Server Catalog Only')
+    expect(modelSupportsImages(dynamicRuntime, { model: 'deepseek-server-only' })).toBe(true)
+    expect(getImageModelSupportMessage(dynamicRuntime)).toBe(
+      '当前模型不支持图片，请切换到 Server Catalog Only。',
+    )
   })
 
   it('uses runtime model capabilities for OpenAI defaults and provider switches', () => {
@@ -161,6 +207,7 @@ describe('framework-neutral core logic', () => {
       provider: 'openai',
       model: 'gpt-5.6-luna',
     })
+    if (!openai) throw new Error('Expected OpenAI runtime model')
     expect(selectModelOptions({
       provider: 'deepseek',
       model: 'deepseek-v4-flash',
@@ -187,7 +234,7 @@ describe('framework-neutral core logic', () => {
     expect(getModelDescriptor(runtime, {
       provider: 'openai',
       model: 'gpt-5.6-sol',
-    }).id).toBe('gpt-5.6-luna')
+    })?.id).toBe('gpt-5.6-luna')
   })
 
   it('restores valid conversation options and falls back from disabled or unavailable selections', () => {
@@ -223,7 +270,7 @@ describe('framework-neutral core logic', () => {
       model: 'gpt-5.6-luna',
       reasoningEnabled: true,
       reasoningEffort: 'high',
-    }).provider).toBe('deepseek')
+    })?.provider).toBe('deepseek')
     expect(isModelOptionsUsable(unavailableRuntime, {
       provider: 'deepseek',
       model: 'deepseek-v4-flash',
@@ -236,7 +283,19 @@ describe('framework-neutral core logic', () => {
     })).toBe(false)
   })
 
-  it('falls back to a usable catalog when runtime providers contain no models', () => {
+  it('keeps the active provider when its compatible custom default has no catalog capabilities', () => {
+    const customDefaultRuntime = structuredClone(runtime)
+    customDefaultRuntime.provider = 'deepseek'
+    customDefaultRuntime.model = 'private-compatible-model'
+    customDefaultRuntime.providers![0]!.defaultModel = 'private-compatible-model'
+
+    expect(getInitialModelOptions(customDefaultRuntime)).toMatchObject({
+      provider: 'deepseek',
+      model: 'deepseek-v4-flash',
+    })
+  })
+
+  it('does not synthesize a client catalog when runtime providers contain no models', () => {
     const malformedRuntime: RuntimeInfo = {
       ...runtime,
       provider: 'deepseek',
@@ -252,17 +311,19 @@ describe('framework-neutral core logic', () => {
       }],
     }
 
-    expect(getInitialModelOptions(malformedRuntime)).toMatchObject({
-      provider: 'deepseek',
-      model: 'deepseek-v4-flash',
-    })
-    expect(getModelDescriptor(malformedRuntime, {}).id).toBe('deepseek-v4-flash')
+    expect(getRuntimeProviders(malformedRuntime)).toEqual([])
+    expect(getInitialModelOptions(malformedRuntime)).toBeNull()
+    expect(getModelDescriptor(malformedRuntime, {})).toBeNull()
+    expect(isModelOptionsUsable(malformedRuntime, {})).toBe(false)
+    expect(getImageModelSupportMessage(malformedRuntime)).toBe(
+      '当前没有已配置且可用的图片模型。',
+    )
 
     const nullModelRuntime = {
       ...malformedRuntime,
       providers: [{ ...malformedRuntime.providers![0], models: [null] }],
     } as unknown as RuntimeInfo
-    expect(getModelDescriptor(nullModelRuntime, {}).id).toBe('deepseek-v4-flash')
+    expect(getModelDescriptor(nullModelRuntime, {})).toBeNull()
   })
 
   it('preserves the six prompt templates and repeated variable replacement', () => {

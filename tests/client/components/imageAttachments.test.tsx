@@ -109,7 +109,7 @@ describe('image attachment components', () => {
     expect(props.onAddFiles).toHaveBeenNthCalledWith(1, [selected])
     expect(props.onAddFiles).toHaveBeenNthCalledWith(2, [selected])
     expect(props.onAddFiles).toHaveBeenNthCalledWith(3, [selected])
-    expect(screen.getByText('当前模型不支持图片，请切换到 DeepSeek V4 Flash Vision Exp。')).toBeVisible()
+    expect(screen.getByText('当前没有已配置且可用的图片模型。')).toBeVisible()
     fireEvent.click(screen.getByLabelText('重试上传 preview.png'))
     fireEvent.click(screen.getByLabelText('移除图片 preview.png'))
     expect(props.onRetryAttachment).toHaveBeenCalledWith('upload-1')

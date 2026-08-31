@@ -15,7 +15,11 @@ import { useMessageBranching } from '#hooks/useMessageBranching'
 import { useImageAttachments } from '#hooks/useImageAttachments'
 import { useTheme } from '#hooks/useTheme'
 import type { RuntimeInfo } from '#types/chat'
-import { isModelOptionsUsable, modelSupportsImages } from '#utils/modelOptions'
+import {
+  getImageModelSupportMessage,
+  isModelOptionsUsable,
+  modelSupportsImages,
+} from '#utils/modelOptions'
 
 export type ActiveTopMenu =
   | { kind: 'app' }
@@ -333,12 +337,16 @@ export function useChatAppController() {
 
   const handleSubmit = useCallback(async () => {
     if (isStopping || isConversationTransitioning || isModelOptionsSaving) return
+    if (!modelOptionsAvailable) {
+      await showError('模型目录不可用，请刷新后重试')
+      return
+    }
     if (hasBlockingUpload) {
       await showError('请等待图片上传完成，或移除上传失败的图片')
       return
     }
     if (readyAttachments.length && !currentModelSupportsImages) {
-      await showError('当前模型不支持图片，请切换到 DeepSeek V4 Flash Vision Exp')
+      await showError(getImageModelSupportMessage(runtimeInfo))
       return
     }
     await submitQuestion(input.trim(), {
@@ -353,7 +361,9 @@ export function useChatAppController() {
     isConversationTransitioning,
     isModelOptionsSaving,
     isStopping,
+    modelOptionsAvailable,
     readyAttachments,
+    runtimeInfo,
     showError,
     submitQuestion,
   ])

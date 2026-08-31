@@ -98,6 +98,27 @@ function deferred<T>() {
 }
 
 describe('useConversationModelOptions', () => {
+  it('keeps sending and saving disabled when the server catalog is unavailable', async () => {
+    const update = vi.fn()
+    const showError = vi.fn().mockResolvedValue(undefined)
+    const unavailableRuntime = { ...runtime, providers: [] }
+    const { result } = renderHook(() => useConversationModelOptions({
+      applyConversationDetail: vi.fn(),
+      currentConversationId: 'a',
+      currentConversationModelOptions: flash,
+      runtime: unavailableRuntime,
+      showError,
+      updateConversationModelOptions: update,
+    }))
+
+    await waitFor(() => expect(result.current.modelOptions).toEqual({}))
+    await act(async () => {
+      await expect(result.current.saveModelOptions(flash)).resolves.toBe(false)
+    })
+    expect(update).not.toHaveBeenCalled()
+    expect(showError).toHaveBeenCalledWith('模型目录不可用，请刷新后重试')
+  })
+
   it('restores details across runtime/detail ordering and conversation switches', async () => {
     const applyConversationDetail = vi.fn()
     const showError = vi.fn().mockResolvedValue(undefined)

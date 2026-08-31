@@ -36,7 +36,7 @@ export function ModelSettingsModal({
   const [validationError, setValidationError] = useState('')
   const model = getModelDescriptor(runtime, options)
   const providerLabel = getRuntimeProviders(runtime)
-    .find((provider) => provider.id === model.provider)?.label ?? model.provider
+    .find((provider) => provider.id === model?.provider)?.label ?? model?.provider
 
   useEffect(() => {
     if (!open) return
@@ -48,6 +48,10 @@ export function ModelSettingsModal({
   }, [open, options])
 
   function save() {
+    if (!model) {
+      setValidationError('Model catalog is unavailable. Refresh and try again.')
+      return
+    }
     try {
       const nextOptions = parseModelSettingsDraft({
         maxTokens,
@@ -80,14 +84,19 @@ export function ModelSettingsModal({
           </DialogClose>
         </header>
         <div className="modal-body settings-modal-body flex min-h-0 flex-1 flex-col gap-3.5 overflow-y-auto p-[18px]">
+          {!model ? (
+            <p className="settings-error m-0 text-sm text-[var(--danger)]" role="alert">
+              Model catalog is unavailable. Refresh and try again.
+            </p>
+          ) : null}
           {runtime ? (
             <dl className="runtime-meta m-0 grid grid-cols-3 gap-2 max-[820px]:grid-cols-1">
-              <div className="min-w-0 border-b border-[var(--border-soft)] pb-2"><dt className="text-xs font-semibold text-[var(--text-secondary)]">Provider</dt><dd className="mt-1 mb-0 text-[13px] font-semibold [overflow-wrap:anywhere]">{providerLabel}</dd></div>
-              <div className="min-w-0 border-b border-[var(--border-soft)] pb-2"><dt className="text-xs font-semibold text-[var(--text-secondary)]">Model</dt><dd className="mt-1 mb-0 text-[13px] font-semibold [overflow-wrap:anywhere]">{model.label}</dd></div>
+              <div className="min-w-0 border-b border-[var(--border-soft)] pb-2"><dt className="text-xs font-semibold text-[var(--text-secondary)]">Provider</dt><dd className="mt-1 mb-0 text-[13px] font-semibold [overflow-wrap:anywhere]">{providerLabel ?? 'Unavailable'}</dd></div>
+              <div className="min-w-0 border-b border-[var(--border-soft)] pb-2"><dt className="text-xs font-semibold text-[var(--text-secondary)]">Model</dt><dd className="mt-1 mb-0 text-[13px] font-semibold [overflow-wrap:anywhere]">{model?.label ?? 'Unavailable'}</dd></div>
               <div className="min-w-0 border-b border-[var(--border-soft)] pb-2"><dt className="text-xs font-semibold text-[var(--text-secondary)]">Storage</dt><dd className="mt-1 mb-0 text-[13px] font-semibold [overflow-wrap:anywhere]">{formatStorageBackend(runtime.storageBackend)}</dd></div>
             </dl>
           ) : null}
-          {model.capabilities.temperature ? (
+          {model?.capabilities.temperature ? (
             <label className="settings-field flex flex-col gap-[7px] text-xs font-semibold text-[var(--text-secondary)]" htmlFor="model-temperature">
               <span>Temperature</span>
               <Input
@@ -103,7 +112,7 @@ export function ModelSettingsModal({
               />
             </label>
           ) : null}
-          <label className="settings-field flex flex-col gap-[7px] text-xs font-semibold text-[var(--text-secondary)]" htmlFor="model-max-tokens">
+          {model ? <label className="settings-field flex flex-col gap-[7px] text-xs font-semibold text-[var(--text-secondary)]" htmlFor="model-max-tokens">
             <span>Max Tokens</span>
             <Input
               className="h-auto rounded-[7px] border-[var(--border-strong)] bg-[var(--surface)] px-2.5 py-[9px] text-[13px] text-[var(--text-primary)] focus-visible:border-[var(--ring)] focus-visible:ring-0"
@@ -116,8 +125,8 @@ export function ModelSettingsModal({
               type="number"
               value={maxTokens}
             />
-          </label>
-          <label className="settings-toggle flex items-center gap-2 text-[13px]">
+          </label> : null}
+          {model?.capabilities.reasoning ? <label className="settings-toggle flex items-center gap-2 text-[13px]">
             <input
               className="size-4 accent-[var(--text-primary)]"
               checked={reasoningEnabled}
@@ -125,8 +134,8 @@ export function ModelSettingsModal({
               type="checkbox"
             />
             <span>Enable Reasoning</span>
-          </label>
-          <label className="settings-field flex flex-col gap-[7px] text-xs font-semibold text-[var(--text-secondary)]" htmlFor="model-reasoning-effort">
+          </label> : null}
+          {model?.capabilities.reasoning ? <label className="settings-field flex flex-col gap-[7px] text-xs font-semibold text-[var(--text-secondary)]" htmlFor="model-reasoning-effort">
             <span>{providerLabel} Effort</span>
             <select
               className="w-full rounded-[7px] border border-[var(--border-strong)] bg-[var(--surface)] px-2.5 py-[9px] text-[13px] text-[var(--text-primary)] outline-none focus-visible:border-[var(--ring)] focus-visible:ring-0 disabled:opacity-50"
@@ -143,12 +152,12 @@ export function ModelSettingsModal({
                   </option>
                 ))}
             </select>
-          </label>
+          </label> : null}
           {validationError ? <p className="settings-error m-0 text-xs text-[var(--danger)]" role="alert">{validationError}</p> : null}
         </div>
         <footer className="modal-footer flex shrink-0 items-center justify-end gap-2 border-t border-[var(--border-soft)] px-[17px] py-[15px]">
           <DialogClose onClick={onClose} render={<Button className="modal-btn secondary h-[34px] rounded-[7px] border-[var(--border-strong)] bg-[var(--surface-raised)] px-3.5 text-xs font-semibold text-[var(--text-primary)] hover:bg-[var(--surface-muted)]" variant="outline" />}>Cancel</DialogClose>
-          <Button className="modal-btn primary h-[34px] rounded-[7px] bg-[var(--text-primary)] px-3.5 text-xs font-semibold text-[var(--app-bg)] hover:brightness-90" disabled={saving} onClick={save} type="button">{saving ? 'Saving...' : 'Apply'}</Button>
+          <Button className="modal-btn primary h-[34px] rounded-[7px] bg-[var(--text-primary)] px-3.5 text-xs font-semibold text-[var(--app-bg)] hover:brightness-90" disabled={saving || !model} onClick={save} type="button">{saving ? 'Saving...' : 'Apply'}</Button>
         </footer>
       </DialogContent>
     </DialogRoot>

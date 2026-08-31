@@ -32,7 +32,7 @@ type ModelOptionsMenuProps = {
 }
 
 export function getModelLabel(options: ModelRequestOptions, runtime: RuntimeInfo | null = null) {
-  return getModelDescriptor(runtime, options).label
+  return getModelDescriptor(runtime, options)?.label ?? 'Model unavailable'
 }
 
 export function getEffortLabel(options: ModelRequestOptions) {
@@ -51,11 +51,24 @@ export function ModelOptionsMenu({
 }: ModelOptionsMenuProps) {
   const model = getModelDescriptor(runtime, options)
   const providers = getRuntimeProviders(runtime)
+  if (!model) {
+    return (
+      <Button
+        aria-label="Model catalog unavailable"
+        className="model-menu-trigger h-8 min-h-8 min-w-0 max-w-[210px] gap-1 overflow-hidden rounded-md border-0 bg-transparent px-2 text-sm font-medium text-ellipsis whitespace-nowrap text-[var(--text-tertiary)] shadow-none max-[820px]:max-w-[150px] max-[820px]:text-[11px]"
+        disabled
+        type="button"
+        variant="ghost"
+      >
+        Model unavailable
+      </Button>
+    )
+  }
   const modelLabel = model.label
-  const effortLabel = getEffortLabel(options)
+  const effortLabel = model.capabilities.reasoning ? getEffortLabel(options) : 'Off'
   const effortOptions = [
     { label: 'Off', value: 'off' },
-    ...model.capabilities.reasoningEfforts
+    ...(model.capabilities.reasoning ? model.capabilities.reasoningEfforts : [])
       .filter((effort) => effort !== 'none')
       .map((effort) => ({ label: formatReasoningEffort(effort), value: effort })),
   ]

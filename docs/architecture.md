@@ -385,7 +385,7 @@ flowchart TD
 
 ## 扩展约束
 
-- 新 provider：实现 `LlmAdapter`，登记 provider registry/model catalog，并补 adapter/真实协议 mock 测试。
+- 新 provider/model：实现或复用 `LlmAdapter`，只在服务端 model catalog 登记模型、默认值和能力；React 从 `/api/runtime-config` 动态消费，不维护第二份模型目录或能力 fallback，并补 adapter/目录/CDP mock 测试。
 - 新工具：新增独立 tool 文件，提供 schema、validator、handler 和 AbortSignal 测试。
 - 新流事件：更新前后端判别联合、提升协议版本并补兼容测试。
 - 新存储：实现现有 CRUD/导入/摘要/并发语义和 `checkHealth`，不能只满足 happy path。

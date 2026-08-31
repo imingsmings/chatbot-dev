@@ -4,6 +4,7 @@ const PROVIDERS: readonly LlmProviderDescriptor[] = [
   {
     id: 'deepseek',
     label: 'DeepSeek',
+    defaultModel: 'deepseek-v4-flash',
     models: [
       {
         provider: 'deepseek',
@@ -57,6 +58,7 @@ const PROVIDERS: readonly LlmProviderDescriptor[] = [
   {
     id: 'openai',
     label: 'OpenAI',
+    defaultModel: 'gpt-5.6-terra',
     models: [
       {
         provider: 'openai',
@@ -124,6 +126,14 @@ function getProviderDescriptor(providerId: LlmProviderId): LlmProviderDescriptor
   return provider
 }
 
+function getCatalogDefaultModelId(providerId: LlmProviderId): string {
+  const provider = getProviderDescriptor(providerId)
+  if (!provider.models.some((model) => model.id === provider.defaultModel)) {
+    throw new Error(`LLM provider ${providerId} has an invalid catalog default`)
+  }
+  return provider.defaultModel
+}
+
 function getModelDescriptor(
   providerId: LlmProviderId,
   modelId: string
@@ -170,6 +180,7 @@ function getPublicModelCatalog(): LlmProviderDescriptor[] {
 export {
   MAX_MODEL_TOKENS,
   findModelDescriptor,
+  getCatalogDefaultModelId,
   getModelDescriptor,
   getProviderDescriptor,
   getPublicModelCatalog,

@@ -7,6 +7,7 @@ import {
   seedConversations,
   setMockFlags,
   setPlan,
+  setRuntimeConfiguration,
   typeText,
   waitFor,
   waitIdle,
@@ -216,11 +217,160 @@ export async function runModelOptionsPersistence(client) {
     throw new Error(`Disabled legacy fallback triggered a request: ${JSON.stringify(fallbackState)}`)
   }
 
+  const serverOnlyRuntime = {
+    provider: 'deepseek',
+    model: 'deepseek-server-only',
+    storageBackend: 'file',
+    endpointConfigured: true,
+    apiKeyConfigured: true,
+    providers: [{
+      id: 'deepseek',
+      label: 'Server DeepSeek',
+      configured: true,
+      endpointConfigured: true,
+      apiKeyConfigured: true,
+      defaultModel: 'deepseek-server-only',
+      models: [{
+        provider: 'deepseek',
+        id: 'deepseek-v4-flash',
+        label: 'Disabled by Server Catalog',
+        disabled: true,
+        capabilities: {
+          tools: true,
+          reasoning: true,
+          reasoningSummary: false,
+          reasoningEfforts: ['low', 'high'],
+          temperature: true,
+          maxOutputTokens: 65536,
+          inputModalities: ['text'],
+        },
+      }, {
+        provider: 'deepseek',
+        id: 'deepseek-server-only',
+        label: 'Server Catalog Only',
+        capabilities: {
+          tools: false,
+          reasoning: true,
+          reasoningSummary: false,
+          reasoningEfforts: ['low', 'high'],
+          temperature: false,
+          maxOutputTokens: 777,
+          inputModalities: ['text', 'image'],
+        },
+      }],
+    }],
+    defaults: {
+      temperature: 0.7,
+      maxTokens: 700,
+      reasoningEnabled: true,
+      reasoningEffort: 'high',
+    },
+  }
+
+  await setRuntimeConfiguration(client, serverOnlyRuntime)
+  await seedConversations(client, [{
+    id: 'ui-server-catalog',
+    title: '服务端模型目录',
+    createdAt: '2026-08-31T01:00:00.000Z',
+    updatedAt: '2026-08-31T01:00:00.000Z',
+    messages: [],
+    modelOptions: {
+      provider: 'deepseek',
+      model: 'deepseek-v4-flash',
+      reasoningEnabled: true,
+      reasoningEffort: 'high',
+    },
+  }])
+  await client.send('Page.reload')
+  await waitFor(client, triggerIncludes('Server Catalog Only', 'High'))
+
+  await clickSelector(client, '.model-menu-trigger')
+  await waitFor(client, `Boolean(document.querySelector('.model-menu-trigger[data-popup-open]'))`)
+  await clickSelector(client, 'button[aria-label="Select Model"]')
+  await waitFor(client, `document.querySelector('.model-submenu')?.getBoundingClientRect().height > 0`)
+  const serverCatalogMenu = await evaluate(client, `(() => {
+    const labels = [...document.querySelectorAll('.model-submenu button')]
+      .map((button) => button.getAttribute('aria-label'))
+      .filter(Boolean);
+    const disabledEntry = document.querySelector(
+      '.model-submenu button[aria-label="Select Disabled by Server Catalog"]'
+    );
+    return {
+      labels,
+      disabledEntry: disabledEntry?.disabled || disabledEntry?.getAttribute('aria-disabled') === 'true',
+      hasStaticPro: labels.includes('Select DeepSeek V4 Pro'),
+      hasStaticVision: labels.includes('Select DeepSeek V4 Flash Vision Exp'),
+    };
+  })()`)
+  if (
+    !serverCatalogMenu.labels.includes('Select Server Catalog Only') ||
+    serverCatalogMenu.disabledEntry !== true ||
+    serverCatalogMenu.hasStaticPro ||
+    serverCatalogMenu.hasStaticVision
+  ) {
+    throw new Error(`Runtime catalog menu drifted: ${JSON.stringify(serverCatalogMenu)}`)
+  }
+  await client.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape' })
+  await client.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape' })
+  await client.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape' })
+  await client.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape' })
+  await waitFor(client, `!document.querySelector('.model-menu-trigger[data-popup-open]')`)
+
+  await clickSelector(client, '.chat-header button[aria-label="更多操作"]')
+  await waitFor(client, `[...document.querySelectorAll('button[aria-label="参数"]')]
+    .some((button) => button.getBoundingClientRect().height > 0)`)
+  await clickSelector(client, 'button[aria-label="参数"]')
+  await waitFor(client, `document.querySelector('.settings-modal')?.getBoundingClientRect().height > 0`)
+  const serverCatalogSettings = await evaluate(client, `(() => ({
+    text: document.querySelector('.settings-modal')?.innerText,
+    maxTokens: document.querySelector('#model-max-tokens')?.getAttribute('max'),
+    hasTemperature: Boolean(document.querySelector('#model-temperature')),
+  }))()`)
+  if (
+    !serverCatalogSettings.text?.includes('Server Catalog Only') ||
+    serverCatalogSettings.maxTokens !== '777' ||
+    serverCatalogSettings.hasTemperature
+  ) {
+    throw new Error(`Runtime catalog capabilities drifted: ${JSON.stringify(serverCatalogSettings)}`)
+  }
+  await clickSelector(client, '.settings-modal button[aria-label="Close"]')
+
+  await setRuntimeConfiguration(client, { ...serverOnlyRuntime, providers: [] })
+  await client.send('Page.reload')
+  await waitFor(client, `document.querySelector('button[aria-label="Model catalog unavailable"]')?.disabled === true`)
+  await typeText(client, '目录缺失时不得发送')
+  await evaluate(client, `document.querySelector('form')
+    ?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))`)
+  await waitFor(client, `document.body.innerText.includes('模型目录不可用，请刷新后重试')`)
+  const unavailableCatalogState = await evaluate(client, `(() => ({
+    askCount: window.__mockSnapshot().askCount,
+    triggerDisabled: document.querySelector(
+      'button[aria-label="Model catalog unavailable"]'
+    )?.disabled,
+    sendDisabled: document.querySelector('button[aria-label="发送消息"]')?.disabled,
+    textareaDisabled: document.querySelector('textarea')?.disabled,
+    hasStaticFallback: document.body.innerText.includes('DeepSeek V4 Flash'),
+  }))()`)
+  if (
+    unavailableCatalogState.askCount !== 0 ||
+    unavailableCatalogState.triggerDisabled !== true ||
+    unavailableCatalogState.sendDisabled !== true ||
+    unavailableCatalogState.textareaDisabled !== false ||
+    unavailableCatalogState.hasStaticFallback
+  ) {
+    throw new Error(`Unavailable runtime catalog was not fail-closed: ${JSON.stringify(unavailableCatalogState)}`)
+  }
+  await confirmDialog(client, '知道了')
+  await setRuntimeConfiguration(client, null)
+
   return {
     savingState,
     rollbackState,
     askOptions,
     fallbackState,
+    serverCatalogMenu,
+    serverCatalogSettings,
+    unavailableCatalogState,
   }
 }
 

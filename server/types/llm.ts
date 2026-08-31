@@ -28,6 +28,7 @@ export type LlmModelDescriptor = {
 export type LlmProviderDescriptor = {
   id: LlmProviderId
   label: string
+  defaultModel: string
   models: LlmModelDescriptor[]
 }
 

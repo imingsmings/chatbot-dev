@@ -34,7 +34,7 @@ export function useConversationModelOptions(options: UseConversationModelOptions
     setModelOptions(resolveConversationModelOptions(
       options.runtime,
       options.currentConversationModelOptions,
-    ))
+    ) ?? {})
   }, [
     options.currentConversationId,
     options.currentConversationModelOptions,
@@ -48,6 +48,10 @@ export function useConversationModelOptions(options: UseConversationModelOptions
 
     const previousOptions = { ...modelOptionsRef.current }
     const normalizedOptions = resolveConversationModelOptions(runtime, nextOptions)
+    if (!normalizedOptions) {
+      await options.showError('模型目录不可用，请刷新后重试')
+      return false
+    }
     const sequence = ++saveSequenceRef.current
     savingRef.current = true
     setIsSaving(true)
@@ -61,7 +65,9 @@ export function useConversationModelOptions(options: UseConversationModelOptions
         currentConversationIdRef.current === conversationId &&
         saveSequenceRef.current === sequence
       ) {
-        setModelOptions(resolveConversationModelOptions(runtime, conversation.modelOptions))
+        setModelOptions(
+          resolveConversationModelOptions(runtime, conversation.modelOptions) ?? normalizedOptions,
+        )
       }
       return true
     } catch (error) {

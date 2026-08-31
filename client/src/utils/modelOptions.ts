@@ -1,64 +1,10 @@
 import type {
   ConversationModelOptions,
-  DeepSeekModelId,
   ModelDescriptor,
   ModelRequestOptions,
   RuntimeInfo,
   RuntimeProvider,
 } from '#types/chat'
-
-export const MAX_MODEL_TOKENS = 128000
-export const DEFAULT_DEEPSEEK_MODEL: DeepSeekModelId = 'deepseek-v4-flash'
-export const DEEPSEEK_MODELS = [
-  { label: 'DeepSeek V4 Flash', value: 'deepseek-v4-flash' },
-  { label: 'DeepSeek V4 Pro', value: 'deepseek-v4-pro' },
-  { label: 'DeepSeek V4 Flash Vision Exp', value: 'deepseek-v4-flash-vision-exp' },
-] as const satisfies ReadonlyArray<{ label: string; value: DeepSeekModelId }>
-
-export function normalizeDeepSeekModelId(model: string | null | undefined): DeepSeekModelId {
-  return DEEPSEEK_MODELS.some((item) => item.value === model)
-    ? model as DeepSeekModelId
-    : DEFAULT_DEEPSEEK_MODEL
-}
-
-const fallbackDeepSeekCapabilities = {
-  tools: true,
-  reasoning: true,
-  reasoningSummary: false,
-  reasoningEfforts: ['low', 'medium', 'high', 'max'],
-  temperature: true,
-  maxOutputTokens: 65536,
-  inputModalities: ['text'] as Array<'text' | 'image'>,
-}
-
-function createFallbackProvider(runtime: RuntimeInfo | null): RuntimeProvider {
-  return {
-    id: 'deepseek',
-    label: 'DeepSeek',
-    configured: runtime?.provider === 'deepseek' ? runtime.apiKeyConfigured && runtime.endpointConfigured : true,
-    endpointConfigured: runtime?.endpointConfigured ?? true,
-    apiKeyConfigured: runtime?.apiKeyConfigured ?? true,
-    defaultModel: runtime?.model || DEFAULT_DEEPSEEK_MODEL,
-    models: DEEPSEEK_MODELS.map((model) => ({
-      provider: 'deepseek',
-      id: model.value,
-      label: model.label,
-      capabilities: {
-        ...fallbackDeepSeekCapabilities,
-        reasoningEfforts: [...fallbackDeepSeekCapabilities.reasoningEfforts],
-        inputModalities: model.value === 'deepseek-v4-flash-vision-exp'
-          ? ['text', 'image']
-          : ['text'],
-        ...(model.value === 'deepseek-v4-flash-vision-exp'
-          ? {
-              imageDetailLevels: ['auto', 'low', 'original'] as Array<'auto' | 'low' | 'original'>,
-              experimental: true,
-            }
-          : {}),
-      },
-    })),
-  }
-}
 
 function isUsableModel(model: ModelDescriptor | null | undefined): model is ModelDescriptor {
   return Boolean(
@@ -67,8 +13,13 @@ function isUsableModel(model: ModelDescriptor | null | undefined): model is Mode
     typeof model.id === 'string' &&
     model.id.trim() &&
     typeof model.label === 'string' &&
+    model.label.trim() &&
     model.capabilities &&
     Array.isArray(model.capabilities.reasoningEfforts) &&
+    model.capabilities.reasoningEfforts.length > 0 &&
+    model.capabilities.reasoningEfforts.every(
+      (effort) => typeof effort === 'string' && effort.trim().length > 0,
+    ) &&
     typeof model.capabilities.maxOutputTokens === 'number' &&
     Number.isFinite(model.capabilities.maxOutputTokens) &&
     model.capabilities.maxOutputTokens > 0,
@@ -81,37 +32,60 @@ function getRuntimeProviders(runtime: RuntimeInfo | null): RuntimeProvider[] {
         .filter((provider) => provider != null && Array.isArray(provider.models))
         .map((provider) => ({
           ...provider,
-          models: provider.models.filter(isUsableModel).map((model) => ({
-            ...model,
-            capabilities: {
-              ...model.capabilities,
-              inputModalities: model.capabilities.inputModalities?.includes('text')
-                ? [...model.capabilities.inputModalities]
-                : ['text'] as Array<'text' | 'image'>,
-            },
-          })),
+          models: provider.models
+            .filter((model) => isUsableModel(model) && model.provider === provider.id)
+            .map((model) => ({
+              ...model,
+              capabilities: {
+                ...model.capabilities,
+                reasoningEfforts: [...model.capabilities.reasoningEfforts],
+                inputModalities: model.capabilities.inputModalities?.includes('text')
+                  ? [...model.capabilities.inputModalities]
+                  : ['text'] as Array<'text' | 'image'>,
+                imageDetailLevels: model.capabilities.imageDetailLevels
+                  ? [...model.capabilities.imageDetailLevels]
+                  : undefined,
+              },
+            })),
         }))
         .filter((provider) => provider.models.length > 0)
     : []
 
-  return providers.length > 0 ? providers : [createFallbackProvider(runtime)]
+  return providers
 }
 
 function getModelDescriptor(
   runtime: RuntimeInfo | null,
   options: ModelRequestOptions,
-): ModelDescriptor {
+): ModelDescriptor | null {
   const providers = getRuntimeProviders(runtime)
+  if (providers.length === 0) return null
   const requested = providers
     .filter((provider) => provider.configured)
     .flatMap((provider) => provider.models)
     .find((model) => model.id === options.model && (!options.provider || model.provider === options.provider))
   if (requested && !requested.disabled) return requested
 
-  const runtimeModel = providers
+  const runtimeProvider = providers
     .find((provider) => provider.id === runtime?.provider && provider.configured)
-    ?.models.find((model) => model.id === runtime?.model)
+  const runtimeModel = runtimeProvider?.models.find((model) => model.id === runtime?.model)
   if (runtimeModel && !runtimeModel.disabled) return runtimeModel
+
+  const runtimeProviderDefault = runtimeProvider?.models.find(
+    (model) => model.id === runtimeProvider.defaultModel && !model.disabled,
+  )
+  if (runtimeProviderDefault) return runtimeProviderDefault
+
+  const runtimeProviderFallback = runtimeProvider?.models.find((model) => !model.disabled)
+  if (runtimeProviderFallback) return runtimeProviderFallback
+
+  const configuredDefaultModel = providers
+    .filter((provider) => provider.configured)
+    .map((provider) => provider.models.find(
+      (model) => model.id === provider.defaultModel && !model.disabled,
+    ))
+    .find((model) => model !== undefined)
+  if (configuredDefaultModel) return configuredDefaultModel
 
   const configuredModel = providers
     .filter((provider) => provider.configured)
@@ -119,14 +93,15 @@ function getModelDescriptor(
     .filter((model) => !model.disabled)
     .at(0)
   return configuredModel ?? providers.flatMap((provider) => provider.models)
-    .find((model) => !model.disabled) ?? providers[0].models[0]
+    .find((model) => !model.disabled) ?? null
 }
 
-function getInitialModelOptions(runtime: RuntimeInfo): ConversationModelOptions {
+function getInitialModelOptions(runtime: RuntimeInfo): ConversationModelOptions | null {
   const model = getModelDescriptor(runtime, {
     provider: runtime.provider,
     model: runtime.model ?? undefined,
   })
+  if (!model) return null
 
   return {
     provider: model.provider,
@@ -137,7 +112,7 @@ function getInitialModelOptions(runtime: RuntimeInfo): ConversationModelOptions 
     maxTokens: runtime.defaults.maxTokens !== null && runtime.defaults.maxTokens <= model.capabilities.maxOutputTokens
       ? runtime.defaults.maxTokens
       : undefined,
-    reasoningEnabled: runtime.defaults.reasoningEnabled,
+    reasoningEnabled: model.capabilities.reasoning && runtime.defaults.reasoningEnabled,
     reasoningEffort: model.capabilities.reasoningEfforts.includes(runtime.defaults.reasoningEffort)
       ? runtime.defaults.reasoningEffort
       : model.capabilities.reasoningEfforts.includes('medium') ? 'medium' : model.capabilities.reasoningEfforts[0],
@@ -147,7 +122,7 @@ function getInitialModelOptions(runtime: RuntimeInfo): ConversationModelOptions 
 function resolveConversationModelOptions(
   runtime: RuntimeInfo,
   storedOptions?: ModelRequestOptions | null,
-): ConversationModelOptions {
+): ConversationModelOptions | null {
   const fallback = getInitialModelOptions(runtime)
   if (!storedOptions) return fallback
 
@@ -160,6 +135,7 @@ function resolveConversationModelOptions(
   if (
     !model ||
     typeof storedOptions.reasoningEnabled !== 'boolean' ||
+    (storedOptions.reasoningEnabled && !model.capabilities.reasoning) ||
     typeof storedOptions.reasoningEffort !== 'string' ||
     !model.capabilities.reasoningEfforts.includes(storedOptions.reasoningEffort) ||
     (storedOptions.temperature !== undefined && (
@@ -204,7 +180,18 @@ function modelSupportsImages(
   runtime: RuntimeInfo | null,
   options: ModelRequestOptions,
 ): boolean {
-  return getModelDescriptor(runtime, options).capabilities.inputModalities?.includes('image') === true
+  return getModelDescriptor(runtime, options)?.capabilities.inputModalities?.includes('image') === true
+}
+
+function getImageModelSupportMessage(runtime: RuntimeInfo | null): string {
+  const imageModel = getRuntimeProviders(runtime)
+    .filter((provider) => provider.configured)
+    .flatMap((provider) => provider.models)
+    .find((model) => !model.disabled && model.capabilities.inputModalities?.includes('image'))
+
+  return imageModel
+    ? `当前模型不支持图片，请切换到 ${imageModel.label}。`
+    : '当前没有已配置且可用的图片模型。'
 }
 
 function selectModelOptions(
@@ -222,6 +209,9 @@ function selectModelOptions(
     ...options,
     provider: model.provider,
     model: model.id,
+    reasoningEnabled: model.capabilities.reasoning
+      ? options.reasoningEnabled
+      : false,
     reasoningEffort,
     ...(model.capabilities.temperature ? {} : { temperature: undefined }),
     ...(options.maxTokens !== undefined && options.maxTokens > model.capabilities.maxOutputTokens
@@ -236,6 +226,9 @@ export function parseModelSettingsDraft(input: {
   reasoningEnabled: boolean
   temperature: string
 }, model?: ModelDescriptor): ModelRequestOptions {
+  if (model && input.reasoningEnabled && !model.capabilities.reasoning) {
+    throw new Error(`${model.label} does not support Reasoning`)
+  }
   const options: ModelRequestOptions = {
     reasoningEnabled: input.reasoningEnabled,
     reasoningEffort: input.reasoningEffort,
@@ -253,8 +246,11 @@ export function parseModelSettingsDraft(input: {
   }
 
   if (input.maxTokens !== '') {
+    if (!model) {
+      throw new Error('Model catalog is unavailable')
+    }
     const maxTokens = Number(input.maxTokens)
-    const maximum = model?.capabilities.maxOutputTokens ?? MAX_MODEL_TOKENS
+    const maximum = model.capabilities.maxOutputTokens
     if (!Number.isInteger(maxTokens) || maxTokens < 1 || maxTokens > maximum) {
       throw new Error(`Max Tokens must be an integer between 1 and ${maximum}`)
     }
@@ -266,6 +262,7 @@ export function parseModelSettingsDraft(input: {
 
 export {
   getInitialModelOptions,
+  getImageModelSupportMessage,
   getModelDescriptor,
   getRuntimeProviders,
   isModelOptionsUsable,

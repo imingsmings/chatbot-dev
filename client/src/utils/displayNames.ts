@@ -3,11 +3,6 @@ const providerNames: Record<string, string> = {
   openai: 'OpenAI',
 }
 
-const modelNames: Record<string, string> = {
-  'deepseek-v4-flash': 'DeepSeek V4 Flash',
-  'deepseek-v4-pro': 'DeepSeek V4 Pro',
-}
-
 const reasoningEffortNames: Record<string, string> = {
   none: 'Off',
   minimal: 'Minimal',
@@ -27,8 +22,10 @@ export function formatProviderName(value: string) {
 }
 
 export function formatModelName(value: string) {
-  const knownName = modelNames[value.toLowerCase()]
-  if (knownName) return knownName
+  const deepSeekModel = value.match(/^deepseek-(.+)$/i)
+  if (deepSeekModel?.[1]) {
+    return `DeepSeek ${deepSeekModel[1].split('-').map(capitalize).join(' ')}`
+  }
 
   const gptModel = value.match(/^gpt-([\d.]+)-(.+)$/i)
   if (!gptModel) return value

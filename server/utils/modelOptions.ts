@@ -93,6 +93,10 @@ function validateEffectiveModelOptions(
     throw new Error(`${descriptor.label} 不支持 temperature 参数`)
   }
 
+  if (options.reasoningEnabled && !descriptor.capabilities.reasoning) {
+    throw new Error(`${descriptor.label} 不支持 reasoning`)
+  }
+
   if (
     options.reasoningEnabled &&
     !descriptor.capabilities.reasoningEfforts.includes(options.reasoningEffort)

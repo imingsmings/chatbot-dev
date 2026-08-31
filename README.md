@@ -112,7 +112,7 @@ pnpm --dir server auth:generate-secrets
 | `CONVERSATION_DB_PATH` | SQLite 文件覆盖 |
 | `APP_PROFILE_NAME` / `APP_PROFILE_AVATAR_URL` | 侧栏用户资料；头像为 Vite public URL |
 
-Provider endpoint 只接受 HTTP/HTTPS。Provider 专用变量优先于同类 `LLM_*`；`LLM_*` 只作为当前默认 provider 的兼容默认值。`GET /api/runtime-config` 只返回非敏感能力、默认值和“是否已配置”，不会返回 key 原值。
+Provider endpoint 只接受 HTTP/HTTPS。Provider 专用变量优先于同类 `LLM_*`；`LLM_*` 只作为当前默认 provider 的兼容默认值。服务端 model catalog 是模型 ID、显示标签、Provider 默认值、能力和禁用状态的唯一事实源；`GET /api/runtime-config` 只返回这些非敏感目录信息、运行默认值和“是否已配置”，不会返回 key 原值。React 不保存第二份静态模型/能力 fallback；目录不可用时禁止发送但不会阻止会话浏览或草稿编辑。
 
 DeepSeek thinking 模式下，上游会忽略 temperature；当前项目仍允许保存该会话字段并随请求发送，因此它不代表 reasoning 请求中的有效采样控制。DeepSeek 接受 `low/high/max`，兼容选项 `medium` 会映射为 `high`。详见 [DeepSeek 思考模式文档](https://api-docs.deepseek.com/zh-cn/guides/thinking_mode/)。
 
@@ -150,7 +150,7 @@ client/                         React 业务客户端
   src/hooks/                    会话、流式、搜索、主题、滚动生命周期
   src/reducers/                 conversation/stream 纯状态转换
   src/api/                      HTTP 与 NDJSON reader
-  src/utils/                    Markdown、协议、模型目录、模板
+  src/utils/                    Markdown、协议、runtime 模型目录消费、模板
 shared/                         前后端共用 NDJSON v2 事件与协议常量
 server/
   config/                       产品限制、认证、构建托管和部署/TLS 配置

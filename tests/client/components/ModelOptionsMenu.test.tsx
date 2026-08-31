@@ -40,6 +40,24 @@ const runtime: RuntimeInfo = {
 }
 
 describe('ModelOptionsMenu', () => {
+  it('does not invent a static model when the runtime catalog is unavailable', () => {
+    render(
+      <ModelOptionsMenu
+        disabled={false}
+        onChange={vi.fn<(options: ModelRequestOptions) => void>()}
+        onOpenChange={vi.fn<(open: boolean) => void>()}
+        onOpenSettings={vi.fn<() => void>()}
+        open={false}
+        options={{}}
+        runtime={null}
+      />,
+    )
+
+    expect(screen.getByRole('button', { name: 'Model catalog unavailable' })).toBeDisabled()
+    expect(screen.getByText('Model unavailable')).toBeInTheDocument()
+    expect(screen.queryByText('DeepSeek V4 Flash')).not.toBeInTheDocument()
+  })
+
   it('uses Effort labels while preserving the reasoningEffort request value', async () => {
     const onChange = vi.fn<(options: ModelRequestOptions) => void>()
 

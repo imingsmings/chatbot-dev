@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { after, beforeEach, test } from 'node:test'
 import {
+  getCatalogDefaultModelId,
   getPublicModelCatalog,
   readDisabledModelIds
 } from '../../server/utils/llm/modelCatalog.ts'
@@ -65,6 +66,24 @@ test('provider config keeps legacy DeepSeek defaults and isolates OpenAI setting
     apiKey: 'openai-key',
     defaultModel: 'gpt-5.6-luna'
   })
+})
+
+test('provider defaults are derived from the server model catalog', () => {
+  process.env.LLM_PROVIDER = 'deepseek'
+  delete process.env.LLM_MODEL
+  delete process.env.DEEPSEEK_MODEL
+  delete process.env.OPENAI_MODEL
+
+  assert.equal(
+    getProviderConfig('deepseek').defaultModel,
+    getCatalogDefaultModelId('deepseek')
+  )
+  assert.equal(
+    getProviderConfig('openai').defaultModel,
+    getCatalogDefaultModelId('openai')
+  )
+  assert.equal(getCatalogDefaultModelId('deepseek'), 'deepseek-v4-flash')
+  assert.equal(getCatalogDefaultModelId('openai'), 'gpt-5.6-terra')
 })
 
 test('public model catalog exposes provider-specific capabilities without credentials', () => {

@@ -2,11 +2,6 @@ export type MessageStatus = 'pending' | 'streaming' | 'done' | 'stopped' | 'erro
 
 export type ThemeMode = 'light' | 'dark'
 
-export type DeepSeekModelId =
-  | 'deepseek-v4-flash'
-  | 'deepseek-v4-pro'
-  | 'deepseek-v4-flash-vision-exp'
-
 export type LlmProviderId = 'deepseek' | 'openai'
 
 export type ModelCapabilities = {
