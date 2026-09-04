@@ -1,26 +1,30 @@
 # 回归测试矩阵
 
-当前测试对象是唯一的 React 客户端与 Express 后端。默认使用 mock、fixture 和临时存储，不调用真实模型、天气或生产集成，不生成截图。
+当前测试对象是唯一的 React 客户端、Node Express 后端和独立 Bun Express 后端。默认使用 mock、fixture 和临时存储，不调用真实模型、天气或生产集成，不生成截图。
 
 ## 交付门禁
 
 | 门禁 | 命令 | 证明内容 |
 | --- | --- | --- |
-| 静态检查 | `pnpm run check` | Server/Client 共享 TS 7、普通/类型感知 Oxlint |
-| 后端单测 | `pnpm run test:server` | API、存储、Provider、工具、上下文和异常边界 |
+| 静态检查 | `pnpm run check` | Node/Bun Server 与 Client 共享 TS 7、普通/类型感知 Oxlint |
+| Node 后端单测 | `pnpm run test:server` | API、存储、Provider、工具、上下文和异常边界 |
+| Bun 后端测试 | `pnpm run test:bun-server` | 逐文件隔离执行 Bun 兼容测试，避免全局 mock/模块缓存互相污染 |
+| Node/Bun 契约对照 | `pnpm run test:backend-parity` | 健康、运行配置、会话、NDJSON v2、重命名和重启持久化归一化对照 |
 | React 单测 | `pnpm run test:client` | reducers、hooks、API、协议、Markdown、组件 |
-| 全部单测 | `pnpm run test:unit` | 后端 + React |
+| 全部单测 | `pnpm run test:unit` | Node/Bun 后端 + React |
 | 生产构建 | `pnpm run build:client` | Vite 8 bundle、chunk 拆分、无 Vue runtime |
 | 生产托管 | `tests/server/clientHosting.test.ts` | 构建 fail-fast、SPA、API 隔离、缓存和安全头 |
 | HTTPS 配置 | `tests/server/deploymentConfig.test.ts` | production defaults、路径、布尔/端口和证书异常 |
 | Docker 容器 | `pnpm run test:docker` | Compose、运行镜像约束、证书覆盖、HTTPS、live/ready、SQLite、附件、requestId 跨重启重放、停止备份、新卷恢复、校验和、源卷不变和 SIGTERM |
 | Docker 页面 | `pnpm run test:cdp:docker-ui` | 容器 HTTPS 页面、登录、附件缩略图/受保护原图预览、历史图片续问、模型控件和横向溢出；截图可选 |
 | 浏览器回归 | `pnpm run test:cdp:all-mock` | 完整 React UI/API mock 矩阵 |
+| Bun 浏览器回归 | `pnpm run test:cdp:all-mock:bun` | 将真实后端、取消和 P0 API 场景切换到 Bun；其余 UI 继续复用同一 Mock 契约 |
+| 运行时观测基准 | `pnpm run benchmark:backends` | 同机冷启动、空闲 RSS、健康接口 P50/P95 和首个流块；只报告、不作为跨机器硬门禁 |
 | 图片附件浏览器专项 | `pnpm run test:cdp:image-attachments` | 上传、文本加图/仅图片、受保护预览、刷新、失败重试、模型拦截、分支、停止和 390px 边界 |
 | 真实接口套件 | `pnpm run test:cdp:all-real` | 隔离端口/临时 file store；DeepSeek V4 Pro UI/上下文/Markdown、OpenAI Responses、DeepSeek Flash/Pro 8 组参数，以及使用固定非隐私图片的 DeepSeek Vision 识图/刷新/分支/仅图片/停止/ZIP；需明确确认 |
 | 生产依赖审计 | `pnpm run audit:production` | 根 workspace 全部生产依赖，要求 0 已知漏洞 |
 
-2026-08-31 的 Docker 脚本已扩展到表中范围，但按用户要求未执行容器、镜像、页面或 Volume 门禁，因此这些条目是可执行测试契约，不是本轮运行证据。当前非 Docker 结果见 [P1 工程可靠性优化验收记录](engineering-hardening-2026-08-31.md)。
+2026-09-04 的 Bun 交付通过 `check`、Node 177 项、Bun 45 个测试文件、React 119 项、契约对照、生产构建、无重试 Bun `all-mock` 及 DeepSeek/OpenAI 真实功能门禁。Docker 未执行；真实总入口清理问题的修复采用 Node/Bun 进程组单测和聚焦 CDP 自动退出验证，详细证据边界见 [R24 验收记录](r24-bun-server-2026-09-04.md)。
 
 ## React 单元边界
 
@@ -38,6 +42,8 @@
 | custom prompt templates | Unicode 变量、schema v1、localStorage 恢复、CRUD、损坏数据、非覆盖导入和导出 |
 
 ## 后端单元边界
+
+除运行时选择 helper 外，`tests/server/` 与 `tests/bun-server/` 分别导入各自后端源码；下表行为边界对两套实现均成立。
 
 | 范围 | 关键断言 |
 | --- | --- |
@@ -85,6 +91,7 @@
 | Image attachments | `pnpm run test:cdp:image-attachments` | 上传完成/失败、图片消息、Blob 预览、刷新、分支复制、文本模型阻止、停止持久化和移动端元素边界 |
 | Authentication | `pnpm run test:cdp:authentication` | 未登录不预载、限速提示、内存 Token、401 单次刷新重放和 logout |
 | All mock | `pnpm run test:cdp:all-mock` | 上述去重后的 18-script 完整集合 |
+| Bun all mock | `pnpm run test:cdp:all-mock:bun` | 复用完整集合并把实际启动的后端切到 `bun-server/`；只使用本地 Mock Provider |
 
 UI 七个入口位于 `tests/cdp/scenarios/ui/`，分别包含会话操作、流式恢复、滚动/布局、流性能、模型菜单、会话模型配置持久化和自定义模板管理的真实场景实现，并复用 `scenarios/ui/harness.mjs` 及底层 CDP helpers。`ui-scenarios.mjs` 只负责按入口调度；任一模块失败都会返回非零退出码并标明所属场景。
 
@@ -115,6 +122,7 @@ UI 七个入口位于 `tests/cdp/scenarios/ui/`，分别包含会话操作、流
 | 流式/取消/超时 | `test:unit` + `test:cdp:p0` + `test:cdp:ui` |
 | 流式渲染性能 | 上述 + `test:cdp:stream-performance`；同机 5 次中位数与最差值门禁 |
 | file/SQLite/导入 | `test:server` + P0/对应专项 CDP |
+| Bun 后端业务或依赖 | `check` + `test:bun-server` + `test:backend-parity` + `test:cdp:all-mock:bun`；与 Node 数据目录隔离 |
 | 会话模型配置 | `test:unit` + `test:cdp:model-options-persistence` + `test:docker`；真实 Provider 不因持久化本身重复调用 |
 | 自定义 Prompt 模板 | `check` + `test:client` + `test:cdp:prompt-templates`；不涉及服务端或 Provider |
 | 单用户认证/JWT/Session | `check` + `test:unit` + `test:cdp:authentication` + `all-mock` + `test:docker`；最终真实 Provider runner 必须在认证开启下执行 |
@@ -146,6 +154,8 @@ pnpm run test:cdp:real-vision
 ```
 
 四个专项命令和 `all-real` 都通过 `run-all-real.mjs` 分配随机端口和临时 file store；`all-real` 以 DeepSeek V4 Pro 为默认模型跑 UI/上下文/Markdown，并覆盖 OpenAI Responses；随后跑 Flash 与 Pro 的 Off/Low/Medium/High，最后使用固定非隐私图片跑 Vision 纯文本工具、识图、刷新、分支、仅图片、停止/恢复、完整识别报告、窄屏与 ZIP 门禁。R23 在真实文本上下文中断言所选模型估算器、持久化历史、问题/工具预算和总量不超过本地上限，在 Vision 上下文中额外断言图片预算进入统一估算。8 组参数矩阵是当前代表性兼容门禁，不是所有模型、参数与档位的笛卡尔积；DeepSeek `max` 未包含在该付费矩阵中。已禁用的 GPT-5.6 Sol 只验证禁用状态，不发送真实请求。
+
+R24 在 Bun 后端上完成了一次无脚本重试、无截图的真实功能全量：主套件 4/4、DeepSeek 参数矩阵 8/8 和 Vision 全场景通过。首次总入口在隔离套件结束后需要人工清理测试自建的 Vite 包装进程；修复后 Node/Bun 进程组单测及聚焦 `sidebar-state` CDP 均证明父子进程自动退出，但没有再次运行付费真实全量。该差异属于编排清理证据边界，不影响已经通过的 Provider 功能断言。
 
 真实测试必须说明模型、场景、可能费用、图片来源、截图与否，并清理全部测试会话。未明确要求截图时保持 `CDP_SCREENSHOTS=0`；本次 R21 验收显式使用 `CDP_SCREENSHOTS=1`。
 

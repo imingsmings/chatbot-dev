@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { createBackendSpawnOptions } from './helpers/backendRuntime.mjs'
 
 const APP_URL = process.env.APP_URL || 'http://localhost:5173/'
 const VITE_PORT = process.env.VITE_PORT || new URL(APP_URL).port || '5173'
@@ -453,8 +454,7 @@ export default defineConfig({
   const mock = createMockLlmServer()
   await mock.start()
 
-  const server = spawnProcess('node', ['./bin/www.ts'], {
-    cwd: path.resolve(process.cwd(), 'server'),
+  const backendLaunch = createBackendSpawnOptions(process.cwd(), {
     env: {
       ...process.env,
       AUTH_ENABLED: 'false',
@@ -466,6 +466,10 @@ export default defineConfig({
       DEEPSEEK_API_KEY: 'cdp-test-key',
       CONVERSATION_DATA_DIR: dataDir,
     },
+  })
+  const server = spawnProcess(backendLaunch.command, backendLaunch.args, {
+    cwd: backendLaunch.cwd,
+    env: backendLaunch.env,
   })
 
   const vite = spawnProcess('pnpm', ['exec', 'vite', '--config', VITE_TEST_CONFIG, '--configLoader', 'native', '--host', '127.0.0.1', '--port', VITE_PORT, '--strictPort'], {

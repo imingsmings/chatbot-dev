@@ -22,6 +22,7 @@ server/data/conversations/
 server/data/file/
 server/data/sqlite/
 server/data/*.sqlite3*
+bun-server/data/
 /backups/
 
 # Coverage

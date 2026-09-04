@@ -51,6 +51,67 @@ importers:
         specifier: 4.1.10
         version: 4.1.10(@types/node@22.20.1)(jsdom@30.0.1)(vite@8.2.0(@types/node@22.20.1)(jiti@2.7.0))
 
+  bun-server:
+    dependencies:
+      argon2:
+        specifier: 0.45.1
+        version: 0.45.1
+      busboy:
+        specifier: ^1.6.0
+        version: 1.6.0
+      cookie-parser:
+        specifier: 1.4.7
+        version: 1.4.7
+      debug:
+        specifier: 4.4.3
+        version: 4.4.3
+      dotenv:
+        specifier: 17.4.2
+        version: 17.4.2
+      express:
+        specifier: 5.2.1
+        version: 5.2.1
+      express-rate-limit:
+        specifier: 8.6.2
+        version: 8.6.2(express@5.2.1)
+      fflate:
+        specifier: ^0.8.3
+        version: 0.8.3
+      http-errors:
+        specifier: 2.0.1
+        version: 2.0.1
+      jose:
+        specifier: 6.2.9
+        version: 6.2.9
+      morgan:
+        specifier: 1.11.0
+        version: 1.11.0
+    devDependencies:
+      '@types/busboy':
+        specifier: ^1.5.4
+        version: 1.5.4
+      '@types/cookie-parser':
+        specifier: 1.4.10
+        version: 1.4.10(@types/express@5.0.6)
+      '@types/debug':
+        specifier: 4.1.13
+        version: 4.1.13
+      '@types/express':
+        specifier: 5.0.6
+        version: 5.0.6
+      '@types/http-errors':
+        specifier: 2.0.5
+        version: 2.0.5
+      '@types/morgan':
+        specifier: 1.9.10
+        version: 1.9.10
+      '@types/node':
+        specifier: 'catalog:'
+        version: 22.20.1
+      typescript:
+        specifier: 'catalog:'
+        version: 7.0.2
+
   client:
     dependencies:
       '@base-ui/react':

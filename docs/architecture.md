@@ -25,8 +25,8 @@ flowchart LR
     UI --> Markdown
   end
 
-  subgraph Server["Express 5 / TypeScript 7"]
-    TLS["Node HTTPS + certificate validation"]
+  subgraph Server["Independent Node / Bun Express 5 backends"]
+    TLS["Runtime HTTPS + certificate validation"]
     Static["Vite dist + SPA fallback"]
     Routes["Routes"] --> Controllers["Controllers"] --> Services["Services"]
     Routes --> Auth["JWT middleware + refresh rotation"]
@@ -88,13 +88,23 @@ flowchart LR
 
 ## 共享 TypeScript 工具链
 
-- 根 `pnpm-workspace.yaml` 通过 catalog 为 client/server 单点锁定 TypeScript 7.0.2 和 Node 22 类型。
+- 根 `pnpm-workspace.yaml` 通过 catalog 为 client/server/bun-server 单点锁定 TypeScript 7.0.2 和 Node 22 类型。
 - 根 `tsconfig.base.json` 共享 `strict`、`noEmit`、`verbatimModuleSyntax`、side-effect import 和大小写一致性等通用规则。
-- `client/tsconfig.*.json` 只保留 DOM/JSX、Bundler 解析和 Vite 类型；`server/tsconfig.json` 只保留 NodeNext、TS 扩展名导入和 erasable syntax 规则。
+- `client/tsconfig.*.json` 只保留 DOM/JSX、Bundler 解析和 Vite 类型；`server/tsconfig.json` 与 `bun-server/tsconfig.json` 保留 NodeNext、TS 扩展名导入和 erasable syntax 规则。
 - workspace 只保留根 `pnpm-lock.yaml`，安装、CI 和生产审计都从仓库根目录执行。
-- `shared/chatStreamProtocol.ts` 只承载 NDJSON v2 常量和判别联合，不引入运行时框架；client/server 均从该模块导入。
+- `shared/chatStreamProtocol.ts` 只承载 NDJSON v2 常量和判别联合，不引入运行时框架；client、server 与 bun-server 均从该模块导入。
+
+## 双后端运行时边界
+
+- `server/` 是现有 Node 基线，也是 `start:production` 和 Docker 唯一使用的后端。
+- `bun-server/` 是 Bun 1.4 的独立实现；业务源码层面不从 `server/` 导入模块，只复用框架无关的 `shared/chatStreamProtocol.ts` 类型与常量。
+- 两套后端保持相同路由、环境变量、认证规则、file/SQLite schema、Provider 适配语义和 NDJSON v2 输出协议。Bun 当前只替换运行时与测试执行器，不改为 `Bun.serve`、`bun:sqlite` 或 Bun 包管理。
+- 默认数据分别位于 `server/data/` 与 `bun-server/data/`。并行启动时必须使用不同端口和数据路径；不得让两个进程同时写同一个 SQLite 或 file store。
+- `tests/runtime/backend-parity.mjs` 在隔离目录中比较两套实现的 API、流事件和重启持久化；`tests/cdp/helpers/backendRuntime.mjs` 允许同一套后端/CDP 场景选择 Node 或 Bun。
 
 ## 后端边界
+
+下表以 Node 的 `server/` 路径表示模块职责；`bun-server/` 保持相同相对结构，但作为独立源码维护和测试。
 
 | 模块 | 职责 |
 | --- | --- |
@@ -132,6 +142,8 @@ flowchart LR
 Provider 特有字段只存在于 adapter。控制器不拼 prompt，工具注册表不内嵌天气/计算器实现。附件原图始终以本地文件为准；DeepSeek adapter 只在最终请求组装时读取图片并创建 Base64 Data URL，文本消息仍保持字符串 content。
 
 ## 生产部署边界
+
+当前生产脚本与 Docker 拓扑仍以 Node 为部署基线；本节不代表 Bun 已完成容器化。
 
 ```mermaid
 flowchart TD
@@ -381,7 +393,7 @@ flowchart TD
 
 ## 输入与错误边界
 
-集中限制位于 `server/config/productLimits.ts`：自动标题、会话标题、搜索词、问题、导入会话数和单会话消息数。Provider endpoint 仅支持 HTTP/HTTPS；天气网络异常返回稳定可恢复错误；生产环境未处理的 5xx 不向客户端泄漏内部路径或上游细节。Provider 非 2xx 诊断只读取最多 4 KiB 结构化错误，先脱敏凭据再记录限长详情、Provider request id 和内部 correlation id；不记录完整 Prompt、请求 body、Cookie、Token 或原始响应 body。
+集中限制分别位于 `server/config/productLimits.ts` 与 `bun-server/config/productLimits.ts`：自动标题、会话标题、搜索词、问题、导入会话数和单会话消息数。Provider endpoint 仅支持 HTTP/HTTPS；天气网络异常返回稳定可恢复错误；生产环境未处理的 5xx 不向客户端泄漏内部路径或上游细节。Provider 非 2xx 诊断只读取最多 4 KiB 结构化错误，先脱敏凭据再记录限长详情、Provider request id 和内部 correlation id；不记录完整 Prompt、请求 body、Cookie、Token 或原始响应 body。
 
 ## 扩展约束
 

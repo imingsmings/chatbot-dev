@@ -1,0 +1,67 @@
+import { checkConversationStoreHealth } from '../utils/conversationStore.ts'
+import { checkAuthSessionStoreHealth } from '../utils/authSessionStore.ts'
+import { getAuthConfig } from '../config/authConfig.ts'
+import { validateStartupConfig } from '../utils/runtimeConfig.ts'
+import { checkAttachmentStorageHealth } from './attachmentService.ts'
+
+type HealthCheckStatus = 'ok' | 'error'
+
+type LivenessStatus = {
+  status: 'ok'
+}
+
+type ReadinessStatus = {
+  status: 'ok' | 'unhealthy'
+  checks: {
+    configuration: HealthCheckStatus
+    storage: HealthCheckStatus
+  }
+}
+
+async function checkConfiguration(): Promise<HealthCheckStatus> {
+  try {
+    validateStartupConfig()
+    return 'ok'
+  } catch {
+    return 'error'
+  }
+}
+
+async function checkStorage(): Promise<HealthCheckStatus> {
+  try {
+    await checkConversationStoreHealth()
+    await checkAttachmentStorageHealth()
+    const authConfig = getAuthConfig()
+    if (authConfig.enabled) checkAuthSessionStoreHealth(authConfig)
+    return 'ok'
+  } catch {
+    return 'error'
+  }
+}
+
+function getLivenessStatus(): LivenessStatus {
+  return { status: 'ok' }
+}
+
+async function getReadinessStatus(): Promise<ReadinessStatus> {
+  const [configuration, storage] = await Promise.all([
+    checkConfiguration(),
+    checkStorage()
+  ])
+  const status = configuration === 'ok' && storage === 'ok' ? 'ok' : 'unhealthy'
+
+  return {
+    status,
+    checks: {
+      configuration,
+      storage
+    }
+  }
+}
+
+export {
+  getLivenessStatus,
+  getReadinessStatus,
+  getReadinessStatus as getHealthStatus,
+}
+export type { LivenessStatus, ReadinessStatus }

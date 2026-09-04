@@ -17,6 +17,7 @@
 | [R22 请求一致性与原子导入](r22-request-consistency-atomic-import-2026-08-29.md) | requestId 幂等、断线恢复、file/SQLite/附件批次事务与验证证据 |
 | [P1 工程可靠性优化](engineering-hardening-2026-08-31.md) | 取消完成协调、liveness/readiness、Provider 安全诊断与当前非 Docker 验收证据 |
 | [P2 模型目录单一事实源](p2-model-catalog-single-source-2026-08-31.md) | 服务端模型/默认值/能力/禁用目录、React fail-closed fallback 与验证证据 |
+| [R24 独立 Bun 后端](r24-bun-server-2026-09-04.md) | Node/Bun 双后端边界、契约对照、Bun Mock 回归、基准与暂缓项 |
 | [Roadmap](roadmap.md) | 当前基线、候选范围、选择与实施授权规则 |
 | [实验记录](experiments.md) | 可重复模型、上下文、工具与渲染实验 |
 
@@ -42,6 +43,7 @@
 - [R23 Provider-aware 上下文预算](r23-provider-aware-context-budget-2026-08-29.md)
 - [P1 工程可靠性优化](engineering-hardening-2026-08-31.md)
 - [P2 模型目录单一事实源](p2-model-catalog-single-source-2026-08-31.md)
+- [R24 独立 Bun 后端](r24-bun-server-2026-09-04.md)
 - [会话级模型配置持久化方案](conversation-model-options-plan.md)
 - [流式渲染平滑度优化方案](streaming-rendering-optimization-plan.md)
 - [DeepSeek V4 Pro 0813 启用与验收](deepseek-v4-pro-0813-validation-2026-08-13.md)

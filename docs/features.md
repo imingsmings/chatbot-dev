@@ -102,12 +102,14 @@
 ## 生产运行
 
 - `pnpm run build` 完成静态检查并生成 React `client/dist`。
+- `bun-server/` 可用 Bun 1.4 独立运行相同 Express API、认证、存储和 NDJSON v2 协议；默认数据目录与 Node 后端隔离。
 - Express 同源托管前端与 `/api/*`，支持 SPA HTML GET 回退。
 - Node HTTPS 直接读取可配置证书/私钥；校验证书有效期与密钥匹配。
 - 缺少前端构建或 TLS 配置非法时 fail-fast。
 - `index.html` 禁止缓存，hash assets 使用长期 immutable cache。
 - 基础安全响应头：禁用框架标识、`nosniff`、禁止 frame、同源 referrer；HTTPS 响应包含 HSTS。
 - Docker 单容器部署：Node 直接提供 HTTPS、React 和 `/api/*`，环境变量运行时注入、TLS 只读挂载，会话数据库、认证 Session 与附件共同由 `/app/data` 数据卷持久化。
+- Bun Docker 镜像不在当前交付范围；`start:production` 和 Docker 仍以 Node 为基线。
 - `/api/health/live` 只检查进程可响应；`/api/health/ready` 与兼容 `/api/health` 探测运行配置、当前 file/SQLite 会话 store，以及启用时的认证 Session Store 真实读写能力。
 
 ## 明确不包含

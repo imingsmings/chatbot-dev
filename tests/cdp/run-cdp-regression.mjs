@@ -1,4 +1,5 @@
 import path from 'node:path'
+import { createBackendSpawnOptions } from './helpers/backendRuntime.mjs'
 import { extractLastJsonObject, writeSuiteResult } from './helpers/results.mjs'
 import { spawnProcess, stopProcess, waitForHttp, waitForProcessExit } from './helpers/services.mjs'
 
@@ -209,6 +210,7 @@ async function ensureVite() {
     {
       cwd: path.join(REPO_ROOT, CLIENT_DIR),
       env: process.env,
+      killGroup: true,
     },
   )
 
@@ -229,9 +231,10 @@ async function ensureBackend() {
     return null
   }
 
-  const backend = spawnProcess('node', ['./bin/www.ts'], {
-    cwd: path.join(REPO_ROOT, 'server'),
-    env: process.env,
+  const backendLaunch = createBackendSpawnOptions(REPO_ROOT)
+  const backend = spawnProcess(backendLaunch.command, backendLaunch.args, {
+    cwd: backendLaunch.cwd,
+    env: backendLaunch.env,
   })
 
   const ready = await waitForHttp(healthUrl, 15000)

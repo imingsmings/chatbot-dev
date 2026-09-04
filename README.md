@@ -1,6 +1,6 @@
 # chatbot-dev
 
-面向个人学习和内部使用的 local-first AI 聊天项目。前端为 React 19 + TypeScript 7 + Vite 8，后端为 Express 5 + TypeScript 7；重点覆盖可靠流式输出、模型适配、Function Calling、上下文管理和本地持久化。
+面向个人学习和内部使用的 local-first AI 聊天项目。前端为 React 19 + TypeScript 7 + Vite 8，后端提供 Node.js 与 Bun 两套独立的 Express 5 + TypeScript 7 实现；重点覆盖可靠流式输出、模型适配、Function Calling、上下文管理和本地持久化。
 
 Vue 客户端已在 2026-08-09 完成下线，`client/` 现在是唯一的 React 客户端。迁移记录见 [React 迁移收口文档](docs/react-migration-plan.md)。
 
@@ -11,11 +11,11 @@ Vue 客户端已在 2026-08-09 完成下线，`client/` 现在是唯一的 React
 | 前端 | React 19、TypeScript 7、Vite 8 |
 | UI | Tailwind CSS 4、shadcn/ui Base UI、Lucide React |
 | 前端质量 | Oxlint/tsgolint、Vitest、Testing Library、jsdom |
-| 后端 | Express 5.2、TypeScript 7、Node.js `>=22.18`、jose、Argon2id |
+| 后端 | Express 5.2、TypeScript 7、Node.js `>=22.18` 或 Bun `>=1.4.0`、jose、Argon2id |
 | 工具链 | 根 pnpm workspace/catalog、共享 `tsconfig.base.json` |
 | 存储 | 单会话 JSON 文件或 SQLite |
 | 模型 | DeepSeek Chat Completions、OpenAI Responses adapter |
-| 回归 | Node test、Vitest、CDP 浏览器自动化 |
+| 回归 | Node test、Bun test、Node/Bun 契约对照、Vitest、CDP 浏览器自动化 |
 
 ## 当前能力
 
@@ -41,7 +41,7 @@ Vue 客户端已在 2026-08-09 完成下线，`client/` 现在是唯一的 React
 
 ## 快速开始
 
-要求：Node.js `>=22.18.0`、pnpm。
+默认 Node 后端要求 Node.js `>=22.18.0` 与 pnpm；运行独立 Bun 后端还要求 Bun `>=1.4.0`。
 
 ```bash
 pnpm install --frozen-lockfile
@@ -59,6 +59,16 @@ pnpm run dev:client
 - 后端：`http://127.0.0.1:7001`
 - Vite 将 `/api/*` 原样代理到后端；开发与生产使用同一 API 路径。
 - 开发环境默认不启用认证；要按生产语义联调，需显式设置 `AUTH_ENABLED=true` 和下列认证配置。
+
+也可以改用独立的 Bun 后端；它与 Node 后端使用相同 API、环境变量、存储格式和 NDJSON v2 协议，但源代码与默认数据目录互相独立：
+
+```bash
+cp bun-server/.env.example bun-server/.env
+pnpm run dev:bun-server
+pnpm run dev:client
+```
+
+Node 与 Bun 默认都监听 `7001`，同时运行时应为其中一个显式设置其他 `PORT`。不要让两个进程同时写入同一个 file/SQLite 数据目录。
 
 生成 Argon2id 密码哈希和两个独立随机 secret：
 
@@ -80,7 +90,7 @@ pnpm --dir server auth:generate-secrets
 | `PORT` | 后端端口，默认 `7001` |
 | `HOST` | 监听地址，默认 `0.0.0.0` |
 | `SERVE_CLIENT_BUILD` / `CLIENT_DIST_DIR` | 是否托管 React 构建及可选构建目录 |
-| `HTTPS_ENABLED` | 是否由 Node HTTPS 直接提供服务 |
+| `HTTPS_ENABLED` | 是否由当前后端运行时直接提供 HTTPS |
 | `HTTPS_CERT_PATH` / `HTTPS_KEY_PATH` | TLS 证书和私钥；支持 `~/` 路径 |
 | `HTTPS_CA_PATH` | 可选 CA chain 路径 |
 | `AUTH_ENABLED` | 单用户认证开关；production 默认 `true`，开发默认 `false` |
@@ -125,7 +135,7 @@ pnpm run build
 pnpm run start:production
 ```
 
-本机默认读取 `~/devhttps/dev-cert.pem` 和 `~/devhttps/dev-key.pem`。完整配置、证书适用范围、上线检查和回滚见 [生产部署说明](docs/production-deployment.md)。
+`start:production` 与现有 Docker 部署继续使用 Node 后端。本机默认读取 `~/devhttps/dev-cert.pem` 和 `~/devhttps/dev-key.pem`。Bun 可通过 `pnpm run start:bun-server` 按相同环境变量独立运行，但本阶段未提供 Bun Docker 镜像。完整配置、证书适用范围、上线检查和回滚见 [生产部署说明](docs/production-deployment.md)。
 
 ## Docker 局域网部署
 
@@ -164,11 +174,14 @@ server/
   utils/authSessionStore.ts     Refresh Session SQLite、轮换和撤销
   utils/conversationStore.ts    file/SQLite 稳定 facade
   utils/conversationStore/      契约、规范化/迁移和两种存储实现
+bun-server/                     独立 Bun 1.4 后端；相同相对模块边界和对外契约
 tests/client/                   React unit/component/hook 测试及 setup
 tests/server/                   后端单元、存储和异常测试
+tests/bun-server/               Bun 后端的独立兼容测试副本与 runner
 tests/cdp/                      浏览器/API 回归及拆分后的 UI 场景入口
+tests/runtime/                  Node/Bun 契约对照、隔离 harness 和观测型基准
 docs/                           架构、协议、功能、路线图和测试文档
-pnpm-workspace.yaml             client/server workspace 与公共版本 catalog
+pnpm-workspace.yaml             client/server/bun-server workspace 与公共版本 catalog
 tsconfig.base.json             前后端共用 TypeScript 严格规则
 ```
 
@@ -205,11 +218,14 @@ tsconfig.base.json             前后端共用 TypeScript 严格规则
 ## 检查与测试
 
 ```bash
-pnpm run check                 # server/client 类型检查 + React lint
-pnpm run test:unit             # 全部后端 Node tests + React Vitest
+pnpm run check                 # Node/Bun server 与 client 类型检查 + React lint
+pnpm run test:unit             # Node/Bun 后端测试 + React Vitest
+pnpm run test:backend-parity   # Node/Bun API、NDJSON 与重启持久化对照
+pnpm run benchmark:backends    # 冷启动、RSS、健康接口与首流块观测基准
 pnpm run build                 # 全部静态检查 + React 生产构建
 pnpm run audit:production      # 整个 workspace 生产依赖审计
-pnpm run test:cdp:all-mock     # React-only 全量 mock 浏览器回归
+pnpm run test:cdp:all-mock     # Node 后端基线的全量 mock 浏览器回归
+pnpm run test:cdp:all-mock:bun # 将真实后端场景切到 Bun 的全量 mock 回归
 pnpm run test:cdp:request-recovery # 丢失 done 后的持久化结果恢复专项
 pnpm run test:cdp:authentication # 登录门禁、内存 Token、401 单次刷新重放和退出
 pnpm run test:cdp:image-attachments # 图片上传、预览、分支、停止和移动端 Mock 专项
@@ -236,8 +252,9 @@ pnpm run test:docker           # Docker HTTPS、认证、SQLite、附件、请�
 
 ### 方案与验收记录
 
-- [R23 Provider-aware 上下文预算验收记录（2026-08-29）](docs/r23-provider-aware-context-budget-2026-08-29.md)
+- [R24 独立 Bun 后端验收记录（2026-09-04）](docs/r24-bun-server-2026-09-04.md)
 - [P1 工程可靠性优化验收记录（2026-08-31）](docs/engineering-hardening-2026-08-31.md)
+- [R23 Provider-aware 上下文预算验收记录（2026-08-29）](docs/r23-provider-aware-context-budget-2026-08-29.md)
 - [R22 请求一致性与原子导入验收记录（2026-08-29）](docs/r22-request-consistency-atomic-import-2026-08-29.md)
 - [R21 图片附件与 Vision 验收记录（2026-08-24）](docs/r21-multimodal-vision-2026-08-24.md)
 - [R20 JWT 单用户认证方案与实施说明（2026-08-19）](docs/r20-jwt-authentication-plan.md)

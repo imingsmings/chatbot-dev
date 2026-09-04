@@ -4,19 +4,20 @@
 
 ## 当前结论
 
-- P0-P7、R8.0-R8.9、R9-R23 已完成；R23 的非 Docker 功能与验收门禁已全部通过。
-- 最近完成的编号阶段是 R23：Provider-aware 统一上下文预算、可解释裁剪、预检和上下文预览；其后的三个 P1 工程优化不单独占用阶段编号。
+- P0-P7、R8.0-R8.9、R9-R24 已完成；R24 在不改变 Node 生产基线的前提下交付了独立 Bun 后端。
+- 最近完成的编号阶段是 R24：独立 Bun 1.4 Express 后端、兼容测试、Node/Bun 契约对照、Bun Mock/真实 Provider CDP 与观测基准。
 - R21 静态、单元/API、构建、18/18 全量 Mock 与全量真实 Provider 已通过；Docker 实机新 Volume 恢复门禁按用户要求暂缓。
 - R23 静态检查、168 项服务端单测、114 项 React 单测、无重试 18/18 全量 Mock 和无重试全量真实 Provider 已通过；Docker 按用户要求不验证。
 - 2026-08-31 完成健康检查拆分、Provider 非 2xx 安全诊断和超时取消后立即重试协调；静态、172 项服务端单测、115 项 React 单测、18/18 全量 Mock 及全量真实 Provider 通过，Docker 运行验证按用户要求暂缓。
-- 详细范围和交付证据见 [P0-R21 历史阶段记录](roadmap-history.md)、[R22 验收记录](r22-request-consistency-atomic-import-2026-08-29.md)、[R23 验收记录](r23-provider-aware-context-budget-2026-08-29.md)与 [P1 工程可靠性优化验收记录](engineering-hardening-2026-08-31.md)。
+- 2026-09-04 完成独立 Bun 后端；Node 177 项、Bun 45 个测试文件、React 119 项、契约对照、构建、无重试 Bun `all-mock` 及 DeepSeek/OpenAI 真实功能门禁通过，Docker 未执行；真实总入口的 Vite 清理问题随后完成聚焦修复验证。
+- 详细范围和交付证据见 [P0-R21 历史阶段记录](roadmap-history.md)、[R22 验收记录](r22-request-consistency-atomic-import-2026-08-29.md)、[R23 验收记录](r23-provider-aware-context-budget-2026-08-29.md)、[P1 工程可靠性优化验收记录](engineering-hardening-2026-08-31.md)与 [R24 验收记录](r24-bun-server-2026-09-04.md)。
 
 ## 当前基线
 
 ### 应用与模型
 
 - React 19 + TypeScript 7 + Vite 8；Tailwind CSS 4 + shadcn/ui Base UI + Lucide React。
-- Express 5.2 + TypeScript 7，与前端共用根 workspace、TypeScript catalog、基础 tsconfig 和 lockfile。
+- Node `server/` 与 Bun `bun-server/` 是两套独立的 Express 5.2 + TypeScript 7 后端；与前端共用根 pnpm workspace、TypeScript catalog、基础 tsconfig 和 lockfile。
 - DeepSeek Chat Completions 与 OpenAI Responses adapters；支持 reasoning、模型能力参数和 Function Calling。
 - Provider SSE 经服务端转换为应用 NDJSON v2；DeepSeek `[DONE]` 和 OpenAI `response.completed` 是成功完成门禁。
 
@@ -40,8 +41,8 @@
 
 - production 默认启用单用户认证；除健康检查与认证入口外，API 需要短期 Bearer Access Token。
 - Access Token 只保存在 React 内存；Refresh Token 只存在于受限 Cookie，并由独立 SQLite Session Store 执行轮换、重放检测和撤销。
-- 单 Node Docker HTTPS 部署、只读 TLS 挂载、非 root 应用进程、持久化 `/app/data`、轻量 liveness、深度 readiness 和完整 Volume 备份恢复框架；R21 附件的新 Volume 实机恢复仍待补证。
-- Node/Vitest/CDP 覆盖聊天、存储、上下文、工具、Markdown、UI、认证、Docker 和真实 Provider 隔离门禁。
+- 单 Node Docker HTTPS 部署、只读 TLS 挂载、非 root 应用进程、持久化 `/app/data`、轻量 liveness、深度 readiness 和完整 Volume 备份恢复框架；Bun Docker 不在当前基线，R21 附件的新 Volume 实机恢复仍待补证。
+- Node test、Bun test、Node/Bun 契约对照、Vitest 与 CDP 覆盖聊天、存储、上下文、工具、Markdown、UI、认证和隔离门禁。
 
 ## 阶段矩阵
 
@@ -64,6 +65,7 @@
 | R21 | 图片附件、DeepSeek Vision 多模态输入、本地持久化和备份恢复 | 完成（Docker 实机恢复暂缓） |
 | R22 | 请求幂等、断线结果恢复和批量导入原子性 | 功能与非 Docker 验收完成 |
 | R23 | Provider-aware 上下文预算 | 完成并验证（Docker 按要求未跑） |
+| R24 | 独立 Bun 后端、运行时兼容、契约对照与 Bun Mock/真实 Provider 回归 | 完成并验证（Docker 未跑） |
 
 ## R21 图片附件与多模态理解
 
@@ -134,6 +136,17 @@ R21 不新增功能，只补齐部署证据。当前 Docker smoke 脚本已实�
 - 验收：边界输入不会超过所选模型配置上限；裁剪结果可解释、摘要覆盖语义不倒退、纯文本与图片请求均有 Mock 和最小真实验证。
 - 非目标：不随本阶段引入 RAG、Embedding、向量数据库或通用文档检索。
 
+## R24 独立 Bun 后端
+
+状态：功能与本地非 Docker 验收已完成。实现决策、命令、基准和真实门禁证据见 [R24 验收记录](r24-bun-server-2026-09-04.md)。
+
+- 直接价值：在不打断现有 Node 生产链路的情况下学习和评估 Bun 的运行兼容性、启动/内存特征与测试差异，并保留可直接回退的稳定基线。
+- 实现边界：新建独立 `bun-server/`，保持 Express、pnpm、现有 API/环境变量/schema/NDJSON v2；不从 `server/` 导入业务源码。
+- 验收：Bun 类型检查与 45 个测试文件、Node/Bun API/流/重启持久化对照、无重试完整 Bun Mock CDP、DeepSeek/OpenAI 真实功能门禁、Node 基线和 React 构建全部通过；Vite 进程组清理另有 Node/Bun 单测与聚焦 CDP 自动退出证据。
+- 数据边界：两套后端默认数据目录隔离；并行运行时不得共享写入同一个 file/SQLite store。
+- 暂缓项：Bun Docker 镜像与容器验证；现有 Docker、生产启动与部署文档继续以 Node 为基线。
+- 非目标：`Bun.serve`、`bun:sqlite`、Bun 包管理、删除 Node 后端或一次性抽取共享业务包。
+
 ## 工程优化 Backlog
 
 这些项目不单独占用 Roadmap 阶段。修改相关模块时按风险择机处理，并补对应的聚焦回归；不得为清理代码而改变既有用户行为。
@@ -197,3 +210,4 @@ R21 已完成图片附件与多模态理解。以下功能继续保留为后续�
 - [R21 图片附件与多模态理解方案](r21-multimodal-vision-plan.md)
 - [R21 图片附件与 Vision 验收记录](r21-multimodal-vision-2026-08-24.md)
 - [P1 工程可靠性优化验收记录](engineering-hardening-2026-08-31.md)
+- [R24 独立 Bun 后端验收记录](r24-bun-server-2026-09-04.md)

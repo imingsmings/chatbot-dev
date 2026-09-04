@@ -4,6 +4,7 @@ import { access, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { tmpdir } from 'node:os'
 import { DatabaseSync } from 'node:sqlite'
+import { createBackendSpawnOptions } from './helpers/backendRuntime.mjs'
 import { sse, sseToolCall, writeSse } from './helpers/mockStream.mjs'
 
 const SERVER_PORT = process.env.SERVER_PORT || '7702'
@@ -83,6 +84,14 @@ function spawnProcess(command, args, options = {}) {
   child.stdout.on('data', (chunk) => process.stdout.write(chunk))
   child.stderr.on('data', (chunk) => process.stderr.write(chunk))
   return child
+}
+
+function spawnBackend(env, preloads = []) {
+  const launch = createBackendSpawnOptions(process.cwd(), { env, preloads })
+  return spawnProcess(launch.command, launch.args, {
+    cwd: launch.cwd,
+    env: launch.env,
+  })
 }
 
 async function stopProcess(child) {
@@ -625,25 +634,21 @@ async function runSqliteStorageScenario() {
   await writeFile(path.join(sqliteFileDataDir, 'conversations.json'), JSON.stringify({ conversations: [legacySeed] }), 'utf8')
 
   async function startSqliteServer() {
-    const server = spawnProcess('node', ['./bin/www.ts'], {
-      cwd: path.resolve(process.cwd(), 'server'),
-      env: {
-        ...process.env,
-        AUTH_ENABLED: 'false',
-        PORT: '7705',
-        CONVERSATION_STORE: 'sqlite',
-        CONVERSATION_DATA_DIR: sqliteDataDir,
-        CONVERSATION_DB_PATH: sqliteDbPath,
-        LLM_PROVIDER: 'deepseek',
-        LLM_ENDPOINT: MOCK_URL,
-        LLM_MODEL: 'cdp-p0-api',
-        LLM_TIMEOUT_MS: '10000',
-        DEEPSEEK_API_KEY: 'cdp-test-key',
-        HEFENG_API_HOST: 'mock.weather.local',
-        HEFENG_API_KEY: 'mock-weather-key',
-        NODE_OPTIONS: `${process.env.NODE_OPTIONS || ''} --require=${WEATHER_MOCK}`.trim(),
-      },
-    })
+    const server = spawnBackend({
+      ...process.env,
+      AUTH_ENABLED: 'false',
+      PORT: '7705',
+      CONVERSATION_STORE: 'sqlite',
+      CONVERSATION_DATA_DIR: sqliteDataDir,
+      CONVERSATION_DB_PATH: sqliteDbPath,
+      LLM_PROVIDER: 'deepseek',
+      LLM_ENDPOINT: MOCK_URL,
+      LLM_MODEL: 'cdp-p0-api',
+      LLM_TIMEOUT_MS: '10000',
+      DEEPSEEK_API_KEY: 'cdp-test-key',
+      HEFENG_API_HOST: 'mock.weather.local',
+      HEFENG_API_KEY: 'mock-weather-key',
+    }, [WEATHER_MOCK])
     await waitForHttp(`${sqliteUrl}/conversations`)
     return server
   }
@@ -740,24 +745,20 @@ async function main() {
   const dataDir = await mkdtemp(path.join(tmpdir(), 'chatbot-p0-data-'))
   const conversationsDir = path.join(dataDir, 'file', 'conversations')
 
-  const server = spawnProcess('node', ['./bin/www.ts'], {
-    cwd: path.resolve(process.cwd(), 'server'),
-    env: {
-      ...process.env,
-      AUTH_ENABLED: 'false',
-      PORT: SERVER_PORT,
-      LLM_PROVIDER: 'deepseek',
-      LLM_ENDPOINT: MOCK_URL,
-      LLM_MODEL: 'cdp-p0-api',
-      LLM_TIMEOUT_MS: '10000',
-      DEEPSEEK_API_KEY: 'cdp-test-key',
-      HEFENG_API_HOST: 'mock.weather.local',
-      HEFENG_API_KEY: 'mock-weather-key',
-      CONVERSATION_STORE: 'file',
-      CONVERSATION_DATA_DIR: dataDir,
-      NODE_OPTIONS: `${process.env.NODE_OPTIONS || ''} --require=${WEATHER_MOCK}`.trim(),
-    },
-  })
+  const server = spawnBackend({
+    ...process.env,
+    AUTH_ENABLED: 'false',
+    PORT: SERVER_PORT,
+    LLM_PROVIDER: 'deepseek',
+    LLM_ENDPOINT: MOCK_URL,
+    LLM_MODEL: 'cdp-p0-api',
+    LLM_TIMEOUT_MS: '10000',
+    DEEPSEEK_API_KEY: 'cdp-test-key',
+    HEFENG_API_HOST: 'mock.weather.local',
+    HEFENG_API_KEY: 'mock-weather-key',
+    CONVERSATION_STORE: 'file',
+    CONVERSATION_DATA_DIR: dataDir,
+  }, [WEATHER_MOCK])
 
   const profileDir = await mkdtemp(path.join(tmpdir(), 'chatbot-p0-api-cdp-'))
   const chrome = spawnProcess(CHROME_PATH, [
@@ -1017,19 +1018,16 @@ async function main() {
     assert(titleAfterManualRename.data.conversation.title === `${PREFIX}-MANUAL-TITLE`, 'P1-28 manual title was overwritten')
 
     const legacyDataDir = await mkdtemp(path.join(tmpdir(), 'chatbot-legacy-data-'))
-    const legacyServer = spawnProcess('node', ['./bin/www.ts'], {
-      cwd: path.resolve(process.cwd(), 'server'),
-      env: {
-        ...process.env,
-        AUTH_ENABLED: 'false',
-        PORT: '7703',
-        CONVERSATION_STORE: 'file',
-        CONVERSATION_DATA_DIR: legacyDataDir,
-        LLM_PROVIDER: 'deepseek',
-        LLM_ENDPOINT: MOCK_URL,
-        LLM_MODEL: 'cdp-p0-api',
-        DEEPSEEK_API_KEY: 'cdp-test-key',
-      },
+    const legacyServer = spawnBackend({
+      ...process.env,
+      AUTH_ENABLED: 'false',
+      PORT: '7703',
+      CONVERSATION_STORE: 'file',
+      CONVERSATION_DATA_DIR: legacyDataDir,
+      LLM_PROVIDER: 'deepseek',
+      LLM_ENDPOINT: MOCK_URL,
+      LLM_MODEL: 'cdp-p0-api',
+      DEEPSEEK_API_KEY: 'cdp-test-key',
     })
     try {
       await mkdir(path.join(legacyDataDir, 'conversations'), { recursive: true })
@@ -1072,19 +1070,16 @@ async function main() {
       titleManuallyEdited: true,
       messages: [],
     }), 'utf8')
-    const corruptServer = spawnProcess('node', ['./bin/www.ts'], {
-      cwd: path.resolve(process.cwd(), 'server'),
-      env: {
-        ...process.env,
-        AUTH_ENABLED: 'false',
-        PORT: '7704',
-        CONVERSATION_STORE: 'file',
-        CONVERSATION_DATA_DIR: corruptDataDir,
-        LLM_PROVIDER: 'deepseek',
-        LLM_ENDPOINT: MOCK_URL,
-        LLM_MODEL: 'cdp-p0-api',
-        DEEPSEEK_API_KEY: 'cdp-test-key',
-      },
+    const corruptServer = spawnBackend({
+      ...process.env,
+      AUTH_ENABLED: 'false',
+      PORT: '7704',
+      CONVERSATION_STORE: 'file',
+      CONVERSATION_DATA_DIR: corruptDataDir,
+      LLM_PROVIDER: 'deepseek',
+      LLM_ENDPOINT: MOCK_URL,
+      LLM_MODEL: 'cdp-p0-api',
+      DEEPSEEK_API_KEY: 'cdp-test-key',
     })
     try {
       await waitForHttp('http://127.0.0.1:7704/__ready')

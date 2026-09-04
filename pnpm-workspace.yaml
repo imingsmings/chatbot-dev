@@ -1,6 +1,7 @@
 packages:
   - client
   - server
+  - bun-server
 
 catalog:
   '@types/node': 22.20.1

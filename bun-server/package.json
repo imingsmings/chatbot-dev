@@ -1,0 +1,41 @@
+{
+  "name": "bun-server",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "bun": ">=1.4.0"
+  },
+  "scripts": {
+    "dev": "bun --watch ./bin/www.ts",
+    "start": "bun ./bin/www.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "node ../tests/bun-server/run-tests.mjs",
+    "auth:hash-password": "bun ./scripts/hash-password.ts",
+    "auth:generate-secrets": "bun ./scripts/generate-auth-secrets.ts",
+    "auth:revoke-all": "bun ./scripts/revoke-auth-sessions.ts"
+  },
+  "dependencies": {
+    "argon2": "0.45.1",
+    "busboy": "^1.6.0",
+    "cookie-parser": "1.4.7",
+    "debug": "4.4.3",
+    "dotenv": "17.4.2",
+    "express": "5.2.1",
+    "express-rate-limit": "8.6.2",
+    "fflate": "^0.8.3",
+    "http-errors": "2.0.1",
+    "jose": "6.2.9",
+    "morgan": "1.11.0"
+  },
+  "devDependencies": {
+    "@types/busboy": "^1.5.4",
+    "@types/cookie-parser": "1.4.10",
+    "@types/debug": "4.1.13",
+    "@types/express": "5.0.6",
+    "@types/http-errors": "2.0.5",
+    "@types/morgan": "1.9.10",
+    "@types/node": "catalog:",
+    "typescript": "catalog:"
+  }
+}
