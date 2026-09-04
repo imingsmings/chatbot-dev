@@ -3,7 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import http from 'node:http'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import test, { after, before } from 'node:test'
+import { afterAll, beforeAll, test } from 'bun:test'
 import { hashPassword } from '../../bun-server/security/password.ts'
 
 const tempRoot = await mkdtemp(path.join(tmpdir(), 'chatbot-auth-api-'))
@@ -34,7 +34,7 @@ const { closeAuthSessionStores } = await import('../../bun-server/utils/authSess
 let origin = ''
 let closeServer: (() => Promise<void>) | null = null
 
-before(async () => {
+beforeAll(async () => {
   const server = http.createServer(createApp({
     validateRuntime: false,
     clientHosting: { enabled: false, distDir: '' },
@@ -51,7 +51,7 @@ before(async () => {
   })
 })
 
-after(async () => {
+afterAll(async () => {
   await closeServer?.()
   closeAuthSessionStores()
   await rm(tempRoot, { recursive: true, force: true })

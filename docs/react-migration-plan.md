@@ -44,7 +44,7 @@ tests/cdp/              React-only 浏览器/API 回归
 
 React 的对应 Vitest 覆盖统一位于 `tests/client/**/*.test.*`，源码目录不再混放测试文件；迁移目录不降低测试门槛。
 
-迁移后工具链已进一步收口：根 pnpm workspace 统一 client/server 安装与 lockfile，TypeScript 版本由 catalog 单点管理，前后端通用编译规则放在 `tsconfig.base.json`。
+迁移后工具链已进一步收口：根 Bun workspace 统一 client/server/bun-server 安装与 `bun.lock`，TypeScript 版本由 catalog 单点管理，前后端通用编译规则放在 `tsconfig.base.json`。
 
 ## 迁移后的责任边界
 
@@ -89,10 +89,10 @@ React 的对应 Vitest 覆盖统一位于 `tests/client/**/*.test.*`，源码目
 ## 验收门槛
 
 ```bash
-pnpm run check
-pnpm run test:unit
-pnpm run build:client
-pnpm run test:cdp:all-mock
+bun run check
+bun run test:unit
+bun run build:client
+bun run test:cdp:all-mock
 ```
 
 生产收口另需验证 Express 托管、SPA 回退和 HTTPS，见 [生产部署说明](production-deployment.md)。

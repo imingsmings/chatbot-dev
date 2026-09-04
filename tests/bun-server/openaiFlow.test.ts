@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import test from 'node:test'
+import { test } from 'bun:test'
 import type { Conversation } from '../../bun-server/types/conversation.ts'
 import type { ToolExecutionEvent } from '../../bun-server/types/tools.ts'
 

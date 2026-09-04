@@ -2,7 +2,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import assert from 'node:assert/strict'
-import { after, test } from 'node:test'
+import { afterAll, test } from 'bun:test'
 
 const originalEnv = {
   CONVERSATION_DATA_DIR: process.env.CONVERSATION_DATA_DIR,
@@ -32,7 +32,7 @@ function restoreEnv(): void {
   }
 }
 
-after(async () => {
+afterAll(async () => {
   restoreEnv()
   await rm(dataDir, { recursive: true, force: true })
 })

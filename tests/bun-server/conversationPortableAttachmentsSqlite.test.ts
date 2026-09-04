@@ -3,7 +3,7 @@ import { createRequire } from 'node:module'
 import { mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { after, test } from 'node:test'
+import { afterAll, test } from 'bun:test'
 
 const requireNodeModule = createRequire(import.meta.url)
 const sqliteAvailable = (() => {
@@ -44,15 +44,14 @@ const PNG_1X1 = Buffer.from(
   'base64',
 )
 
-after(async () => {
+afterAll(async () => {
   closeConversationStore()
   process.env = originalEnv
   await rm(dataDir, { recursive: true, force: true })
 })
 
-test(
+test.skipIf(!sqliteAvailable)(
   'SQLite schema v2 ZIP preserves attachment bytes and remaps ownership',
-  { skip: sqliteAvailable ? false : 'node:sqlite is not available in this Node.js runtime' },
   async () => {
     const conversation = await createNewConversation('Portable SQLite')
     const attachment = await createImageAttachment(conversation.id, {

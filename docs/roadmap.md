@@ -4,20 +4,21 @@
 
 ## 当前结论
 
-- P0-P7、R8.0-R8.9、R9-R24 已完成；R24 在不改变 Node 生产基线的前提下交付了独立 Bun 后端。
-- 最近完成的编号阶段是 R24：独立 Bun 1.4 Express 后端、兼容测试、Node/Bun 契约对照、Bun Mock/真实 Provider CDP 与观测基准。
+- P0-P7、R8.0-R8.9、R9-R25 已完成；R25 将本地包管理、workspace、脚本编排和 Bun 后端测试迁移到 Bun 1.4。
+- 最近完成的编号阶段是 R25：`bun.lock` 权威依赖锁、Bun workspace/catalog、Bun 驱动的 Vite/Vitest/CDP，以及原生 `bun:test` 后端测试。
 - R21 静态、单元/API、构建、18/18 全量 Mock 与全量真实 Provider 已通过；Docker 实机新 Volume 恢复门禁按用户要求暂缓。
 - R23 静态检查、168 项服务端单测、114 项 React 单测、无重试 18/18 全量 Mock 和无重试全量真实 Provider 已通过；Docker 按用户要求不验证。
 - 2026-08-31 完成健康检查拆分、Provider 非 2xx 安全诊断和超时取消后立即重试协调；静态、172 项服务端单测、115 项 React 单测、18/18 全量 Mock 及全量真实 Provider 通过，Docker 运行验证按用户要求暂缓。
 - 2026-09-04 完成独立 Bun 后端；Node 177 项、Bun 45 个测试文件、React 119 项、契约对照、构建、无重试 Bun `all-mock` 及 DeepSeek/OpenAI 真实功能门禁通过，Docker 未执行；真实总入口的 Vite 清理问题随后完成聚焦修复验证。
-- 详细范围和交付证据见 [P0-R21 历史阶段记录](roadmap-history.md)、[R22 验收记录](r22-request-consistency-atomic-import-2026-08-29.md)、[R23 验收记录](r23-provider-aware-context-budget-2026-08-29.md)、[P1 工程可靠性优化验收记录](engineering-hardening-2026-08-31.md)与 [R24 验收记录](r24-bun-server-2026-09-04.md)。
+- 2026-09-04 完成 Bun 工具链迁移；冻结安装、静态检查、Node 177 项、Bun 174 项、React 119 项、契约对照、构建和无重试 Bun 全量 Mock 通过。真实 Provider 与 Docker 未执行。
+- 详细范围和交付证据见 [P0-R21 历史阶段记录](roadmap-history.md)、[R22 验收记录](r22-request-consistency-atomic-import-2026-08-29.md)、[R23 验收记录](r23-provider-aware-context-budget-2026-08-29.md)、[P1 工程可靠性优化验收记录](engineering-hardening-2026-08-31.md)、[R24 验收记录](r24-bun-server-2026-09-04.md)与 [R25 验收记录](r25-bun-toolchain-2026-09-04.md)。
 
 ## 当前基线
 
 ### 应用与模型
 
 - React 19 + TypeScript 7 + Vite 8；Tailwind CSS 4 + shadcn/ui Base UI + Lucide React。
-- Node `server/` 与 Bun `bun-server/` 是两套独立的 Express 5.2 + TypeScript 7 后端；与前端共用根 pnpm workspace、TypeScript catalog、基础 tsconfig 和 lockfile。
+- Node `server/` 与 Bun `bun-server/` 是两套独立的 Express 5.2 + TypeScript 7 后端；与前端共用根 Bun workspace/catalog、`bun.lock` 和基础 tsconfig。Node 后端只作为过渡与对照基线保留。
 - DeepSeek Chat Completions 与 OpenAI Responses adapters；支持 reasoning、模型能力参数和 Function Calling。
 - Provider SSE 经服务端转换为应用 NDJSON v2；DeepSeek `[DONE]` 和 OpenAI `response.completed` 是成功完成门禁。
 
@@ -42,7 +43,7 @@
 - production 默认启用单用户认证；除健康检查与认证入口外，API 需要短期 Bearer Access Token。
 - Access Token 只保存在 React 内存；Refresh Token 只存在于受限 Cookie，并由独立 SQLite Session Store 执行轮换、重放检测和撤销。
 - 单 Node Docker HTTPS 部署、只读 TLS 挂载、非 root 应用进程、持久化 `/app/data`、轻量 liveness、深度 readiness 和完整 Volume 备份恢复框架；Bun Docker 不在当前基线，R21 附件的新 Volume 实机恢复仍待补证。
-- Node test、Bun test、Node/Bun 契约对照、Vitest 与 CDP 覆盖聊天、存储、上下文、工具、Markdown、UI、认证和隔离门禁。
+- Node test 对照、原生 `bun:test`、Node/Bun 契约对照、Bun 驱动的 Vitest 与 CDP 覆盖聊天、存储、上下文、工具、Markdown、UI、认证和隔离门禁。
 
 ## 阶段矩阵
 
@@ -66,6 +67,11 @@
 | R22 | 请求幂等、断线结果恢复和批量导入原子性 | 功能与非 Docker 验收完成 |
 | R23 | Provider-aware 上下文预算 | 完成并验证（Docker 按要求未跑） |
 | R24 | 独立 Bun 后端、运行时兼容、契约对照与 Bun Mock/真实 Provider 回归 | 完成并验证（Docker 未跑） |
+| R25 | Bun 包管理、workspace/catalog、脚本执行与原生 `bun:test` | 完成并验证（Docker/真实 Provider 未跑） |
+| R26 | Bun 原生 SQLite 替换 Bun 后端的 `node:sqlite` | 待实施 |
+| R27 | `Bun.serve` 替换 Bun 后端 Express/Node HTTP 边界 | 待实施 |
+| R28 | 删除 Node 后端与 Node 对照链路，收口单一 Bun 应用 | 待实施 |
+| R29 | Bun 生产启动、Docker 镜像、备份恢复与部署门禁 | 待实施 |
 
 ## R21 图片附件与多模态理解
 
@@ -145,7 +151,27 @@ R21 不新增功能，只补齐部署证据。当前 Docker smoke 脚本已实�
 - 验收：Bun 类型检查与 45 个测试文件、Node/Bun API/流/重启持久化对照、无重试完整 Bun Mock CDP、DeepSeek/OpenAI 真实功能门禁、Node 基线和 React 构建全部通过；Vite 进程组清理另有 Node/Bun 单测与聚焦 CDP 自动退出证据。
 - 数据边界：两套后端默认数据目录隔离；并行运行时不得共享写入同一个 file/SQLite store。
 - 暂缓项：Bun Docker 镜像与容器验证；现有 Docker、生产启动与部署文档继续以 Node 为基线。
-- 非目标：`Bun.serve`、`bun:sqlite`、Bun 包管理、删除 Node 后端或一次性抽取共享业务包。
+- R24 当时的非目标：`Bun.serve`、`bun:sqlite`、Bun 包管理、删除 Node 后端或一次性抽取共享业务包；其中 Bun 包管理已由 R25 独立完成。
+
+## R25 Bun 工具链迁移
+
+状态：本地非 Docker 验收已完成。实现与证据见 [R25 验收记录](r25-bun-toolchain-2026-09-04.md)。
+
+- 直接价值：把日常安装、脚本、前端工具和 Bun 后端测试统一到一个运行时，减少双包管理器和 Node 兼容测试包装层带来的认知与维护成本。
+- 实现边界：`bun.lock` 成为权威锁文件；根 manifest 声明 Bun workspace/catalog 与 Argon2 trusted dependency；Vite、Vitest、TypeScript、Oxlint、CDP 和 runtime harness 由 Bun 调度。
+- 测试边界：45 个 Bun 后端测试文件改用 `bun:test`，共 174 项；Node 177 项仍作为过渡基线，不在 R25 删除。
+- 兼容边界：Express、`node:sqlite`、API、环境变量、file/SQLite schema 与 NDJSON v2 均不改变。
+- 暂缓项：现有 Node Docker 构建仍依赖临时保留的 pnpm workspace/lock，未在 R25 运行或保证可部署；真实 Provider 沿用 R24 功能证据，没有重复付费调用。
+- 回滚：恢复根 package manager/scripts 和 Bun 测试导入，删除 `bun.lock`/`bunfig.toml`，即可回到 R24 的 pnpm 工具链；无数据迁移。
+
+## Bun 完全迁移序列
+
+R25 只完成工具链，不等于运行时已经完全 Bun 化。后续按可独立回退的顺序推进：
+
+1. R26 用 `bun:sqlite` 替换 Bun 后端的 `node:sqlite`，先证明 file/SQLite、认证 Session 和导入原子性一致。
+2. R27 用 `Bun.serve` 接管 HTTP/HTTPS、路由适配、multipart、静态文件和流式背压，保持现有 API 与 NDJSON v2。
+3. R28 在 Bun 门禁稳定后删除 Node `server/`、Node 测试副本与 Node/Bun parity，仅保留一套业务实现。
+4. R29 最后迁移生产启动与 Docker，重新验证 TLS、非 root、健康检查、附件、Volume 备份恢复、SIGTERM 和镜像边界，并删除临时 pnpm 文件。
 
 ## 工程优化 Backlog
 
@@ -211,3 +237,4 @@ R21 已完成图片附件与多模态理解。以下功能继续保留为后续�
 - [R21 图片附件与 Vision 验收记录](r21-multimodal-vision-2026-08-24.md)
 - [P1 工程可靠性优化验收记录](engineering-hardening-2026-08-31.md)
 - [R24 独立 Bun 后端验收记录](r24-bun-server-2026-09-04.md)
+- [R25 Bun 工具链迁移验收记录](r25-bun-toolchain-2026-09-04.md)

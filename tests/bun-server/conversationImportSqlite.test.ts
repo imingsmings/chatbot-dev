@@ -2,7 +2,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import assert from 'node:assert/strict'
-import { after, test } from 'node:test'
+import { afterAll, test } from 'bun:test'
 
 const dataDir = await mkdtemp(path.join(tmpdir(), 'chatbot-import-sqlite-'))
 const originalEnv = { ...process.env }
@@ -11,7 +11,7 @@ process.env.CONVERSATION_DATA_DIR = dataDir
 process.env.CONVERSATION_DB_PATH = path.join(dataDir, 'import.sqlite3')
 process.env.CONVERSATION_STORE = 'sqlite'
 
-after(async () => {
+afterAll(async () => {
   process.env = originalEnv
   await rm(dataDir, { recursive: true, force: true })
 })

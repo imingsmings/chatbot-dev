@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { after, beforeEach, test } from 'node:test'
+import { afterAll, beforeEach, test } from 'bun:test'
 import {
   getCatalogDefaultModelId,
   getPublicModelCatalog,
@@ -16,7 +16,7 @@ beforeEach(() => {
   process.env = { ...originalEnv }
 })
 
-after(() => {
+afterAll(() => {
   process.env = originalEnv
 })
 

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { after, test } from 'node:test'
+import { afterAll, test } from 'bun:test'
 import {
   normalizeConversationModelOptions,
   parseConversationModelOptions,
@@ -10,7 +10,7 @@ import { validateStartupConfig, validateWeatherConfig } from '../../bun-server/u
 
 const originalEnv = { ...process.env }
 
-after(() => {
+afterAll(() => {
   process.env = originalEnv
 })
 

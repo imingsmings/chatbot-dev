@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { after, before, test } from 'node:test'
+import { afterAll, beforeAll, test } from 'bun:test'
 
 const dataDir = await mkdtemp(path.join(tmpdir(), 'chatbot-vision-flow-'))
 const originalEnv = { ...process.env }
@@ -27,7 +27,7 @@ const PNG_1X1 = Buffer.from(
   'base64',
 )
 
-before(() => {
+beforeAll(() => {
   globalThis.fetch = async (_url, options = {}) => {
     requests.push(JSON.parse(String(options.body ?? '{}')) as Record<string, unknown>)
     const payload = [
@@ -46,7 +46,7 @@ before(() => {
   }
 })
 
-after(async () => {
+afterAll(async () => {
   globalThis.fetch = originalFetch
   process.env = originalEnv
   await rm(dataDir, {

@@ -3,7 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import assert from 'node:assert/strict'
-import { after, before, test } from 'node:test'
+import { afterAll, beforeAll, test } from 'bun:test'
 
 const dataDir = await mkdtemp(path.join(tmpdir(), 'chatbot-summary-file-'))
 const originalFetch = globalThis.fetch
@@ -18,7 +18,7 @@ process.env.LLM_MODEL = 'summary-test-model'
 process.env.DEEPSEEK_API_KEY = 'summary-test-key'
 process.env.CONTEXT_MAX_HISTORY_MESSAGES = '1'
 
-before(() => {
+beforeAll(() => {
   globalThis.fetch = async (_url, options = {}) => {
     requests.push(JSON.parse(String(options.body || '{}')) as Record<string, unknown>)
     return new Response(JSON.stringify({
@@ -30,7 +30,7 @@ before(() => {
   }
 })
 
-after(async () => {
+afterAll(async () => {
   globalThis.fetch = originalFetch
   process.env = originalEnv
   await rm(dataDir, { recursive: true, force: true })

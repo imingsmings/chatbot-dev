@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { after, test } from 'node:test'
+import { afterAll, test } from 'bun:test'
 
 const dataDir = await mkdtemp(path.join(tmpdir(), 'chatbot-sqlite-migration-'))
 const conversationsDir = path.join(dataDir, 'file', 'conversations')
@@ -27,7 +27,7 @@ await writeFile(
 await writeFile(path.join(conversationsDir, 'conv_malformed_migration.json'), '{not-json', 'utf8')
 await writeFile(path.join(dataDir, 'file', 'conversations.json.migrated'), '{also-not-json', 'utf8')
 
-after(async () => {
+afterAll(async () => {
   closeConversationStore()
   process.env = originalEnv
   await rm(dataDir, { recursive: true, force: true })

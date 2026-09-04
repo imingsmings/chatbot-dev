@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { mkdtemp, readdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { after, test } from 'node:test'
+import { afterAll, test } from 'bun:test'
 import {
   strFromU8,
   strToU8,
@@ -35,7 +35,7 @@ const PNG_1X1 = Buffer.from(
   'base64',
 )
 
-after(async () => {
+afterAll(async () => {
   process.env = originalEnv
   await rm(dataDir, { recursive: true, force: true })
 })

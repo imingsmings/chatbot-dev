@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { after, test } from 'node:test'
+import { afterAll, test } from 'bun:test'
 import {
   MAX_CONVERSATION_TITLE_LENGTH,
   MAX_QUESTION_LENGTH,
@@ -15,7 +15,7 @@ const originalEnv = { ...process.env }
 process.env.CONVERSATION_DATA_DIR = dataDir
 process.env.CONVERSATION_STORE = 'file'
 
-after(async () => {
+afterAll(async () => {
   process.env = originalEnv
   await rm(dataDir, { recursive: true, force: true })
 })

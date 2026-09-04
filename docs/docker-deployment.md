@@ -2,6 +2,8 @@
 
 本文定义个人使用场景的 Docker 交付：单个 Node/Express 容器直接终止 HTTPS，同时提供 React 构建和 `/api/*`。不使用 Nginx/Caddy，不面向公网或多实例部署。
 
+> R25 已将根 `packageManager` 切换为 Bun，但本文件描述的镜像内部仍使用 pnpm。该组合在 R25 未构建、未运行、未验证，容器交付状态暂缓到 R29；下列命令和契约保留用于迁移与回归设计，不能视为当前通过证据。
+
 ## 拓扑与边界
 
 ```text
@@ -31,8 +33,8 @@
 
 `Dockerfile` 使用 Node 22 Debian slim 多阶段构建：
 
-1. `pnpm-base` 固定 pnpm 11.16，与仓库 `packageManager` 一致，仅供构建和依赖解析阶段使用。
-2. `build` 使用根 lockfile 安装完整 workspace 依赖并构建 React。
+1. `pnpm-base` 固定 pnpm 11.16，仅作为 R29 前的旧 Node Docker 构建输入，不代表当前本地 package manager。
+2. `build` 使用临时保留的 `pnpm-lock.yaml` 安装 workspace 依赖并构建 React；`bun.lock` 才是本地工具链权威锁。
 3. `production-dependencies` 解析 server 生产依赖，pnpm store 和 metadata 仅存在于 BuildKit cache mount。
 4. `runtime` 从原始 Node slim 重新开始，只复制生产 `node_modules`、server 源码和 `client/dist`，不包含 pnpm/Corepack 下载缓存。
 5. entrypoint 以 root 读取宿主机 `0600` 私钥并复制到容器临时目录，随后使用 `setpriv` 降权为官方 `node` 用户运行应用。
@@ -73,8 +75,8 @@ CONVERSATION_STORE=sqlite
 production 默认启用单用户认证。首次启动前生成密码哈希和两个不同的随机 secret：
 
 ```bash
-pnpm --dir server auth:hash-password
-pnpm --dir server auth:generate-secrets
+bun run --cwd server auth:hash-password
+bun run --cwd server auth:generate-secrets
 ```
 
 把输出手工写入同一个未提交的 `server/.env`：
@@ -108,7 +110,7 @@ Compose 将以下宿主机文件分别只读挂载：
 ```bash
 CHATBOT_TLS_CERT_SOURCE=/absolute/path/lan-cert.pem \
 CHATBOT_TLS_KEY_SOURCE=/absolute/path/lan-key.pem \
-pnpm run docker:up
+bun run docker:up
 ```
 
 这两个变量只改变宿主机 bind source。容器内目标路径、entrypoint 的权限收敛和 Node 读取路径不变。
@@ -147,10 +149,10 @@ docker compose run --rm --no-deps \
 ## 构建与启动
 
 ```bash
-pnpm run docker:config
-pnpm run docker:build
-pnpm run docker:up
-pnpm run docker:status
+bun run docker:config
+bun run docker:build
+bun run docker:up
+bun run docker:status
 ```
 
 默认地址：
@@ -163,10 +165,10 @@ pnpm run docker:status
 其他常用命令：
 
 ```bash
-pnpm run docker:logs
+bun run docker:logs
 docker compose restart chatbot
-pnpm run docker:stop
-pnpm run docker:down
+bun run docker:stop
+bun run docker:down
 ```
 
 `docker:down` 不删除 volume。禁止使用 `docker compose down -v` 作为普通停止或回滚命令。
@@ -176,7 +178,7 @@ pnpm run docker:down
 不调用真实模型的容器验收：
 
 ```bash
-pnpm run test:docker
+bun run test:docker
 ```
 
 2026-08-31 已扩展以下自动化范围，但按用户要求未执行 Docker Desktop、镜像、容器、页面或 Volume 验证。以下列表描述脚本应证明的契约，不是该日期的运行结果。
@@ -205,7 +207,7 @@ pnpm run test:docker
 NODE_TLS_REJECT_UNAUTHORIZED=0 \
 APP_URL=https://127.0.0.1:7001/ \
 CDP_SCREENSHOTS=1 \
-pnpm run test:cdp:docker-ui
+bun run test:cdp:docker-ui
 ```
 
 结果写入 `.tmp/docker-screenshots/`。
@@ -246,8 +248,8 @@ Compose healthcheck 请求 `GET /api/health/live`。该入口只返回进程是�
 备份必须覆盖整个 `/app/data` volume，不能只复制 SQLite 主文件；这样当 `conversations.sqlite3-wal`、`conversations.sqlite3-shm` 存在时，会与 file store、migration metadata、`attachments/` 原图及元数据 sidecar、`auth-sessions.sqlite3` 一并进入 tar。先停止服务，保证两个 SQLite store 及其 sidecar 不再变化：
 
 ```bash
-pnpm run docker:stop
-pnpm run docker:backup --output /absolute/safe/chatbot-backups
+bun run docker:stop
+bun run docker:backup --output /absolute/safe/chatbot-backups
 ```
 
 `docker:backup` 默认从已停止但仍存在的 Compose `chatbot` 容器发现 `/app/data` 的实际 volume 名；也可显式传入 `--volume <name>`。脚本会：
@@ -262,7 +264,7 @@ pnpm run docker:backup --output /absolute/safe/chatbot-backups
 恢复时必须使用一个从未存在过的新 volume 名：
 
 ```bash
-pnpm run docker:restore \
+bun run docker:restore \
   --manifest /absolute/safe/chatbot-backups/chatbot-data-时间.tar.manifest.json \
   --volume chatbot-data-restored-20260812
 ```
@@ -273,7 +275,7 @@ pnpm run docker:restore \
 
 ```bash
 export CHATBOT_DATA_VOLUME=chatbot-data-restored-20260812
-pnpm run docker:up:volume
+bun run docker:up:volume
 curl -skf https://127.0.0.1:7001/api/health/live
 curl -skf https://127.0.0.1:7001/api/health/ready
 ```
@@ -283,9 +285,9 @@ curl -skf https://127.0.0.1:7001/api/health/ready
 若恢复后的服务验收失败，停止当前容器，重新选择原 volume，而不是清空或覆盖恢复卷：
 
 ```bash
-pnpm run docker:stop
+bun run docker:stop
 export CHATBOT_DATA_VOLUME=切换前记录的原始_volume_名称
-pnpm run docker:up:volume
+bun run docker:up:volume
 ```
 
 应用回滚只切换镜像并保留当前 volume：
@@ -303,18 +305,18 @@ docker compose up -d
 
 ### 1. 源电脑冻结并取证
 
-1. 记录当前 Git revision、Node/pnpm/Docker 版本和实际数据 volume 名。
+1. 记录当前 Git revision、Bun/Node/Docker 版本和实际数据 volume 名。
 2. 通过 `/api/conversations/export.json` 保存一份仅用于比对的导出，至少记录会话数量并抽查包含 reasoning、summary 和 generation 的会话。
-3. 执行 `pnpm run docker:stop` 和 `docker:backup`，把 tar 与 manifest 安全传到目标电脑。
+3. 执行 `bun run docker:stop` 和 `docker:backup`，把 tar 与 manifest 安全传到目标电脑。
 4. 不删除源 volume，不执行 `docker compose down -v`。
 
 ### 2. 目标电脑重建运行配置与 TLS
 
-1. 拉取同一代码 revision，安装仓库声明的 Node 22 和 pnpm 11.16，启动 Docker Desktop。
+1. 拉取同一代码 revision，安装仓库声明的 Bun 1.4 和 Node 22，启动 Docker Desktop。
 2. 手工创建 `server/.env`，填写目标机需要的 provider endpoint、API key、认证用户名/哈希和新生成的两组 JWT secret；不要把源 `.env` 放进备份 tar 或 Git。使用新 secret 会让恢复卷中的历史 Refresh Session 自动失效，目标机需重新登录。
 3. 为目标机局域网 IP/DNS 名重新签发服务器证书，或通过 `CHATBOT_TLS_CERT_SOURCE` / `CHATBOT_TLS_KEY_SOURCE` 指向安全传入的服务器证书与私钥。
 4. 客户端只安装并信任签发者的根 CA **证书**；绝不分发 mkcert 根 CA 私钥。证书 SAN 必须包含实际访问的 IP 或 DNS 名。
-5. 执行 `pnpm install --frozen-lockfile` 和 `pnpm run docker:build`，不复制旧机器的 Docker volume 内部目录。
+5. 执行 `bun install --frozen-lockfile` 和 `bun run docker:build`，不复制旧机器的 Docker volume 内部目录。
 
 ### 3. 恢复并验收
 

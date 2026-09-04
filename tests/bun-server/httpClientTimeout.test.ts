@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { after, test } from 'node:test'
+import { afterAll, test } from 'bun:test'
 
 const originalEnv = { ...process.env }
 const originalFetch = globalThis.fetch
@@ -10,7 +10,7 @@ process.env.LLM_MODEL = 'deepseek-v4-flash'
 process.env.DEEPSEEK_API_KEY = 'timeout-test-key'
 process.env.LLM_TIMEOUT_MS = '20'
 
-after(() => {
+afterAll(() => {
   globalThis.fetch = originalFetch
   process.env = originalEnv
 })

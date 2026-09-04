@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { after, test } from 'node:test'
+import { afterAll, test } from 'bun:test'
 import type { Conversation } from '../../bun-server/types/conversation.ts'
 import type { ConversationStore } from '../../bun-server/utils/conversationStore/contracts.ts'
 
@@ -19,7 +19,7 @@ const { createSqliteConversationStore } = await import(
   '../../bun-server/utils/conversationStore/sqliteStore.ts'
 )
 
-after(async () => {
+afterAll(async () => {
   process.env = originalEnv
   await rm(dataDir, { recursive: true, force: true })
 })

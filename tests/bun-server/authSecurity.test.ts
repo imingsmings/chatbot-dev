@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import test, { after } from 'node:test'
+import { afterAll, test } from 'bun:test'
 import type { AuthConfig } from '../../bun-server/config/authConfig.ts'
 import { AuthError } from '../../bun-server/security/authErrors.ts'
 import {
@@ -42,7 +42,7 @@ const config: AuthConfig = {
   username: 'tester',
 }
 
-after(async () => {
+afterAll(async () => {
   closeAuthSessionStores()
   await rm(tempRoot, { recursive: true, force: true })
 })

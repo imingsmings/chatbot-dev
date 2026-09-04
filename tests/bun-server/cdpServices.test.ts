@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
-import test from 'node:test'
+import { test } from 'bun:test'
 import {
   delay,
   spawnProcess,
@@ -33,9 +33,7 @@ test('CDP process helpers time out and then fully stop a child process', async (
   }
 })
 
-test('CDP process helpers stop descendants in an isolated process group', {
-  skip: process.platform === 'win32',
-}, async () => {
+test.skipIf(process.platform === 'win32')('CDP process helpers stop descendants in an isolated process group', async () => {
   const processHandle = spawnProcess(process.execPath, [
     '-e',
     "const{spawn}=require('node:child_process');const child=spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{stdio:'ignore'});console.log(child.pid);setInterval(()=>{},1000)",

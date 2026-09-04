@@ -11,7 +11,7 @@ type ClientHostingConfig = {
 function assertClientBuild(config: ClientHostingConfig): string {
   const indexPath = join(config.distDir, 'index.html')
   if (!existsSync(indexPath)) {
-    throw new Error(`前端构建不存在：${indexPath}，请先运行 pnpm run build:client`)
+    throw new Error(`前端构建不存在：${indexPath}，请先运行 bun run build:client`)
   }
   return indexPath
 }

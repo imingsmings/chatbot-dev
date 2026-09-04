@@ -2,7 +2,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import assert from 'node:assert/strict'
-import { after, afterEach, test } from 'node:test'
+import { afterAll, afterEach, test } from 'bun:test'
 import { buildContextPreview } from '../../bun-server/services/contextDebugService.ts'
 import { buildContextMessages } from '../../bun-server/services/contextService.ts'
 import { assertToolContinuationWithinBudget } from '../../bun-server/services/contextBudgetService.ts'
@@ -145,7 +145,7 @@ function createMockLlmFetch() {
   }
 }
 
-after(async () => {
+afterAll(async () => {
   restoreEnv()
   globalThis.fetch = originalFetch
   await rm(answerDataDir, { recursive: true, force: true })

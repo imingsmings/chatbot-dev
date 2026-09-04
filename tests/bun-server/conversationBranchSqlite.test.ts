@@ -3,7 +3,7 @@ import { createRequire } from 'node:module'
 import { mkdtemp, mkdir, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { after, test } from 'node:test'
+import { afterAll, test } from 'bun:test'
 import type { Conversation } from '../../bun-server/types/conversation.ts'
 
 const requireNodeModule = createRequire(import.meta.url)
@@ -36,15 +36,14 @@ const {
   importConversation,
 } = await import('../../bun-server/utils/conversationStore.ts')
 
-after(async () => {
+afterAll(async () => {
   closeConversationStore()
   process.env = originalEnv
   await rm(dataDir, { recursive: true, force: true })
 })
 
-test(
+test.skipIf(!sqliteAvailable)(
   'SQLite branch preserves prefix metadata and leaves the source unchanged',
-  { skip: sqliteAvailable ? false : 'node:sqlite is not available in this Node.js runtime' },
   async () => {
     const source: Conversation = {
       id: 'conv_branch_sqlite_source',

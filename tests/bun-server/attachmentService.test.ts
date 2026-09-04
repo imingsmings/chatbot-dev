@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { after, test } from 'node:test'
+import { afterAll, test } from 'bun:test'
 
 const dataDir = await mkdtemp(path.join(tmpdir(), 'chatbot-attachments-'))
 const originalEnv = { ...process.env }
@@ -40,7 +40,7 @@ const WEBP_4X5 = Buffer.from([
   0x03, 0x00, 0x00, 0x04, 0x00, 0x00,
 ])
 
-after(async () => {
+afterAll(async () => {
   process.env = originalEnv
   await rm(dataDir, { recursive: true, force: true })
 })

@@ -17,6 +17,7 @@ function assert(condition, message) {
 
 const mockScript = String.raw`
 (() => {
+  window.__visionDocumentId = crypto.randomUUID();
   const originalFetch = window.fetch.bind(window);
   const storageKey = 'chatbot-vision-cdp-state';
   const pngBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9ZP4sAAAAASUVORK5CYII=';
@@ -431,7 +432,12 @@ async function main() {
     await client.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape' })
     await waitForEval(client, `!document.querySelector('[role="dialog"]')`)
 
+    const documentIdBeforeReload = await evaluate(client, `window.__visionDocumentId`)
     await client.send('Page.reload')
+    await waitForEval(
+      client,
+      `window.__visionDocumentId && window.__visionDocumentId !== ${JSON.stringify(documentIdBeforeReload)}`,
+    )
     await waitForEval(client, `Boolean(document.querySelector('img[alt="ready.png"]'))`)
     assertions.refresh = await evaluate(client, `(() => ({
       imageVisible: Boolean(document.querySelector('img[alt="ready.png"]')),

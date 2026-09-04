@@ -9,7 +9,7 @@
   "scripts": {
     "dev": "node --watch ./bin/www.ts",
     "start": "node ./bin/www.ts",
-    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "typecheck": "bun --bun tsc --noEmit -p tsconfig.json",
     "test": "node --test ../tests/server/*.test.ts",
     "test:context": "node --test ../tests/server/contextService.test.ts",
     "test:conversation-export": "node --test ../tests/server/conversationExport.test.ts ../tests/server/conversationExportSqlite.test.ts",

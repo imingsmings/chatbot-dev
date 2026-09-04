@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import test from 'node:test'
+import { test } from 'bun:test'
 import { getToolDefinitions } from '../../bun-server/services/toolService.ts'
 import openaiAdapter from '../../bun-server/utils/llm/adapters/openai.ts'
 import type { EffectiveModelOptions, LlmStreamWithToolsResult } from '../../bun-server/types/llm.ts'

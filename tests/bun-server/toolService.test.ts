@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { test } from 'node:test'
+import { test } from 'bun:test'
 import { calculateExpression, validateCalculatorArgs } from '../../bun-server/tools/calculatorTool.ts'
 import { validateCurrentTimeArgs } from '../../bun-server/tools/currentTimeTool.ts'
 import { executeToolCalls, getToolDefinitions } from '../../bun-server/services/toolService.ts'

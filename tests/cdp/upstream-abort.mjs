@@ -472,7 +472,7 @@ export default defineConfig({
     env: backendLaunch.env,
   })
 
-  const vite = spawnProcess('pnpm', ['exec', 'vite', '--config', VITE_TEST_CONFIG, '--configLoader', 'native', '--host', '127.0.0.1', '--port', VITE_PORT, '--strictPort'], {
+  const vite = spawnProcess('bun', ['--bun', 'vite', '--config', VITE_TEST_CONFIG, '--configLoader', 'native', '--host', '127.0.0.1', '--port', VITE_PORT, '--strictPort'], {
     cwd: clientRoot,
     env: process.env,
   })

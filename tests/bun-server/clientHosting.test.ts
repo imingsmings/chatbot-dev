@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import http from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import test from 'node:test'
+import { test } from 'bun:test'
 import { createApp } from '../../bun-server/app.ts'
 import { assertClientBuild } from '../../bun-server/config/clientHosting.ts'
 

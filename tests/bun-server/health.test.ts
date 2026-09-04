@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import http from 'node:http'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import test, { after } from 'node:test'
+import { afterAll, test } from 'bun:test'
 
 const testRoot = await mkdtemp(path.join(tmpdir(), 'chatbot-health-'))
 const dataDir = path.join(testRoot, 'data')
@@ -46,7 +46,7 @@ async function startTestServer(): Promise<TestServer> {
   }
 }
 
-after(async () => {
+afterAll(async () => {
   await rm(testRoot, { recursive: true, force: true })
 })
 

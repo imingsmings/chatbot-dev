@@ -2,7 +2,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import assert from 'node:assert/strict'
-import { after, afterEach, test } from 'node:test'
+import { afterAll, afterEach, test } from 'bun:test'
 import type { Conversation } from '../../bun-server/types/conversation.ts'
 import type { ModelRequestOptions } from '../../bun-server/types/llm.ts'
 
@@ -29,7 +29,7 @@ afterEach(() => {
   globalThis.fetch = originalFetch
 })
 
-after(async () => {
+afterAll(async () => {
   globalThis.fetch = originalFetch
   process.env = originalEnv
   await rm(dataDir, { recursive: true, force: true })

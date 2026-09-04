@@ -3,7 +3,7 @@ import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import assert from 'node:assert/strict'
-import { after, test } from 'node:test'
+import { afterAll, test } from 'bun:test'
 
 const requireNodeModule = createRequire(import.meta.url)
 const sqliteAvailable = (() => {
@@ -49,14 +49,13 @@ function restoreEnv(): void {
   }
 }
 
-after(async () => {
+afterAll(async () => {
   restoreEnv()
   await rm(dataDir, { recursive: true, force: true })
 })
 
-test(
+test.skipIf(!sqliteAvailable)(
   'searchConversationSummaries matches title and message content with SQLite store',
-  { skip: sqliteAvailable ? false : 'node:sqlite is not available in this Node.js runtime' },
   async () => {
     assert(serviceModule)
     assert(storeModule)
@@ -98,9 +97,8 @@ test(
   }
 )
 
-test(
+test.skipIf(!sqliteAvailable)(
   'searchConversationSummaries treats SQLite special-character queries as plain text',
-  { skip: sqliteAvailable ? false : 'node:sqlite is not available in this Node.js runtime' },
   async () => {
     assert(serviceModule)
     assert(storeModule)

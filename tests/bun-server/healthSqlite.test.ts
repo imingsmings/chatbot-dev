@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { chmod, mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import test, { after } from 'node:test'
+import { afterAll, test } from 'bun:test'
 
 const testRoot = await mkdtemp(path.join(tmpdir(), 'chatbot-health-sqlite-'))
 const dataDir = path.join(testRoot, 'read-only-data')
@@ -26,7 +26,7 @@ Object.assign(process.env, {
 const { getHealthStatus } = await import('../../bun-server/services/healthService.ts')
 const { closeConversationStore } = await import('../../bun-server/utils/conversationStore.ts')
 
-after(async () => {
+afterAll(async () => {
   closeConversationStore()
   await chmod(dataDir, 0o755).catch(() => undefined)
   await chmod(databaseDir, 0o755).catch(() => undefined)

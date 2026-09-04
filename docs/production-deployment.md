@@ -17,7 +17,7 @@ flowchart LR
 
 ## 前置条件
 
-- Node.js `>=22.18.0` 与 pnpm。
+- Bun `>=1.4.0` 用于安装、构建和脚本；Node.js `>=22.18.0` 用于当前 production 服务进程。
 - 已填写且未提交的 `server/.env`。
 - 已生成 Argon2id 密码哈希和两组不同的 JWT secret；生产不接受明文密码或缺失认证配置。
 - 可读的证书和私钥；私钥建议权限 `600`。
@@ -64,8 +64,8 @@ AUTH_COOKIE_SECURE=true
 认证配置先通过本地 CLI 生成，再手工填入 `.env`：
 
 ```bash
-pnpm --dir server auth:hash-password
-pnpm --dir server auth:generate-secrets
+bun run --cwd server auth:hash-password
+bun run --cwd server auth:generate-secrets
 ```
 
 至少配置 `AUTH_USERNAME`、`AUTH_PASSWORD_HASH`、`AUTH_ACCESS_TOKEN_SECRET` 和
@@ -75,10 +75,10 @@ pnpm --dir server auth:generate-secrets
 ## 构建与启动
 
 ```bash
-pnpm install --frozen-lockfile
-pnpm run audit:production
-pnpm run build
-pnpm run start:production
+bun install --frozen-lockfile
+bun run audit:production
+bun run build
+bun run start:production
 ```
 
 启动顺序会先校验：
@@ -92,7 +92,7 @@ pnpm run start:production
 
 任一项失败即退出，不会退回明文 HTTP。
 
-依赖由根 pnpm workspace 和单一 `pnpm-lock.yaml` 管理。`audit:production` 覆盖 client/server 的全部生产依赖；高级别已知漏洞会使门禁失败。
+依赖由根 Bun workspace 和权威 `bun.lock` 管理。`audit:production` 使用 Bun 审计整个 workspace 锁文件；high/critical 已知漏洞会使门禁失败。
 
 ## 验证
 
@@ -120,7 +120,7 @@ curl --fail --show-error https://localhost:7001/api/health/ready
 ## 运维边界
 
 - 启动前备份完整 `CONVERSATION_DATA_DIR`，同时覆盖会话和认证 Session SQLite/WAL。
-- 怀疑 Refresh Token 泄漏时运行 `pnpm --dir server auth:revoke-all` 或轮换 Refresh secret；两种方式都会要求重新登录。
+- 怀疑 Refresh Token 泄漏时运行 `bun run --cwd server auth:revoke-all` 或轮换 Refresh secret；两种方式都会要求重新登录。
 - 使用 launchd、systemd 或受控进程管理器负责开机启动、崩溃重启和日志轮转；仓库不绑定具体平台。
 - Provider 非 2xx 日志只保留限长、脱敏的结构化错误、Provider request id 和内部 correlation id。按客户端显示的 reference 定位日志，不要临时改为记录完整 Prompt、响应 body、Cookie、Token 或 API key。
 - 证书续期或主机/IP 变化后替换证书并重启，启动校验只检查有效期和密钥匹配，不负责自动续期。

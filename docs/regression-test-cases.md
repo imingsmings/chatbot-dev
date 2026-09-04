@@ -6,25 +6,28 @@
 
 | 门禁 | 命令 | 证明内容 |
 | --- | --- | --- |
-| 静态检查 | `pnpm run check` | Node/Bun Server 与 Client 共享 TS 7、普通/类型感知 Oxlint |
-| Node 后端单测 | `pnpm run test:server` | API、存储、Provider、工具、上下文和异常边界 |
-| Bun 后端测试 | `pnpm run test:bun-server` | 逐文件隔离执行 Bun 兼容测试，避免全局 mock/模块缓存互相污染 |
-| Node/Bun 契约对照 | `pnpm run test:backend-parity` | 健康、运行配置、会话、NDJSON v2、重命名和重启持久化归一化对照 |
-| React 单测 | `pnpm run test:client` | reducers、hooks、API、协议、Markdown、组件 |
-| 全部单测 | `pnpm run test:unit` | Node/Bun 后端 + React |
-| 生产构建 | `pnpm run build:client` | Vite 8 bundle、chunk 拆分、无 Vue runtime |
+| Bun 工具链守卫 | `bun run test:toolchain` | 根 package manager/workspace/catalog/lock、脚本调度和 45 个 `bun:test` 文件 |
+| 静态检查 | `bun run check` | Node/Bun Server 与 Client 共享 TS 7、普通/类型感知 Oxlint |
+| Node 后端单测 | `bun run test:server` | API、存储、Provider、工具、上下文和异常边界 |
+| Bun 后端测试 | `bun run test:bun-server` | 逐文件隔离执行 Bun 兼容测试，避免全局 mock/模块缓存互相污染 |
+| Node/Bun 契约对照 | `bun run test:backend-parity` | 健康、运行配置、会话、NDJSON v2、重命名和重启持久化归一化对照 |
+| React 单测 | `bun run test:client` | reducers、hooks、API、协议、Markdown、组件 |
+| 全部单测 | `bun run test:unit` | Node/Bun 后端 + React |
+| 生产构建 | `bun run build:client` | Vite 8 bundle、chunk 拆分、无 Vue runtime |
 | 生产托管 | `tests/server/clientHosting.test.ts` | 构建 fail-fast、SPA、API 隔离、缓存和安全头 |
 | HTTPS 配置 | `tests/server/deploymentConfig.test.ts` | production defaults、路径、布尔/端口和证书异常 |
-| Docker 容器 | `pnpm run test:docker` | Compose、运行镜像约束、证书覆盖、HTTPS、live/ready、SQLite、附件、requestId 跨重启重放、停止备份、新卷恢复、校验和、源卷不变和 SIGTERM |
-| Docker 页面 | `pnpm run test:cdp:docker-ui` | 容器 HTTPS 页面、登录、附件缩略图/受保护原图预览、历史图片续问、模型控件和横向溢出；截图可选 |
-| 浏览器回归 | `pnpm run test:cdp:all-mock` | 完整 React UI/API mock 矩阵 |
-| Bun 浏览器回归 | `pnpm run test:cdp:all-mock:bun` | 将真实后端、取消和 P0 API 场景切换到 Bun；其余 UI 继续复用同一 Mock 契约 |
-| 运行时观测基准 | `pnpm run benchmark:backends` | 同机冷启动、空闲 RSS、健康接口 P50/P95 和首个流块；只报告、不作为跨机器硬门禁 |
-| 图片附件浏览器专项 | `pnpm run test:cdp:image-attachments` | 上传、文本加图/仅图片、受保护预览、刷新、失败重试、模型拦截、分支、停止和 390px 边界 |
-| 真实接口套件 | `pnpm run test:cdp:all-real` | 隔离端口/临时 file store；DeepSeek V4 Pro UI/上下文/Markdown、OpenAI Responses、DeepSeek Flash/Pro 8 组参数，以及使用固定非隐私图片的 DeepSeek Vision 识图/刷新/分支/仅图片/停止/ZIP；需明确确认 |
-| 生产依赖审计 | `pnpm run audit:production` | 根 workspace 全部生产依赖，要求 0 已知漏洞 |
+| Docker 容器 | `bun run test:docker` | Compose、运行镜像约束、证书覆盖、HTTPS、live/ready、SQLite、附件、requestId 跨重启重放、停止备份、新卷恢复、校验和、源卷不变和 SIGTERM |
+| Docker 页面 | `bun run test:cdp:docker-ui` | 容器 HTTPS 页面、登录、附件缩略图/受保护原图预览、历史图片续问、模型控件和横向溢出；截图可选 |
+| 浏览器回归 | `bun run test:cdp:all-mock` | 完整 React UI/API mock 矩阵 |
+| Bun 浏览器回归 | `bun run test:cdp:all-mock:bun` | 将真实后端、取消和 P0 API 场景切换到 Bun；其余 UI 继续复用同一 Mock 契约 |
+| 运行时观测基准 | `bun run benchmark:backends` | 同机冷启动、空闲 RSS、健康接口 P50/P95 和首个流块；只报告、不作为跨机器硬门禁 |
+| 图片附件浏览器专项 | `bun run test:cdp:image-attachments` | 上传、文本加图/仅图片、受保护预览、刷新、失败重试、模型拦截、分支、停止和 390px 边界 |
+| 真实接口套件 | `bun run test:cdp:all-real` | 隔离端口/临时 file store；DeepSeek V4 Pro UI/上下文/Markdown、OpenAI Responses、DeepSeek Flash/Pro 8 组参数，以及使用固定非隐私图片的 DeepSeek Vision 识图/刷新/分支/仅图片/停止/ZIP；需明确确认 |
+| 依赖审计 | `bun run audit:production` | `bun.lock` 中全部 workspace 依赖的 high/critical 漏洞，要求 0 |
 
 2026-09-04 的 Bun 交付通过 `check`、Node 177 项、Bun 45 个测试文件、React 119 项、契约对照、生产构建、无重试 Bun `all-mock` 及 DeepSeek/OpenAI 真实功能门禁。Docker 未执行；真实总入口清理问题的修复采用 Node/Bun 进程组单测和聚焦 CDP 自动退出验证，详细证据边界见 [R24 验收记录](r24-bun-server-2026-09-04.md)。
+
+同日 R25 将本地工具链迁移到 Bun 1.4：冻结安装、工具链守卫、`check`、Node 177 项、原生 Bun 174 项、React 119 项、契约对照、Vite 构建和无重试 Bun `all-mock` 通过。图片专项首次暴露 reload 断言可能读取旧 document，增加 document-id 换代门禁后专项与全量均通过。未调用真实 Provider，未运行 Docker，见 [R25 验收记录](r25-bun-toolchain-2026-09-04.md)。
 
 ## React 单元边界
 
@@ -76,22 +79,22 @@
 
 | Suite | 入口 | 主要覆盖 |
 | --- | --- | --- |
-| P0 | `pnpm run test:cdp:p0` | ask/stop/cancel、会话 API、工具、核心 UI |
-| P1 | `pnpm run test:cdp:p1` | UI、Markdown、高亮、边界状态 |
-| UI | `pnpm run test:cdp:ui` | 七个独立入口：会话操作、流式恢复、滚动/布局、流性能、模型菜单、会话模型配置、自定义模板 |
-| Stream performance | `pnpm run test:cdp:stream-performance` | 4KB/24KB/80KB、200 条历史、更新次数、可见延迟、long task、历史行渲染和滚动次数 |
-| Request recovery | `pnpm run test:cdp:request-recovery` | 服务端已保存答案但流缺失 done 时查询一次终态、回拉原回答且不重复持久化 |
-| Context | `pnpm run test:cdp:context-debug` | 实际上下文、模型上限、预算组成/裁剪统计、移动布局 |
-| Search | `pnpm run test:cdp:conversation-search` | 输入、跳转、空/错/竞态 |
-| Export | `pnpm run test:cdp:conversation-export` | 下载、文件名、JSON 备份 |
-| Roadmap | `pnpm run test:cdp:roadmap` | 摘要、导入、模型参数、模板、工具状态、长 Markdown |
-| Sidebar | `pnpm run test:cdp:sidebar-state` | 操作等待态、连点互斥和失败恢复 |
-| Model options | `pnpm run test:cdp:model-options-persistence` | A/B/刷新恢复、保存等待态、单 PATCH、失败回滚/重试、实际 ask 参数、服务端独有模型/能力、禁用状态和空目录 fail-closed |
-| Prompt templates | `pnpm run test:cdp:prompt-templates` | 新增、编辑、二次确认删除、刷新持久化、变量填充、导入导出、损坏文件和 390px 布局 |
-| Image attachments | `pnpm run test:cdp:image-attachments` | 上传完成/失败、图片消息、Blob 预览、刷新、分支复制、文本模型阻止、停止持久化和移动端元素边界 |
-| Authentication | `pnpm run test:cdp:authentication` | 未登录不预载、限速提示、内存 Token、401 单次刷新重放和 logout |
-| All mock | `pnpm run test:cdp:all-mock` | 上述去重后的 18-script 完整集合 |
-| Bun all mock | `pnpm run test:cdp:all-mock:bun` | 复用完整集合并把实际启动的后端切到 `bun-server/`；只使用本地 Mock Provider |
+| P0 | `bun run test:cdp:p0` | ask/stop/cancel、会话 API、工具、核心 UI |
+| P1 | `bun run test:cdp:p1` | UI、Markdown、高亮、边界状态 |
+| UI | `bun run test:cdp:ui` | 七个独立入口：会话操作、流式恢复、滚动/布局、流性能、模型菜单、会话模型配置、自定义模板 |
+| Stream performance | `bun run test:cdp:stream-performance` | 4KB/24KB/80KB、200 条历史、更新次数、可见延迟、long task、历史行渲染和滚动次数 |
+| Request recovery | `bun run test:cdp:request-recovery` | 服务端已保存答案但流缺失 done 时查询一次终态、回拉原回答且不重复持久化 |
+| Context | `bun run test:cdp:context-debug` | 实际上下文、模型上限、预算组成/裁剪统计、移动布局 |
+| Search | `bun run test:cdp:conversation-search` | 输入、跳转、空/错/竞态 |
+| Export | `bun run test:cdp:conversation-export` | 下载、文件名、JSON 备份 |
+| Roadmap | `bun run test:cdp:roadmap` | 摘要、导入、模型参数、模板、工具状态、长 Markdown |
+| Sidebar | `bun run test:cdp:sidebar-state` | 操作等待态、连点互斥和失败恢复 |
+| Model options | `bun run test:cdp:model-options-persistence` | A/B/刷新恢复、保存等待态、单 PATCH、失败回滚/重试、实际 ask 参数、服务端独有模型/能力、禁用状态和空目录 fail-closed |
+| Prompt templates | `bun run test:cdp:prompt-templates` | 新增、编辑、二次确认删除、刷新持久化、变量填充、导入导出、损坏文件和 390px 布局 |
+| Image attachments | `bun run test:cdp:image-attachments` | 上传完成/失败、图片消息、Blob 预览、刷新、分支复制、文本模型阻止、停止持久化和移动端元素边界 |
+| Authentication | `bun run test:cdp:authentication` | 未登录不预载、限速提示、内存 Token、401 单次刷新重放和 logout |
+| All mock | `bun run test:cdp:all-mock` | 上述去重后的 18-script 完整集合 |
+| Bun all mock | `bun run test:cdp:all-mock:bun` | 复用完整集合并把实际启动的后端切到 `bun-server/`；只使用本地 Mock Provider |
 
 UI 七个入口位于 `tests/cdp/scenarios/ui/`，分别包含会话操作、流式恢复、滚动/布局、流性能、模型菜单、会话模型配置持久化和自定义模板管理的真实场景实现，并复用 `scenarios/ui/harness.mjs` 及底层 CDP helpers。`ui-scenarios.mjs` 只负责按入口调度；任一模块失败都会返回非零退出码并标明所属场景。
 
@@ -147,10 +150,10 @@ UI 七个入口位于 `tests/cdp/scenarios/ui/`，分别包含会话操作、流
 真实 runner 自动使用临时 Argon2id 凭据、独立 JWT secret 和认证 Session DB；浏览器与直接 API 清理请求都先登录，测试结束删除隔离数据目录：
 
 ```bash
-pnpm run test:cdp:real
-pnpm run test:cdp:real-model-options
-pnpm run test:cdp:real-openai
-pnpm run test:cdp:real-vision
+bun run test:cdp:real
+bun run test:cdp:real-model-options
+bun run test:cdp:real-openai
+bun run test:cdp:real-vision
 ```
 
 四个专项命令和 `all-real` 都通过 `run-all-real.mjs` 分配随机端口和临时 file store；`all-real` 以 DeepSeek V4 Pro 为默认模型跑 UI/上下文/Markdown，并覆盖 OpenAI Responses；随后跑 Flash 与 Pro 的 Off/Low/Medium/High，最后使用固定非隐私图片跑 Vision 纯文本工具、识图、刷新、分支、仅图片、停止/恢复、完整识别报告、窄屏与 ZIP 门禁。R23 在真实文本上下文中断言所选模型估算器、持久化历史、问题/工具预算和总量不超过本地上限，在 Vision 上下文中额外断言图片预算进入统一估算。8 组参数矩阵是当前代表性兼容门禁，不是所有模型、参数与档位的笛卡尔积；DeepSeek `max` 未包含在该付费矩阵中。已禁用的 GPT-5.6 Sol 只验证禁用状态，不发送真实请求。

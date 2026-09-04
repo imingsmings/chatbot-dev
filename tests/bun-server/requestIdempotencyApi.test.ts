@@ -3,7 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import http from 'node:http'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { after, before, test } from 'node:test'
+import { afterAll, beforeAll, test } from 'bun:test'
 
 const dataDir = await mkdtemp(path.join(tmpdir(), 'chatbot-request-api-'))
 const originalEnv = { ...process.env }
@@ -37,7 +37,7 @@ let providerResponder = async (_init?: RequestInit): Promise<Response> => new Re
   headers: { 'Content-Type': 'text/event-stream' }
 })
 
-before(async () => {
+beforeAll(async () => {
   const server = http.createServer(createApp({
     validateRuntime: false,
     clientHosting: { enabled: false, distDir: '' }
@@ -62,7 +62,7 @@ before(async () => {
   }
 })
 
-after(async () => {
+afterAll(async () => {
   globalThis.fetch = originalFetch
   await closeServer?.()
   process.env = originalEnv

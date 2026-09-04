@@ -3,7 +3,7 @@ import http from 'node:http'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { after, before, test } from 'node:test'
+import { afterAll, beforeAll, test } from 'bun:test'
 
 const dataDir = await mkdtemp(path.join(tmpdir(), 'chatbot-attachment-api-'))
 const originalEnv = { ...process.env }
@@ -26,7 +26,7 @@ const PNG_1X1 = Buffer.from(
 let server: http.Server
 let origin = ''
 
-before(async () => {
+beforeAll(async () => {
   server = http.createServer(createApp({
     validateRuntime: false,
     clientHosting: { enabled: false, distDir: '' },
@@ -40,7 +40,7 @@ before(async () => {
   origin = `http://127.0.0.1:${address.port}`
 })
 
-after(async () => {
+afterAll(async () => {
   await new Promise<void>((resolve, reject) => {
     server.close((error) => error ? reject(error) : resolve())
   })

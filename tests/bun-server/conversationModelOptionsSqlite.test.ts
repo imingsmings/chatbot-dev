@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import { after, test } from 'node:test'
+import { afterAll, test } from 'bun:test'
 import type { ConversationModelOptions } from '../../bun-server/types/conversation.ts'
 
 const dataDir = await mkdtemp(path.join(tmpdir(), 'chatbot-model-options-sqlite-'))
@@ -67,7 +67,7 @@ const options: ConversationModelOptions = {
   maxTokens: 8192,
 }
 
-after(async () => {
+afterAll(async () => {
   closeConversationStore()
   process.env = originalEnv
   await rm(dataDir, { recursive: true, force: true })

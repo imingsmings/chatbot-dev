@@ -6,7 +6,7 @@
     "moduleResolution": "NodeNext",
     "allowImportingTsExtensions": true,
     "erasableSyntaxOnly": true,
-    "types": ["node"]
+    "types": ["node", "bun-types/test"]
   },
   "include": ["./**/*.ts", "../tests/bun-server/**/*.ts"],
   "exclude": ["node_modules", "data"]

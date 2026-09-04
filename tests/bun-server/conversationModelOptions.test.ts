@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import http from 'node:http'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { after, before, test } from 'node:test'
+import { afterAll, beforeAll, test } from 'bun:test'
 import type { Conversation, ConversationModelOptions } from '../../bun-server/types/conversation.ts'
 
 const dataDir = await mkdtemp(path.join(tmpdir(), 'chatbot-model-options-file-'))
@@ -44,7 +44,7 @@ const proOptions: ConversationModelOptions = {
 let origin = ''
 let server: http.Server
 
-before(async () => {
+beforeAll(async () => {
   const app = createApp({ validateRuntime: false, clientHosting: { enabled: false, distDir: '' } })
   server = http.createServer(app)
   await new Promise<void>((resolve, reject) => {
@@ -56,7 +56,7 @@ before(async () => {
   origin = `http://127.0.0.1:${address.port}`
 })
 
-after(async () => {
+afterAll(async () => {
   globalThis.fetch = originalFetch
   await new Promise<void>((resolve, reject) => {
     server.close((error) => error ? reject(error) : resolve())

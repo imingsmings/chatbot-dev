@@ -15,15 +15,15 @@
 
 ## 命令
 
-依赖、TypeScript 7.0.2 catalog 和 lockfile 由仓库根 workspace 统一管理；先在仓库根目录安装：
+依赖、TypeScript 7.0.2 catalog 和 `bun.lock` 由仓库根 Bun workspace 统一管理；先在仓库根目录安装：
 
 ```bash
-pnpm install --frozen-lockfile
-pnpm --dir client dev
-pnpm --dir client typecheck
-pnpm --dir client lint
-pnpm --dir client test:unit
-pnpm --dir client build
+bun install --frozen-lockfile
+bun run --cwd client dev
+bun run --cwd client typecheck
+bun run --cwd client lint
+bun run --cwd client test:unit
+bun run --cwd client build
 ```
 
 开发服务器监听 `0.0.0.0:5173`，`/api` 原样代理到 `http://127.0.0.1:7001`。生产环境不运行 Vite，由 Express 同源托管 `dist/`；见 [`../docs/production-deployment.md`](../docs/production-deployment.md)。

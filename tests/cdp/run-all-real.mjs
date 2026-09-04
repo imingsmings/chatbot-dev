@@ -109,7 +109,7 @@ async function main() {
         console.log(`Real model response wait timeout: ${realModelWaitTimeoutMs}ms`)
       }
       try {
-        child = spawn('node', ['tests/cdp/run-cdp-regression.mjs', run.suite], {
+        child = spawn(process.env.BUN_BINARY || 'bun', ['tests/cdp/run-cdp-regression.mjs', run.suite], {
           cwd: process.cwd(),
           env: {
             ...process.env,

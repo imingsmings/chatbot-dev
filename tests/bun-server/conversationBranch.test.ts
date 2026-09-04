@@ -3,7 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import http from 'node:http'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { after, before, test } from 'node:test'
+import { afterAll, beforeAll, test } from 'bun:test'
 import {
   MAX_CONVERSATION_TITLE_LENGTH,
   MAX_QUESTION_LENGTH,
@@ -81,7 +81,7 @@ async function postBranch(id: string, body: unknown) {
   })
 }
 
-before(async () => {
+beforeAll(async () => {
   const app = createApp({
     validateRuntime: false,
     clientHosting: { enabled: false, distDir: '' },
@@ -96,7 +96,7 @@ before(async () => {
   origin = `http://127.0.0.1:${address.port}`
 })
 
-after(async () => {
+afterAll(async () => {
   await new Promise<void>((resolve, reject) => {
     server.close((error) => error ? reject(error) : resolve())
   })

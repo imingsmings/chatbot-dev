@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { after, test } from 'node:test'
+import { afterAll, test } from 'bun:test'
 
 const dataDir = await mkdtemp(path.join(tmpdir(), 'chatbot-store-reliability-'))
 const originalEnv = { ...process.env }
@@ -15,7 +15,7 @@ process.env.LLM_ENDPOINT = 'http://mock.local/chat/completions'
 process.env.LLM_MODEL = 'store-reliability-model'
 process.env.DEEPSEEK_API_KEY = 'store-reliability-key'
 
-after(async () => {
+afterAll(async () => {
   globalThis.fetch = originalFetch
   process.env = originalEnv
   await rm(dataDir, { recursive: true, force: true })

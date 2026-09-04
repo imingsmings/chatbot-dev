@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "engines": {
+    "bun": ">=1.4.0",
     "node": ">=22.18.0"
   },
   "imports": {
@@ -16,17 +17,17 @@
     "#utils/*": "./src/utils/*.ts"
   },
   "scripts": {
-    "dev": "vite",
-    "build": "pnpm run typecheck && pnpm run build-only",
-    "build-only": "vite build",
-    "preview": "vite preview",
-    "typecheck": "tsc -b --pretty false",
-    "lint": "pnpm --dir .. run lint:client",
-    "lint:standard": "pnpm --dir .. run lint:client:standard",
-    "lint:type-aware": "pnpm --dir .. run lint:client:type-aware",
-    "test": "vitest run",
-    "test:unit": "vitest run",
-    "test:watch": "vitest"
+    "dev": "bun --bun vite",
+    "build": "bun run typecheck && bun run build-only",
+    "build-only": "bun --bun vite build",
+    "preview": "bun --bun vite preview",
+    "typecheck": "bun --bun tsc -b --pretty false",
+    "lint": "bun run --cwd .. lint:client",
+    "lint:standard": "bun run --cwd .. lint:client:standard",
+    "lint:type-aware": "bun run --cwd .. lint:client:type-aware",
+    "test": "bun --bun vitest run",
+    "test:unit": "bun --bun vitest run",
+    "test:watch": "bun --bun vitest"
   },
   "dependencies": {
     "@base-ui/react": "1.6.0",

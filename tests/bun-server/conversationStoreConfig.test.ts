@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { after, beforeEach, test } from 'node:test'
+import { afterAll, beforeEach, test } from 'bun:test'
 import { readConversationStoreKind } from '../../bun-server/config/conversationStoreConfig.ts'
 
 const originalEnv = { ...process.env }
@@ -9,7 +9,7 @@ beforeEach(() => {
   delete process.env.CONVERSATION_STORE
 })
 
-after(() => {
+afterAll(() => {
   process.env = originalEnv
 })
 

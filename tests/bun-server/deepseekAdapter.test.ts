@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import test from 'node:test'
+import { test } from 'bun:test'
 import deepseekAdapter from '../../bun-server/utils/llm/adapters/deepseek.ts'
 
 test('DeepSeek adapter accepts SSE data fields with or without a space', () => {

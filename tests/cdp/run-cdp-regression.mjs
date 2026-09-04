@@ -4,6 +4,7 @@ import { extractLastJsonObject, writeSuiteResult } from './helpers/results.mjs'
 import { spawnProcess, stopProcess, waitForHttp, waitForProcessExit } from './helpers/services.mjs'
 
 const REPO_ROOT = process.cwd()
+const BUN_BINARY = process.env.BUN_BINARY || 'bun'
 const APP_URL = process.env.APP_URL || 'http://127.0.0.1:5173/'
 const CLIENT_DIR = process.env.CDP_CLIENT_DIR || 'client'
 const VITE_PORT = process.env.VITE_PORT || new URL(APP_URL).port || '5173'
@@ -205,8 +206,8 @@ async function ensureVite() {
   }
 
   const vite = spawnProcess(
-    'pnpm',
-    ['exec', 'vite', '--host', '127.0.0.1', '--port', VITE_PORT, '--strictPort'],
+    BUN_BINARY,
+    ['--bun', 'vite', '--host', '127.0.0.1', '--port', VITE_PORT, '--strictPort'],
     {
       cwd: path.join(REPO_ROOT, CLIENT_DIR),
       env: process.env,
@@ -258,7 +259,7 @@ async function runScript(item) {
   for (let attempt = 1; attempt <= maxRetries + 1; attempt += 1) {
     console.log(`\n==> ${item.name}${maxRetries ? ` (attempt ${attempt}/${maxRetries + 1})` : ''}`)
 
-    const processHandle = spawnProcess('node', [item.script], {
+    const processHandle = spawnProcess(BUN_BINARY, [item.script], {
       cwd: REPO_ROOT,
       killGroup: true,
       env: {
@@ -307,7 +308,7 @@ async function main() {
   const suite = SUITES[suiteName]
 
   if (!suite) {
-    console.error(`Usage: node tests/cdp/run-cdp-regression.mjs <${Object.keys(SUITES).join('|')}>`)
+    console.error(`Usage: bun tests/cdp/run-cdp-regression.mjs <${Object.keys(SUITES).join('|')}>`)
     process.exitCode = 1
     return
   }

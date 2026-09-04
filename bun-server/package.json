@@ -9,8 +9,8 @@
   "scripts": {
     "dev": "bun --watch ./bin/www.ts",
     "start": "bun ./bin/www.ts",
-    "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "node ../tests/bun-server/run-tests.mjs",
+    "typecheck": "bun --bun tsc --noEmit -p tsconfig.json",
+    "test": "bun test --timeout=30000 --isolate --parallel=1 ../tests/bun-server",
     "auth:hash-password": "bun ./scripts/hash-password.ts",
     "auth:generate-secrets": "bun ./scripts/generate-auth-secrets.ts",
     "auth:revoke-all": "bun ./scripts/revoke-auth-sessions.ts"
@@ -36,6 +36,7 @@
     "@types/http-errors": "2.0.5",
     "@types/morgan": "1.9.10",
     "@types/node": "catalog:",
+    "bun-types": "catalog:",
     "typescript": "catalog:"
   }
 }

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import test from 'node:test'
+import { test } from 'bun:test'
 import { writeStreamEvent } from '../../bun-server/utils/ndjsonStream.ts'
 
 type StreamResponse = Parameters<typeof writeStreamEvent>[0]
