@@ -368,8 +368,8 @@ test('summary generation is cancelled through the shared request registry during
 
   try {
     const requestPromise = summarizeConversation(
-      request as Parameters<typeof summarizeConversation>[0],
-      response as Parameters<typeof summarizeConversation>[1],
+      request as unknown as Parameters<typeof summarizeConversation>[0],
+      response as unknown as Parameters<typeof summarizeConversation>[1],
       next,
     )
     await fetchStarted

@@ -1,21 +1,23 @@
 # 回归测试矩阵
 
-当前测试对象是唯一的 React 客户端、Node Express 后端和独立 Bun Express 后端。默认使用 mock、fixture 和临时存储，不调用真实模型、天气或生产集成，不生成截图。
+当前测试对象是唯一的 React 客户端、Node Express 后端和独立 `Bun.serve` 后端。默认使用 mock、fixture 和临时存储，不调用真实模型、天气或生产集成，不生成截图。
 
 ## 交付门禁
 
 | 门禁 | 命令 | 证明内容 |
 | --- | --- | --- |
-| Bun 工具链守卫 | `bun run test:toolchain` | 根 package manager/workspace/catalog/lock、脚本调度和 45 个 `bun:test` 文件 |
+| Bun 工具链守卫 | `bun run test:toolchain` | 根 package manager/workspace/catalog/lock、脚本调度、45 个 `bun:test` 文件，以及 Bun 后端不存在 `node:sqlite`、Express/Busboy 依赖或 Node HTTP/HTTPS 运行时导入 |
 | 静态检查 | `bun run check` | Node/Bun Server 与 Client 共享 TS 7、普通/类型感知 Oxlint |
 | Node 后端单测 | `bun run test:server` | API、存储、Provider、工具、上下文和异常边界 |
 | Bun 后端测试 | `bun run test:bun-server` | 逐文件隔离执行 Bun 兼容测试，避免全局 mock/模块缓存互相污染 |
-| Node/Bun 契约对照 | `bun run test:backend-parity` | 健康、运行配置、会话、NDJSON v2、重命名和重启持久化归一化对照 |
+| Node/Bun 契约对照 | `bun run test:backend-parity` | file/SQLite 的健康、运行配置、会话、NDJSON v2、重命名和重启持久化归一化对照 |
+| SQLite 运行时兼容 | `bun run test:sqlite-runtime-compatibility` | Node 写入 → Bun 读取/更新 → Node 回读同一 SQLite 数据库，且运行时切换不重放 Provider 请求 |
+| Bun HTTP/HTTPS 运行时 | `bun run test:bun-http-runtime` | 真实 `Bun.serve` HTTPS、TLS、安全头、运行时 SQLite、SIGTERM 优雅退出和临时文件清理 |
 | React 单测 | `bun run test:client` | reducers、hooks、API、协议、Markdown、组件 |
 | 全部单测 | `bun run test:unit` | Node/Bun 后端 + React |
 | 生产构建 | `bun run build:client` | Vite 8 bundle、chunk 拆分、无 Vue runtime |
-| 生产托管 | `tests/server/clientHosting.test.ts` | 构建 fail-fast、SPA、API 隔离、缓存和安全头 |
-| HTTPS 配置 | `tests/server/deploymentConfig.test.ts` | production defaults、路径、布尔/端口和证书异常 |
+| 生产托管 | `tests/server/clientHosting.test.ts` + `tests/bun-server/clientHosting.test.ts` | 两套运行时的构建 fail-fast、SPA、API 隔离、缓存和安全头 |
+| HTTPS 配置 | Node/Bun `deploymentConfig.test.ts` + `test:bun-http-runtime` | production defaults、路径、布尔/端口、证书异常和真实 Bun TLS 启停 |
 | Docker 容器 | `bun run test:docker` | Compose、运行镜像约束、证书覆盖、HTTPS、live/ready、SQLite、附件、requestId 跨重启重放、停止备份、新卷恢复、校验和、源卷不变和 SIGTERM |
 | Docker 页面 | `bun run test:cdp:docker-ui` | 容器 HTTPS 页面、登录、附件缩略图/受保护原图预览、历史图片续问、模型控件和横向溢出；截图可选 |
 | 浏览器回归 | `bun run test:cdp:all-mock` | 完整 React UI/API mock 矩阵 |
@@ -28,6 +30,10 @@
 2026-09-04 的 Bun 交付通过 `check`、Node 177 项、Bun 45 个测试文件、React 119 项、契约对照、生产构建、无重试 Bun `all-mock` 及 DeepSeek/OpenAI 真实功能门禁。Docker 未执行；真实总入口清理问题的修复采用 Node/Bun 进程组单测和聚焦 CDP 自动退出验证，详细证据边界见 [R24 验收记录](r24-bun-server-2026-09-04.md)。
 
 同日 R25 将本地工具链迁移到 Bun 1.4：冻结安装、工具链守卫、`check`、Node 177 项、原生 Bun 174 项、React 119 项、契约对照、Vite 构建和无重试 Bun `all-mock` 通过。图片专项首次暴露 reload 断言可能读取旧 document，增加 document-id 换代门禁后专项与全量均通过。未调用真实 Provider，未运行 Docker，见 [R25 验收记录](r25-bun-toolchain-2026-09-04.md)。
+
+2026-09-05 的 R26 将 Bun 会话库与认证 Session Store 切换到 `bun:sqlite`：聚焦 SQLite/认证 25 项、工具链守卫 4 项、`check`、Node 177 项、Bun 174 项、React 119 项、file/SQLite 契约对照、Node → Bun → Node 数据库兼容、Vite 构建、生产依赖审计和无重试 18/18 Bun `all-mock` 通过。未调用真实 Provider，未运行 Docker，见 [R26 验收记录](r26-bun-sqlite-2026-09-05.md)。
+
+同日 R27 将 Bun HTTP/HTTPS 边界迁移到 `Bun.serve`：工具链守卫 5 项、`check`、Node 177 项、Bun 175 项、React 119 项、真实 Bun HTTPS/SIGTERM、file/SQLite 契约对照、数据库双向兼容、Vite 构建、生产依赖审计和无重试 18/18 Bun `all-mock` 通过。首次全量 Mock 暴露测试观察器晚于空会话创建的竞态，补充按服务端空会话回查后完整重跑通过；业务取消断言未削弱。未调用真实 Provider，未运行 Docker，见 [R27 验收记录](r27-bun-http-runtime-2026-09-05.md)。
 
 ## React 单元边界
 
@@ -59,7 +65,7 @@
 | request registry | requestId 校验、同会话单活动请求、abort 后保持占用、取消等待 `completeRequest`、完成后清理和复用 |
 | request persistence | file/SQLite processing/终态、消息与终态原子提交、并发/顺序重放、存储重开、stale processing 失败收敛和受认证查询 |
 | atomic import | file staging/backup/rollback 与 SQLite transaction；首项/中间项/末项故障注入后会话快照不变，ZIP 新附件失败整批清理 |
-| NDJSON | backpressure 不误判关闭；destroyed/writableEnded 不再写入 |
+| NDJSON | Web Stream writer 等待下游可写；Provider reader 等待异步事件处理；关闭后不再写入，取消后上游释放且后续请求恢复 |
 | test process lifecycle | child exit 等待、脚本超时、进程组终止与临时目录清理 |
 | model options | 完整快照、范围/能力/禁用模型、运行时默认、旧会话回填、更新不改排序、file/SQLite 重开、SQLite 幂等增列、损坏字段安全降级 |
 | model-options API | 独立 PATCH 400/404/409/200；与 ask/摘要互斥；Provider 失败前仍完成首次绑定；上下文预览只读 |
@@ -125,14 +131,14 @@ UI 七个入口位于 `tests/cdp/scenarios/ui/`，分别包含会话操作、流
 | 流式/取消/超时 | `test:unit` + `test:cdp:p0` + `test:cdp:ui` |
 | 流式渲染性能 | 上述 + `test:cdp:stream-performance`；同机 5 次中位数与最差值门禁 |
 | file/SQLite/导入 | `test:server` + P0/对应专项 CDP |
-| Bun 后端业务或依赖 | `check` + `test:bun-server` + `test:backend-parity` + `test:cdp:all-mock:bun`；与 Node 数据目录隔离 |
+| Bun 后端业务或依赖 | `check` + `test:bun-server` + `test:toolchain` + `test:backend-parity` + `test:bun-http-runtime` + `test:cdp:all-mock:bun`；与 Node 数据目录隔离 |
 | 会话模型配置 | `test:unit` + `test:cdp:model-options-persistence` + `test:docker`；真实 Provider 不因持久化本身重复调用 |
 | 自定义 Prompt 模板 | `check` + `test:client` + `test:cdp:prompt-templates`；不涉及服务端或 Provider |
 | 单用户认证/JWT/Session | `check` + `test:unit` + `test:cdp:authentication` + `all-mock` + `test:docker`；最终真实 Provider runner 必须在认证开启下执行 |
 | Provider/Function Calling | adapter/tool tests + P0；真实 provider 需另行确认 |
 | Provider 非 2xx 诊断 | `check` + provider diagnostics 单测 + adapter/API 错误路径；不得断言或记录原始敏感 body |
 | 构建/依赖/入口 | `check` + `build:client` + `all-mock` |
-| 托管/HTTPS | deployment/clientHosting tests + 生产 HTTPS 本机冒烟 |
+| 托管/HTTPS | Node/Bun deployment/clientHosting tests + `test:bun-http-runtime`；Docker 仍另走 R29 门禁 |
 | Dockerfile/Compose/卷运维 | `test:docker`，覆盖临时证书、隔离 volume、校验失败、恢复语义和清理；涉及页面托管时再运行 `test:cdp:docker-ui` |
 
 ## 数据与进程清理

@@ -1,15 +1,17 @@
-import express from 'express'
 import { getAuthStatus, login, logout, refresh } from '../controllers/authController.ts'
+import { defineRoute } from '../http/router.ts'
 import { requireAuthOrigin } from '../middleware/authOrigin.ts'
 import { createLoginRateLimit, createRefreshRateLimit } from '../middleware/authRateLimits.ts'
 
-const router = express.Router()
-const loginRateLimit = createLoginRateLimit()
-const refreshRateLimit = createRefreshRateLimit()
+function createAuthRoutes() {
+  const loginRateLimit = createLoginRateLimit()
+  const refreshRateLimit = createRefreshRateLimit()
+  return [
+    defineRoute('GET', '/auth/status', getAuthStatus),
+    defineRoute('POST', '/auth/login', [requireAuthOrigin, loginRateLimit, login], 'json'),
+    defineRoute('POST', '/auth/refresh', [requireAuthOrigin, refreshRateLimit, refresh], 'json'),
+    defineRoute('POST', '/auth/logout', [requireAuthOrigin, refreshRateLimit, logout], 'json'),
+  ]
+}
 
-router.get('/auth/status', getAuthStatus)
-router.post('/auth/login', requireAuthOrigin, loginRateLimit, login)
-router.post('/auth/refresh', requireAuthOrigin, refreshRateLimit, refresh)
-router.post('/auth/logout', requireAuthOrigin, refreshRateLimit, logout)
-
-export default router
+export { createAuthRoutes }

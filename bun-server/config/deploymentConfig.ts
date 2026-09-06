@@ -3,7 +3,6 @@ import { existsSync, readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { isAbsolute, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { ServerOptions } from 'node:https'
 
 const DEFAULT_PORT = 7001
 const DEFAULT_HOST = '0.0.0.0'
@@ -120,7 +119,10 @@ function readRequiredFile(path: string, label: string): Buffer {
   }
 }
 
-function loadTlsServerOptions(config: DeploymentConfig['https'], now = new Date()): ServerOptions {
+function loadTlsServerOptions(
+  config: DeploymentConfig['https'],
+  now = new Date(),
+): BunRuntime.TLSOptions {
   if (!config.enabled) {
     throw new Error('HTTPS 未启用，不能加载 TLS 配置')
   }

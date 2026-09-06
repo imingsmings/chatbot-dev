@@ -1,9 +1,9 @@
-import express from 'express'
 import { cancelActiveRequest, getRequestResult } from '../controllers/requestController.ts'
+import { defineRoute } from '../http/router.ts'
 
-const router = express.Router()
+const requestRoutes = [
+  defineRoute('POST', '/requests/:requestId/cancel', cancelActiveRequest, 'json'),
+  defineRoute('GET', '/requests/:requestId', getRequestResult),
+]
 
-router.post('/requests/:requestId/cancel', cancelActiveRequest)
-router.get('/requests/:requestId', getRequestResult)
-
-export default router
+export { requestRoutes }

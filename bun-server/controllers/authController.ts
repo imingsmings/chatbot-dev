@@ -6,7 +6,7 @@ import {
   refreshLoginSession,
   toPublicAuthTokens
 } from '../services/authService.ts'
-import type { CookieOptions, RequestHandler } from 'express'
+import type { CookieOptions, HttpResponse, RequestHandler } from '../http/types.ts'
 
 function refreshCookieOptions(maxAge?: number): CookieOptions {
   const config = getAuthConfig()
@@ -19,7 +19,7 @@ function refreshCookieOptions(maxAge?: number): CookieOptions {
   }
 }
 
-function sendAuthError(response: Parameters<RequestHandler>[1], error: unknown): void {
+function sendAuthError(response: HttpResponse, error: unknown): void {
   const authError = error instanceof AuthError
     ? error
     : new AuthError('auth_unavailable', '认证服务暂时不可用', 503, { cause: error })
@@ -37,7 +37,10 @@ const getAuthStatus: RequestHandler = (request, response) => {
   }
 }
 
-const login: RequestHandler = async (request, response) => {
+const login: RequestHandler<Record<string, string>, unknown, {
+  password?: unknown
+  username?: unknown
+}> = async (request, response) => {
   try {
     const config = getAuthConfig()
     const tokens = await createLoginSession(

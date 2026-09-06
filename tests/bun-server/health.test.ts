@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
-import http from 'node:http'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterAll, test } from 'bun:test'
+import { startBunTestServer } from './helpers/bunTestServer.ts'
 
 const testRoot = await mkdtemp(path.join(tmpdir(), 'chatbot-health-'))
 const dataDir = path.join(testRoot, 'data')
@@ -28,22 +28,7 @@ async function startTestServer(): Promise<TestServer> {
     validateRuntime: false,
     clientHosting: { enabled: false, distDir: '' }
   })
-  const server = http.createServer(app)
-
-  await new Promise<void>((resolve, reject) => {
-    server.once('error', reject)
-    server.listen(0, '127.0.0.1', resolve)
-  })
-
-  const address = server.address()
-  assert(address && typeof address !== 'string')
-
-  return {
-    origin: `http://127.0.0.1:${address.port}`,
-    close: () => new Promise<void>((resolve, reject) => {
-      server.close((error) => error ? reject(error) : resolve())
-    })
-  }
+  return startBunTestServer(app)
 }
 
 afterAll(async () => {

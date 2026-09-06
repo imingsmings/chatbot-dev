@@ -54,7 +54,7 @@ const toolsMap = new Map<string, ToolRegistryItem>(
 type ExecuteToolOptions = {
   signal?: AbortSignal
   throwIfAborted?: (signal?: AbortSignal) => void
-  onEvent?: (event: ToolExecutionEvent) => void
+  onEvent?: (event: ToolExecutionEvent) => unknown | Promise<unknown>
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -110,7 +110,7 @@ async function executeToolCalls(toolCalls: unknown, options: ExecuteToolOptions 
     const functionName = tool.function
     const args = tool.args
     const startedAt = Date.now()
-    onEvent?.({
+    await onEvent?.({
       type: 'tool_start',
       toolCallId: tool.id,
       name: functionName,
@@ -132,7 +132,7 @@ async function executeToolCalls(toolCalls: unknown, options: ExecuteToolOptions 
           args: validatedArgs,
           result
         })
-        onEvent?.({
+        await onEvent?.({
           type: 'tool_result',
           toolCallId: tool.id,
           name: functionName,
@@ -153,7 +153,7 @@ async function executeToolCalls(toolCalls: unknown, options: ExecuteToolOptions 
           args,
           result: `Failed to call tool ${message}`
         })
-        onEvent?.({
+        await onEvent?.({
           type: 'tool_result',
           toolCallId: tool.id,
           name: functionName,
@@ -170,7 +170,7 @@ async function executeToolCalls(toolCalls: unknown, options: ExecuteToolOptions 
         args,
         result: 'unknown tool'
       })
-      onEvent?.({
+      await onEvent?.({
         type: 'tool_result',
         toolCallId: tool.id,
         name: functionName,

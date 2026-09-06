@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { DatabaseSync } from 'node:sqlite'
+import { Database } from 'bun:sqlite'
 import { afterAll, test } from 'bun:test'
 import type { ConversationModelOptions } from '../../bun-server/types/conversation.ts'
 
@@ -19,7 +19,7 @@ process.env.LLM_MODEL = 'deepseek-v4-flash'
 process.env.DEEPSEEK_API_KEY = 'sqlite-model-options-key'
 
 await mkdir(path.dirname(databasePath), { recursive: true })
-const legacyDb = new DatabaseSync(databasePath)
+const legacyDb = new Database(databasePath)
 legacyDb.exec(`
   CREATE TABLE conversations (
     id TEXT PRIMARY KEY,
@@ -49,7 +49,7 @@ legacyDb.prepare(`
   JSON.stringify([{ role: 'user', content: 'legacy sqlite message' }]),
   null,
 )
-legacyDb.close()
+legacyDb.close(true)
 
 const {
   clearConversation,
@@ -88,20 +88,20 @@ test('SQLite adds model_options idempotently and persists it across reopen witho
   assert.deepEqual((await getConversation(legacy!.id))?.modelOptions, options)
 
   closeConversationStore()
-  const inspectionDb = new DatabaseSync(databasePath)
+  const inspectionDb = new Database(databasePath)
   const columns = inspectionDb.prepare('PRAGMA table_info(conversations)').all() as Array<{ name: string }>
   assert.equal(columns.filter((column) => column.name === 'model_options').length, 1)
-  inspectionDb.close()
+  inspectionDb.close(true)
 })
 
 test('SQLite malformed model_options JSON does not hide the conversation and clear preserves valid options', async () => {
   closeConversationStore()
-  const mutationDb = new DatabaseSync(databasePath)
+  const mutationDb = new Database(databasePath)
   mutationDb.prepare('UPDATE conversations SET model_options = ? WHERE id = ?').run(
     '{not-json',
     'conv_sqlite_legacy_model_options',
   )
-  mutationDb.close()
+  mutationDb.close(true)
 
   const malformed = await getConversation('conv_sqlite_legacy_model_options')
   assert.equal(malformed?.modelOptions, undefined)

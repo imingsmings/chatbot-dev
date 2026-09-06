@@ -8,7 +8,7 @@ import {
   finalizeConversationRequest,
   findConversationRequest
 } from '../utils/conversationStore.ts'
-import type { RequestHandler } from 'express'
+import type { RequestHandler } from '../http/types.ts'
 
 type CancelRequestParams = {
   requestId: string

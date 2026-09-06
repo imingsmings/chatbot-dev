@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
-import http from 'node:http'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterAll, beforeAll, test } from 'bun:test'
 import type { Conversation, ConversationModelOptions } from '../../bun-server/types/conversation.ts'
+import { startBunTestServer, type BunTestServer } from './helpers/bunTestServer.ts'
 
 const dataDir = await mkdtemp(path.join(tmpdir(), 'chatbot-model-options-file-'))
 const originalEnv = { ...process.env }
@@ -42,25 +42,17 @@ const proOptions: ConversationModelOptions = {
 }
 
 let origin = ''
-let server: http.Server
+let server: BunTestServer
 
 beforeAll(async () => {
   const app = createApp({ validateRuntime: false, clientHosting: { enabled: false, distDir: '' } })
-  server = http.createServer(app)
-  await new Promise<void>((resolve, reject) => {
-    server.once('error', reject)
-    server.listen(0, '127.0.0.1', resolve)
-  })
-  const address = server.address()
-  assert(address && typeof address !== 'string')
-  origin = `http://127.0.0.1:${address.port}`
+  server = startBunTestServer(app)
+  origin = server.origin
 })
 
 afterAll(async () => {
   globalThis.fetch = originalFetch
-  await new Promise<void>((resolve, reject) => {
-    server.close((error) => error ? reject(error) : resolve())
-  })
+  await server.close()
   process.env = originalEnv
   await rm(dataDir, { recursive: true, force: true })
 })

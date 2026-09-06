@@ -60,7 +60,7 @@ test('conversation title and search limits reject oversized input', async () => 
   const create = createResponse()
   await createConversationController(
     { body: { title: tooLongTitle } } as Parameters<typeof createConversationController>[0],
-    create.response as Parameters<typeof createConversationController>[1],
+    create.response as unknown as Parameters<typeof createConversationController>[1],
     next,
   )
   assert.deepEqual(create.read(), {
@@ -71,7 +71,7 @@ test('conversation title and search limits reject oversized input', async () => 
   const search = createResponse()
   await searchConversations(
     { query: { q: 'q'.repeat(MAX_SEARCH_QUERY_LENGTH + 1) } } as Parameters<typeof searchConversations>[0],
-    search.response as Parameters<typeof searchConversations>[1],
+    search.response as unknown as Parameters<typeof searchConversations>[1],
     next,
   )
   assert.equal(search.read().statusCode, 400)
@@ -85,7 +85,7 @@ test('ask and context preview reject oversized questions before model work', asy
       body: { question: tooLongQuestion, requestId: 'request_limits_123' },
       params: { id: 'conv_missing' },
     } as Parameters<typeof askConversation>[0],
-    ask.response as Parameters<typeof askConversation>[1],
+    ask.response as unknown as Parameters<typeof askConversation>[1],
     next,
   )
   assert.equal(ask.read().statusCode, 400)
@@ -97,7 +97,7 @@ test('ask and context preview reject oversized questions before model work', asy
       body: { question: tooLongQuestion, options: {} },
       params: { id: conversation.id },
     } as Parameters<typeof previewConversationContext>[0],
-    preview.response as Parameters<typeof previewConversationContext>[1],
+    preview.response as unknown as Parameters<typeof previewConversationContext>[1],
     next,
   )
   assert.equal(preview.read().statusCode, 400)

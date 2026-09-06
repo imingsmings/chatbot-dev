@@ -25,7 +25,7 @@ flowchart LR
     UI --> Markdown
   end
 
-  subgraph Server["Independent Node / Bun Express 5 backends"]
+  subgraph Server["Node Express 5 / Bun.serve backends"]
     TLS["Runtime HTTPS + certificate validation"]
     Static["Vite dist + SPA fallback"]
     Routes["Routes"] --> Controllers["Controllers"] --> Services["Services"]
@@ -88,7 +88,7 @@ flowchart LR
 
 ## 共享 TypeScript 工具链
 
-- 根 `package.json` 的 Bun workspace/catalog 为 client/server/bun-server 单点锁定 TypeScript 7.0.2、Node 22 类型和 Bun 1.4 测试类型。
+- 根 `package.json` 的 Bun workspace/catalog 为 client/server/bun-server 单点锁定 TypeScript 7.0.2、Node 22 类型和 Bun 1.4 类型；`bun-server/tsconfig.json` 只引入 `bun-types/sqlite`、`bun-types/test` 和仓库内最小 `Bun.serve` 声明，避免完整 Bun 全局类型改变现有 `fetch` mock 契约。
 - 根 `tsconfig.base.json` 共享 `strict`、`noEmit`、`verbatimModuleSyntax`、side-effect import 和大小写一致性等通用规则。
 - `client/tsconfig.*.json` 只保留 DOM/JSX、Bundler 解析和 Vite 类型；`server/tsconfig.json` 与 `bun-server/tsconfig.json` 保留 NodeNext、TS 扩展名导入和 erasable syntax 规则。
 - `bun.lock` 是本地安装、构建、测试和审计的权威锁；`bunfig.toml` 使用 isolated linker。`pnpm-workspace.yaml` 与 `pnpm-lock.yaml` 只为延期的 Node Docker 链路临时保留，不再作为本地工具链事实源。
@@ -98,24 +98,27 @@ flowchart LR
 
 - `server/` 是现有 Node 基线，也是 `start:production` 和 Docker 唯一使用的后端。
 - `bun-server/` 是 Bun 1.4 的独立实现；业务源码层面不从 `server/` 导入模块，只复用框架无关的 `shared/chatStreamProtocol.ts` 类型与常量。
-- 两套后端保持相同路由、环境变量、认证规则、file/SQLite schema、Provider 适配语义和 NDJSON v2 输出协议。Bun 当前替换包管理、脚本编排、Vite/Vitest/TypeScript 执行器和 Bun 后端测试执行器；尚未改为 `Bun.serve` 或 `bun:sqlite`。
+- 两套后端保持相同路由、环境变量、认证规则、file/SQLite schema、Provider 适配语义和 NDJSON v2 输出协议。Node 使用 Express、Node HTTP/HTTPS 和 `node:sqlite`；Bun 使用 `Bun.serve`、Web Request/Response/Stream、`Bun.file` 与 `bun:sqlite`，不再依赖 Express、Busboy 或 Node HTTP 兼容边界。
 - 默认数据分别位于 `server/data/` 与 `bun-server/data/`。并行启动时必须使用不同端口和数据路径；不得让两个进程同时写同一个 SQLite 或 file store。
-- `tests/runtime/backend-parity.mjs` 在隔离目录中比较两套实现的 API、流事件和重启持久化；`tests/cdp/helpers/backendRuntime.mjs` 允许同一套后端/CDP 场景选择 Node 或 Bun。
+- `tests/runtime/backend-parity.mjs` 在隔离目录中分别以 file/SQLite 比较两套实现的 API、流事件和重启持久化；`tests/runtime/sqlite-runtime-compatibility.mjs` 以 Node → Bun → Node 顺序复用同一数据库，验证升级与回滚兼容。`tests/cdp/helpers/backendRuntime.mjs` 允许同一套后端/CDP 场景选择 Node 或 Bun。
 
 ## 后端边界
 
-下表以 Node 的 `server/` 路径表示模块职责；`bun-server/` 保持相同相对结构，但作为独立源码维护和测试。
+业务服务和持久化模块在两套后端中保持相同职责；HTTP 边界按运行时独立实现。下表以 Node 的 `server/` 路径表示公共业务职责，并单列 Bun 原生适配模块。
 
 | 模块 | 职责 |
 | --- | --- |
 | `server/routes/*` | 路由与静态/动态路径顺序 |
+| `bun-server/http/router.ts` | 路由匹配、中间件链、参数/查询解析，以及有界 JSON、urlencoded、ZIP 和 multipart 请求体入口 |
+| `bun-server/http/types.ts` | 控制器请求/响应适配、Cookie、状态/响应头、Web Response 生成和可等待的 NDJSON TransformStream 写入 |
+| `bun-server/bin/www.ts` | 通过 `Bun.serve` 启动 HTTP/HTTPS、TLS 和 Unix socket，处理 SIGINT/SIGTERM 优雅停止 |
 | `server/config/deploymentConfig.ts` | HOST/PORT、生产默认值、`~/` 路径和 TLS 证书/私钥校验 |
 | `server/config/authConfig.ts` | production 默认认证、凭据/JWT/Cookie/Origin/TTL/Session DB 配置及 fail-fast |
 | `server/middleware/authentication.ts` | 在控制器前验证 Bearer、JWT claims 和服务端 Session 活性 |
 | `server/controllers/authController.ts` | status/login/refresh/logout、Refresh Cookie 与稳定认证错误 |
 | `server/services/authService.ts` | Argon2id 登录、JWT 签发验证、Refresh 轮换和 Session 撤销编排 |
 | `server/utils/authSessionStore.ts` | 独立 SQLite WAL、哈希 refresh jti、原子轮换、重放撤销和健康探针 |
-| `server/config/clientHosting.ts` | `client/dist` 校验、静态缓存与 HTML SPA 回退 |
+| `server/config/clientHosting.ts` / `bun-server/config/clientHosting.ts` | `client/dist` 校验、静态缓存与 HTML SPA 回退；Bun 实现使用 `Bun.file` |
 | `server/controllers/*` | HTTP 输入、长度边界、状态码和流响应 |
 | `server/services/chatService.ts` | ask 前绑定完整会话模型配置、上下文、工具两阶段、生成元数据聚合和完成/手动停止持久化 |
 | `server/services/contextService.ts` | 摘要覆盖边界、历史/图片裁剪顺序、消息数/字符二级护栏与统一 token 预算编排 |
@@ -210,7 +213,7 @@ flowchart LR
 sequenceDiagram
   participant U as User
   participant C as React AuthClient
-  participant E as Express auth routes
+  participant E as HTTP auth routes
   participant S as Auth session SQLite
   U->>C: 打开应用
   C->>E: POST /api/auth/refresh (HttpOnly Cookie)
@@ -243,7 +246,7 @@ sequenceDiagram
 sequenceDiagram
   participant U as User
   participant C as React client
-  participant E as Express
+  participant E as HTTP routes
   participant S as Chat service
   participant P as Provider
   participant D as Store
@@ -276,7 +279,7 @@ ask、摘要和上下文预览都使用当前会话 UI 提交的完整模型参�
 sequenceDiagram
   participant U as User
   participant C as React client
-  participant E as Express
+  participant E as HTTP routes
   participant D as Store
   participant S as Existing ask stream
 

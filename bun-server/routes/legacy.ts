@@ -1,9 +1,9 @@
-import express from 'express'
 import { clearHistory, listHistory } from '../controllers/legacyController.ts'
+import { defineRoute } from '../http/router.ts'
 
-const router = express.Router()
+const legacyRoutes = [
+  defineRoute('GET', '/history', listHistory),
+  defineRoute('POST', '/clear', clearHistory, 'json'),
+]
 
-router.get('/history', listHistory)
-router.post('/clear', clearHistory)
-
-export default router
+export { legacyRoutes }

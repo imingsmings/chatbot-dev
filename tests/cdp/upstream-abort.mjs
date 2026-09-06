@@ -189,22 +189,44 @@ async function waitAssistantStreamingText(client) {
   )
 }
 
-async function newChat(client) {
-  const previousCount = await evaluate(client, `window.__abortTest.createdIds.length`)
-  const previousId = await evaluate(client, `window.__abortTest.createdIds.at(-1) ?? null`)
+async function newChat(client, createObservation) {
+  const previousCount = createObservation.ids.length
+  const previousRequestCount = createObservation.requestCount
+  const previousErrorCount = createObservation.errors.length
+  const previousId = createObservation.ids.at(-1) ?? null
   await clickText(client, 'button', '新建')
   await waitFor(client, `document.querySelector('.conversation-item-shell.active')?.textContent.includes('0 条消息')`)
   await waitFor(client, `Boolean(document.querySelector('.empty-state') && document.querySelector('textarea'))`)
-  // The POST response observer parses a cloned response asynchronously. The UI can
-  // become empty before that promise publishes the id, so wait for the observable
-  // test id instead of treating the short instrumentation race as an app failure.
-  await waitFor(client, `window.__abortTest.createdIds.length > 0`)
-  const createdIds = await evaluate(client, `window.__abortTest.createdIds`)
-  const id = createdIds.length > previousCount ? createdIds.at(-1) : previousId
-  if (!id) {
+  // A click on an already-empty conversation is intentionally a no-op. Otherwise,
+  // wait for this click's POST response outside the page lifecycle.
+  if (createObservation.requestCount > previousRequestCount) {
+    await waitUntil(
+      () => (
+        createObservation.ids.length > previousCount ||
+        createObservation.errors.length > previousErrorCount
+      ),
+      15000,
+      'conversation creation response',
+    )
+  }
+  if (createObservation.errors.length > previousErrorCount) {
+    throw new Error(createObservation.errors.at(-1))
+  }
+  const id = createObservation.ids.length > previousCount
+    ? createObservation.ids.at(-1)
+    : previousId
+  if (id) return id
+
+  const response = await fetch(`${SERVER_URL}/conversations`)
+  const data = response.ok ? await response.json() : null
+  const reusedId = data?.conversations?.find((conversation) => (
+    conversation.messageCount === 0 && typeof conversation.id === 'string'
+  ))?.id
+  if (!reusedId) {
     throw new Error('New-chat action did not create or reuse an empty conversation')
   }
-  return id
+  createObservation.ids.push(reusedId)
+  return reusedId
 }
 
 async function showOverlay(client, title, rows) {
@@ -491,6 +513,8 @@ export default defineConfig({
   ])
 
   const askRequests = new Map()
+  const createRequestIds = new Set()
+  const createObservation = { ids: [], errors: [], requestCount: 0 }
   const screenshots = []
   const results = []
   let client
@@ -521,6 +545,13 @@ export default defineConfig({
     })
 
     client.on('Network.requestWillBeSent', (event) => {
+      if (
+        event.request?.method === 'POST' &&
+        new URL(event.request.url).pathname === '/api/conversations'
+      ) {
+        createObservation.requestCount += 1
+        createRequestIds.add(event.requestId)
+      }
       if (event.request?.url?.includes('/api/conversations/') && event.request.url.includes('/ask')) {
         askRequests.set(event.requestId, {
           url: event.request.url,
@@ -532,6 +563,9 @@ export default defineConfig({
       }
     })
     client.on('Network.loadingFailed', (event) => {
+      if (createRequestIds.delete(event.requestId)) {
+        createObservation.errors.push(`Conversation creation request failed: ${event.errorText || 'unknown error'}`)
+      }
       const item = askRequests.get(event.requestId)
       if (item) {
         item.failed = true
@@ -544,6 +578,22 @@ export default defineConfig({
       if (item) {
         item.finished = true
       }
+      if (createRequestIds.delete(event.requestId)) {
+        void client.send('Network.getResponseBody', { requestId: event.requestId })
+          .then(({ body, base64Encoded }) => {
+            const text = base64Encoded ? Buffer.from(body, 'base64').toString('utf8') : body
+            const data = JSON.parse(text)
+            if (!data?.conversation?.id) {
+              throw new Error('Conversation creation response did not include an id')
+            }
+            createObservation.ids.push(data.conversation.id)
+          })
+          .catch((error) => {
+            createObservation.errors.push(
+              error instanceof Error ? error.message : String(error),
+            )
+          })
+      }
     })
 
     await client.send('Page.addScriptToEvaluateOnNewDocument', {
@@ -552,7 +602,6 @@ export default defineConfig({
           const originalFetch = window.fetch.bind(window);
           window.__abortTest = {
             cancelResponses: [],
-            createdIds: [],
             frontendAbortCount: 0
           };
           window.fetch = async (input, init = {}) => {
@@ -563,11 +612,6 @@ export default defineConfig({
               }, { once: true });
             }
             const response = await originalFetch(input, init);
-            if (url.endsWith('/api/conversations') && (init.method || 'GET').toUpperCase() === 'POST') {
-              response.clone().json().then((data) => {
-                if (data?.conversation?.id) window.__abortTest.createdIds.push(data.conversation.id);
-              }).catch(() => {});
-            }
             if (url.includes('/api/requests/') && url.endsWith('/cancel')) {
               const body = await response.clone().json().catch(() => null);
               window.__abortTest.cancelResponses.push({
@@ -585,7 +629,7 @@ export default defineConfig({
     await client.send('Page.navigate', { url: APP_URL })
     await waitFor(client, `Boolean(document.querySelector('textarea'))`)
 
-    const tc01Id = await newChat(client)
+    const tc01Id = await newChat(client, createObservation)
     await ask(client, '[TC01] 请持续输出很多短句，用于测试流式过程中点击停止是否会中断上游请求。')
     await waitStop(client)
     await waitUntil(
@@ -660,7 +704,7 @@ export default defineConfig({
     ])
     screenshots.push(await screenshot(client, '02-tc01-stopped-upstream-aborted'))
 
-    const tc02Id = await newChat(client)
+    const tc02Id = await newChat(client, createObservation)
     await ask(client, '[TC02] 首 token 前停止：请在函数调用判断阶段保持慢响应。')
     await waitStop(client)
     await delay(250)
@@ -704,7 +748,7 @@ export default defineConfig({
     ])
     screenshots.push(await screenshot(client, '04-tc02-stopped-before-first-token'))
 
-    const tc04Id = await newChat(client)
+    const tc04Id = await newChat(client, createObservation)
     await ask(client, '[TC04] 正在生成时点击新建聊天，验证旧请求会先中断。')
     await waitStop(client)
     await waitUntil(
@@ -750,7 +794,7 @@ export default defineConfig({
     ])
     screenshots.push(await screenshot(client, '06-tc04-new-chat-aborted-upstream'))
 
-    const tc08Id = await newChat(client)
+    const tc08Id = await newChat(client, createObservation)
     await ask(client, '[TC08] 上游慢响应中断：流式请求建立后先不要返回 token。')
     await waitStop(client)
     await waitUntil(
@@ -799,7 +843,7 @@ export default defineConfig({
     screenshots.push(await screenshot(client, '08-tc08-slow-upstream-aborted'))
 
     const frontendAbortCount = await evaluate(client, `window.__abortTest.frontendAbortCount`)
-    const createdIds = await evaluate(client, `window.__abortTest.createdIds`)
+    const createdIds = createObservation.ids
     const summary = {
       allPassed: results.every((item) => item.pass),
       frontendAbortCount,

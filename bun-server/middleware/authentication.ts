@@ -1,7 +1,7 @@
 import { getAuthConfig } from '../config/authConfig.ts'
 import { AuthError } from '../security/authErrors.ts'
 import { authenticateAccessToken, extractBearerToken } from '../services/authService.ts'
-import type { RequestHandler } from 'express'
+import type { RequestHandler } from '../http/types.ts'
 
 const requireAuthentication: RequestHandler = async (request, response, next) => {
   let config

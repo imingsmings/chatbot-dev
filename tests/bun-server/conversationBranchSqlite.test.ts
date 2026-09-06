@@ -1,20 +1,10 @@
 import assert from 'node:assert/strict'
-import { createRequire } from 'node:module'
 import { mkdtemp, mkdir, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterAll, test } from 'bun:test'
 import type { Conversation } from '../../bun-server/types/conversation.ts'
 
-const requireNodeModule = createRequire(import.meta.url)
-const sqliteAvailable = (() => {
-  try {
-    requireNodeModule('node:sqlite')
-    return true
-  } catch {
-    return false
-  }
-})()
 const dataDir = await mkdtemp(path.join(tmpdir(), 'chatbot-branch-sqlite-'))
 const sqliteDbPath = path.join(dataDir, 'sqlite', 'conversations.sqlite3')
 const originalEnv = { ...process.env }
@@ -23,9 +13,7 @@ process.env.CONVERSATION_DATA_DIR = dataDir
 process.env.CONVERSATION_DB_PATH = sqliteDbPath
 process.env.CONVERSATION_STORE = 'sqlite'
 
-if (sqliteAvailable) {
-  await mkdir(path.dirname(sqliteDbPath), { recursive: true })
-}
+await mkdir(path.dirname(sqliteDbPath), { recursive: true })
 
 const { createConversationBranch } = await import(
   '../../bun-server/services/conversationService.ts'
@@ -42,7 +30,7 @@ afterAll(async () => {
   await rm(dataDir, { recursive: true, force: true })
 })
 
-test.skipIf(!sqliteAvailable)(
+test(
   'SQLite branch preserves prefix metadata and leaves the source unchanged',
   async () => {
     const source: Conversation = {

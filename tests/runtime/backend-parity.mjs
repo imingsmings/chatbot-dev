@@ -77,66 +77,88 @@ async function exerciseBackend(handle) {
 
 const root = await mkdtemp(path.join(tmpdir(), 'chatbot-backend-parity-'))
 const provider = await startMockProvider()
-let nodeHandle
-let bunHandle
+const results = []
 
 try {
-  nodeHandle = await startBackend({
-    runtime: 'node',
-    directory: 'server',
-    repoRoot: REPO_ROOT,
-    port: await findAvailablePort(),
-    dataDir: path.join(root, 'node'),
-    providerUrl: provider.url,
-  })
-  bunHandle = await startBackend({
-    runtime: 'bun',
-    directory: 'bun-server',
-    repoRoot: REPO_ROOT,
-    port: await findAvailablePort(),
-    dataDir: path.join(root, 'bun'),
-    providerUrl: provider.url,
-  })
+  for (const store of ['file', 'sqlite']) {
+    const providerCallsBefore = provider.callCount
+    let nodeHandle
+    let bunHandle
 
-  const nodeResult = await exerciseBackend(nodeHandle)
-  const bunResult = await exerciseBackend(bunHandle)
-  assert.deepEqual(bunResult.result, nodeResult.result)
-  assert.equal(provider.callCount, 2)
+    try {
+      nodeHandle = await startBackend({
+        runtime: 'node',
+        directory: 'server',
+        repoRoot: REPO_ROOT,
+        port: await findAvailablePort(),
+        dataDir: path.join(root, store, 'node'),
+        providerUrl: provider.url,
+        store,
+      })
+      bunHandle = await startBackend({
+        runtime: 'bun',
+        directory: 'bun-server',
+        repoRoot: REPO_ROOT,
+        port: await findAvailablePort(),
+        dataDir: path.join(root, store, 'bun'),
+        providerUrl: provider.url,
+        store,
+      })
 
-  await stopBackend(nodeHandle)
-  await stopBackend(bunHandle)
-  nodeHandle = await startBackend({
-    runtime: 'node',
-    directory: 'server',
-    repoRoot: REPO_ROOT,
-    port: await findAvailablePort(),
-    dataDir: path.join(root, 'node'),
-    providerUrl: provider.url,
-  })
-  bunHandle = await startBackend({
-    runtime: 'bun',
-    directory: 'bun-server',
-    repoRoot: REPO_ROOT,
-    port: await findAvailablePort(),
-    dataDir: path.join(root, 'bun'),
-    providerUrl: provider.url,
-  })
+      const nodeResult = await exerciseBackend(nodeHandle)
+      const bunResult = await exerciseBackend(bunHandle)
+      assert.deepEqual(bunResult.result, nodeResult.result)
+      assert.equal(provider.callCount, providerCallsBefore + 2)
 
-  const nodePersisted = await requestJson(nodeHandle.origin, `/api/conversations/${nodeResult.conversationId}`)
-  const bunPersisted = await requestJson(bunHandle.origin, `/api/conversations/${bunResult.conversationId}`)
-  assert.deepEqual(normalizeRuntimeValue(bunPersisted), normalizeRuntimeValue(nodePersisted))
-  assert.equal(provider.callCount, 2, 'restart unexpectedly repeated a Provider request')
+      await stopBackend(nodeHandle)
+      await stopBackend(bunHandle)
+      nodeHandle = await startBackend({
+        runtime: 'node',
+        directory: 'server',
+        repoRoot: REPO_ROOT,
+        port: await findAvailablePort(),
+        dataDir: path.join(root, store, 'node'),
+        providerUrl: provider.url,
+        store,
+      })
+      bunHandle = await startBackend({
+        runtime: 'bun',
+        directory: 'bun-server',
+        repoRoot: REPO_ROOT,
+        port: await findAvailablePort(),
+        dataDir: path.join(root, store, 'bun'),
+        providerUrl: provider.url,
+        store,
+      })
 
-  console.log(JSON.stringify({
-    status: 'passed',
-    providerCalls: provider.callCount,
-    eventTypes: nodeResult.result.stream.map((event) => event.type),
-  }))
+      const nodePersisted = await requestJson(
+        nodeHandle.origin,
+        `/api/conversations/${nodeResult.conversationId}`,
+      )
+      const bunPersisted = await requestJson(
+        bunHandle.origin,
+        `/api/conversations/${bunResult.conversationId}`,
+      )
+      assert.deepEqual(normalizeRuntimeValue(bunPersisted), normalizeRuntimeValue(nodePersisted))
+      assert.equal(
+        provider.callCount,
+        providerCallsBefore + 2,
+        `${store} restart unexpectedly repeated a Provider request`,
+      )
+      results.push({
+        store,
+        eventTypes: nodeResult.result.stream.map((event) => event.type),
+      })
+    } finally {
+      await Promise.allSettled([
+        stopBackend(nodeHandle),
+        stopBackend(bunHandle),
+      ])
+    }
+  }
+
+  console.log(JSON.stringify({ status: 'passed', providerCalls: provider.callCount, results }))
 } finally {
-  await Promise.allSettled([
-    stopBackend(nodeHandle),
-    stopBackend(bunHandle),
-  ])
   await provider.close()
   await rm(root, { recursive: true, force: true })
 }

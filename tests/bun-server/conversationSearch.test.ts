@@ -19,7 +19,7 @@ const {
   searchConversationSummaries
 } = await import('../../bun-server/services/conversationService.ts')
 const { searchConversations } = await import('../../bun-server/controllers/conversationController.ts')
-const conversationRouter = (await import('../../bun-server/routes/conversations.ts')).default
+const { conversationRoutes } = await import('../../bun-server/routes/conversations.ts')
 const { appendMessages } = await import('../../bun-server/utils/conversationStore.ts')
 
 function restoreEnv(): void {
@@ -115,20 +115,11 @@ test('searchConversations controller validates empty query and returns search re
 })
 
 test('conversation search route is registered before dynamic conversation id route', () => {
-  type RouteLayer = {
-    route?: {
-      path: string
-      methods: Record<string, boolean>
-    }
-  }
-  const routeLayers = (conversationRouter as unknown as { stack: RouteLayer[] }).stack.filter(
-    (layer) => layer.route
+  const searchRouteIndex = conversationRoutes.findIndex(
+    (route) => route.pattern === '/conversations/search' && route.method === 'GET'
   )
-  const searchRouteIndex = routeLayers.findIndex(
-    (layer) => layer.route?.path === '/conversations/search' && layer.route.methods.get
-  )
-  const dynamicRouteIndex = routeLayers.findIndex(
-    (layer) => layer.route?.path === '/conversations/:id' && layer.route.methods.get
+  const dynamicRouteIndex = conversationRoutes.findIndex(
+    (route) => route.pattern === '/conversations/:id' && route.method === 'GET'
   )
 
   assert(searchRouteIndex >= 0, 'GET /conversations/search route is not registered')
@@ -164,7 +155,7 @@ async function callSearchController(q: string): Promise<{
 
   await searchConversations(
     { query: { q } } as Parameters<typeof searchConversations>[0],
-    response as Parameters<typeof searchConversations>[1],
+    response as unknown as Parameters<typeof searchConversations>[1],
     ((err?: unknown) => {
       if (err) {
         throw err

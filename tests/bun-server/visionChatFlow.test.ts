@@ -17,10 +17,14 @@ Object.assign(process.env, {
   LLM_PROVIDER: 'deepseek',
 })
 
-const { createImageAttachment } = await import('../../bun-server/services/attachmentService.ts')
+const { cleanupOrphanedAttachments, createImageAttachment } = await import(
+  '../../bun-server/services/attachmentService.ts'
+)
 const { generateConversationAnswer } = await import('../../bun-server/services/chatService.ts')
 const { createNewConversation } = await import('../../bun-server/services/conversationService.ts')
-const { getConversation } = await import('../../bun-server/utils/conversationStore.ts')
+const { closeConversationStore, getConversation } = await import(
+  '../../bun-server/utils/conversationStore.ts'
+)
 
 const PNG_1X1 = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9ZP4sAAAAASUVORK5CYII=',
@@ -47,6 +51,8 @@ beforeAll(() => {
 })
 
 afterAll(async () => {
+  await cleanupOrphanedAttachments()
+  closeConversationStore()
   globalThis.fetch = originalFetch
   process.env = originalEnv
   await rm(dataDir, {

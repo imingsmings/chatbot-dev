@@ -24,7 +24,7 @@ import {
 import type { LlmStreamChunkType } from '../types/llm.ts'
 import type { ImageAttachment } from '../types/conversation.ts'
 import type { ToolExecutionEvent } from '../types/tools.ts'
-import type { RequestHandler, Response } from 'express'
+import type { HttpResponse, RequestHandler } from '../http/types.ts'
 
 type AskConversationParams = {
   id: string
@@ -55,13 +55,13 @@ function createRequestHash(value: unknown): string {
     .digest('hex')
 }
 
-function writeTerminalReplay(res: Response): void {
+async function writeTerminalReplay(res: HttpResponse): Promise<void> {
   setNdjsonStreamHeaders(res)
-  writeStreamEvent(res, { type: 'done' })
-  res.end()
+  await writeStreamEvent(res, { type: 'done' })
+  await res.end()
 }
 
-function writeNotFound(res: Response): void {
+function writeNotFound(res: HttpResponse): void {
   res.status(404).json({
     message: '会话不存在'
   })
@@ -141,7 +141,7 @@ const askConversation: RequestHandler<AskConversationParams, unknown, AskConvers
       persistedRequest.request.status === 'completed' ||
       persistedRequest.request.status === 'stopped'
     ) {
-      writeTerminalReplay(res)
+      await writeTerminalReplay(res)
       return
     }
     res.status(409).json({ message: '该 requestId 对应的请求已失败，请使用新的 requestId 重试' })
@@ -246,15 +246,15 @@ const askConversation: RequestHandler<AskConversationParams, unknown, AskConvers
   res.on('close', abortOnClientClose)
 
   try {
-    const writeDelta = (chunk: string, type: LlmStreamChunkType): void => {
+    const writeDelta = async (chunk: string, type: LlmStreamChunkType): Promise<void> => {
       const eventType = type === 'reasoning' ? 'reasoning_delta' : 'delta'
 
-      if (!writeStreamEvent(res, { type: eventType, content: chunk })) {
+      if (!await writeStreamEvent(res, { type: eventType, content: chunk })) {
         abortUpstream('write_closed')
         throw createAbortError()
       }
     }
-    const writeToolEvent = (event: ToolExecutionEvent): void => {
+    const writeToolEvent = async (event: ToolExecutionEvent): Promise<void> => {
       const streamEvent = event.type === 'tool_start'
         ? {
             type: 'tool_start' as const,
@@ -269,7 +269,7 @@ const askConversation: RequestHandler<AskConversationParams, unknown, AskConvers
             success: event.success
           }
 
-      if (!writeStreamEvent(res, streamEvent)) {
+      if (!await writeStreamEvent(res, streamEvent)) {
         abortUpstream('write_closed')
         throw createAbortError()
       }
@@ -287,7 +287,7 @@ const askConversation: RequestHandler<AskConversationParams, unknown, AskConvers
       requestId
     })
 
-    writeStreamEvent(res, { type: 'done', reasoningDurationMs: answer.reasoningDurationMs })
+    await writeStreamEvent(res, { type: 'done', reasoningDurationMs: answer.reasoningDurationMs })
   } catch (err: unknown) {
     if (abortReason || (err instanceof Error && err.name === 'AbortError')) {
       console.info(
@@ -297,7 +297,7 @@ const askConversation: RequestHandler<AskConversationParams, unknown, AskConvers
     }
 
     console.error(`Failed to handle ask request:`, err)
-    writeStreamError(res, err)
+    await writeStreamError(res, err)
   } finally {
     req.off('aborted', abortOnClientClose)
     res.off('close', abortOnClientClose)
@@ -314,7 +314,7 @@ const askConversation: RequestHandler<AskConversationParams, unknown, AskConvers
     completeRequest(requestId, requestController)
 
     if (!res.destroyed && !res.writableEnded) {
-      res.end()
+      await res.end()
     }
   }
 }

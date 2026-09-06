@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict'
 import { mkdtemp, rm } from 'node:fs/promises'
-import http from 'node:http'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterAll, beforeAll, test } from 'bun:test'
 import { hashPassword } from '../../bun-server/security/password.ts'
+import { startBunTestServer } from './helpers/bunTestServer.ts'
 
 const tempRoot = await mkdtemp(path.join(tmpdir(), 'chatbot-auth-api-'))
 const password = 'auth-api-test-password'
@@ -35,20 +35,12 @@ let origin = ''
 let closeServer: (() => Promise<void>) | null = null
 
 beforeAll(async () => {
-  const server = http.createServer(createApp({
+  const server = startBunTestServer(createApp({
     validateRuntime: false,
     clientHosting: { enabled: false, distDir: '' },
   }))
-  await new Promise<void>((resolve, reject) => {
-    server.once('error', reject)
-    server.listen(0, '127.0.0.1', resolve)
-  })
-  const address = server.address()
-  assert(address && typeof address !== 'string')
-  origin = `http://127.0.0.1:${address.port}`
-  closeServer = () => new Promise<void>((resolve, reject) => {
-    server.close((error) => error ? reject(error) : resolve())
-  })
+  origin = server.origin
+  closeServer = server.close
 })
 
 afterAll(async () => {

@@ -1,14 +1,10 @@
-import express from 'express'
-import {
-  getHealth,
-  getLiveness,
-  getReadiness,
-} from '../controllers/healthController.ts'
+import { getHealth, getLiveness, getReadiness } from '../controllers/healthController.ts'
+import { defineRoute } from '../http/router.ts'
 
-const router = express.Router()
+const healthRoutes = [
+  defineRoute('GET', '/health', getHealth),
+  defineRoute('GET', '/health/live', getLiveness),
+  defineRoute('GET', '/health/ready', getReadiness),
+]
 
-router.get('/health', getHealth)
-router.get('/health/live', getLiveness)
-router.get('/health/ready', getReadiness)
-
-export default router
+export { healthRoutes }

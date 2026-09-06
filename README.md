@@ -1,6 +1,6 @@
 # chatbot-dev
 
-面向个人学习和内部使用的 local-first AI 聊天项目。前端为 React 19 + TypeScript 7 + Vite 8，后端提供 Node.js 与 Bun 两套独立的 Express 5 + TypeScript 7 实现；重点覆盖可靠流式输出、模型适配、Function Calling、上下文管理和本地持久化。
+面向个人学习和内部使用的 local-first AI 聊天项目。前端为 React 19 + TypeScript 7 + Vite 8，后端提供 Node.js Express 5 与 Bun 1.4 `Bun.serve` 两套独立的 TypeScript 7 实现；重点覆盖可靠流式输出、模型适配、Function Calling、上下文管理和本地持久化。
 
 Vue 客户端已在 2026-08-09 完成下线，`client/` 现在是唯一的 React 客户端。迁移记录见 [React 迁移收口文档](docs/react-migration-plan.md)。
 
@@ -11,7 +11,7 @@ Vue 客户端已在 2026-08-09 完成下线，`client/` 现在是唯一的 React
 | 前端 | React 19、TypeScript 7、Vite 8 |
 | UI | Tailwind CSS 4、shadcn/ui Base UI、Lucide React |
 | 前端质量 | Oxlint/tsgolint、Vitest、Testing Library、jsdom |
-| 后端 | Express 5.2、TypeScript 7、Node.js `>=22.18` 或 Bun `>=1.4.0`、jose、Argon2id |
+| 后端 | Node.js `>=22.18` + Express 5.2，或 Bun `>=1.4.0` + `Bun.serve`；TypeScript 7、jose、Argon2id |
 | 工具链 | Bun 1.4 workspace/catalog、`bun.lock`、共享 `tsconfig.base.json` |
 | 存储 | 单会话 JSON 文件或 SQLite |
 | 模型 | DeepSeek Chat Completions、OpenAI Responses adapter |
@@ -128,14 +128,14 @@ DeepSeek thinking 模式下，上游会忽略 temperature；当前项目仍允�
 
 ## 生产构建与 HTTPS
 
-生产模式由 Express 同源托管 `client/dist`，API 固定使用 `/api/*`，未知 HTML GET 路径回退到 React `index.html`。缺少构建、证书无效/过期或私钥不匹配时启动会失败，而不是静默降级为不安全 HTTP。
+生产模式由所选后端同源托管 `client/dist`，API 固定使用 `/api/*`，未知 HTML GET 路径回退到 React `index.html`。Node 使用 Express/Node HTTPS，Bun 使用 `Bun.serve`/`Bun.file`；缺少构建、证书无效/过期或私钥不匹配时都会启动失败，而不是静默降级为不安全 HTTP。
 
 ```bash
 bun run build
 bun run start:production
 ```
 
-`start:production` 与现有 Docker 部署继续使用 Node 后端。本机默认读取 `~/devhttps/dev-cert.pem` 和 `~/devhttps/dev-key.pem`。Bun 后端可通过 `bun run start:bun-server` 按相同环境变量独立运行，但本阶段未提供 Bun Docker 镜像。完整配置、证书适用范围、上线检查和回滚见 [生产部署说明](docs/production-deployment.md)。
+`start:production` 与现有 Docker 部署继续使用 Node 后端，统一切换保留到 R29。本机默认读取 `~/devhttps/dev-cert.pem` 和 `~/devhttps/dev-key.pem`。Bun 后端可通过 `bun run start:bun-server` 按相同环境变量使用原生 HTTP/HTTPS 独立运行，但当前未提供 Bun Docker 镜像。完整配置、证书适用范围、上线检查和回滚见 [生产部署说明](docs/production-deployment.md)。
 
 ## Docker 局域网部署
 
@@ -174,12 +174,12 @@ server/
   utils/authSessionStore.ts     Refresh Session SQLite、轮换和撤销
   utils/conversationStore.ts    file/SQLite 稳定 facade
   utils/conversationStore/      契约、规范化/迁移和两种存储实现
-bun-server/                     独立 Bun 1.4 后端；相同相对模块边界和对外契约
+bun-server/                     独立 Bun 1.4 后端；Bun.serve、bun:sqlite 与相同对外契约
 tests/client/                   React unit/component/hook 测试及 setup
 tests/server/                   后端单元、存储和异常测试
 tests/bun-server/               Bun 后端的独立 bun:test 兼容测试副本
 tests/cdp/                      浏览器/API 回归及拆分后的 UI 场景入口
-tests/runtime/                  Node/Bun 契约对照、隔离 harness 和观测型基准
+tests/runtime/                  Node/Bun 契约、SQLite 兼容、Bun HTTPS 与观测型基准
 docs/                           架构、协议、功能、路线图和测试文档
 bun.lock                        本地安装、CI 与开发的权威依赖锁
 bunfig.toml                     Bun isolated linker 配置
@@ -255,6 +255,8 @@ bun run test:docker            # Docker HTTPS、认证、SQLite、附件、请�
 
 ### 方案与验收记录
 
+- [R27 Bun 原生 HTTP 运行时验收记录（2026-09-05）](docs/r27-bun-http-runtime-2026-09-05.md)
+- [R26 Bun 原生 SQLite 验收记录（2026-09-05）](docs/r26-bun-sqlite-2026-09-05.md)
 - [R25 Bun 工具链迁移验收记录（2026-09-04）](docs/r25-bun-toolchain-2026-09-04.md)
 - [R24 独立 Bun 后端验收记录（2026-09-04）](docs/r24-bun-server-2026-09-04.md)
 - [P1 工程可靠性优化验收记录（2026-08-31）](docs/engineering-hardening-2026-08-31.md)

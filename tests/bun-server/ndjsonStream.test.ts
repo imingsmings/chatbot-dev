@@ -4,22 +4,31 @@ import { writeStreamEvent } from '../../bun-server/utils/ndjsonStream.ts'
 
 type StreamResponse = Parameters<typeof writeStreamEvent>[0]
 
-test('NDJSON writes do not treat response backpressure as a closed connection', () => {
+test('NDJSON writes await response backpressure without treating it as a closed connection', async () => {
   let payload = ''
+  let releaseWrite!: () => void
+  const writeReleased = new Promise<void>((resolve) => {
+    releaseWrite = resolve
+  })
   const response = {
     destroyed: false,
     writableEnded: false,
-    write(value: string) {
+    async write(value: string) {
+      await writeReleased
       payload += value
-      return false
+      return true
     },
   } as unknown as StreamResponse
 
-  assert.equal(writeStreamEvent(response, { type: 'delta', content: 'chunk' }), true)
+  const write = writeStreamEvent(response, { type: 'delta', content: 'chunk' })
+  await Promise.resolve()
+  assert.equal(payload, '')
+  releaseWrite()
+  assert.equal(await write, true)
   assert.equal(payload, '{"type":"delta","content":"chunk"}\n')
 })
 
-test('NDJSON writes reject an already closed response without writing', () => {
+test('NDJSON writes reject an already closed response without writing', async () => {
   let writes = 0
   const response = {
     destroyed: true,
@@ -30,6 +39,6 @@ test('NDJSON writes reject an already closed response without writing', () => {
     },
   } as unknown as StreamResponse
 
-  assert.equal(writeStreamEvent(response, { type: 'done' }), false)
+  assert.equal(await writeStreamEvent(response, { type: 'done' }), false)
   assert.equal(writes, 0)
 })

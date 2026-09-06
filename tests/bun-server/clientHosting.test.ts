@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
-import http from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'bun:test'
 import { createApp } from '../../bun-server/app.ts'
 import { assertClientBuild } from '../../bun-server/config/clientHosting.ts'
+import { startBunTestServer as startServer } from './helpers/bunTestServer.ts'
 
 async function createFixtureBuild(): Promise<string> {
   const distDir = await mkdtemp(join(tmpdir(), 'chatbot-client-build-'))
@@ -24,21 +24,7 @@ async function startTestServer(distDir: string): Promise<{
     validateRuntime: false,
     clientHosting: { enabled: true, distDir }
   })
-  const server = http.createServer(app)
-
-  await new Promise<void>((resolve, reject) => {
-    server.once('error', reject)
-    server.listen(0, '127.0.0.1', resolve)
-  })
-
-  const address = server.address()
-  assert(address && typeof address !== 'string')
-  return {
-    origin: `http://127.0.0.1:${address.port}`,
-    close: () => new Promise<void>((resolve, reject) => {
-      server.close((error) => error ? reject(error) : resolve())
-    })
-  }
+  return startServer(app)
 }
 
 test('client hosting fails startup when index build artifact is missing', () => {

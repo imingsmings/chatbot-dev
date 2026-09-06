@@ -58,6 +58,8 @@
     "test:server": "node --test ./tests/server/*.test.ts",
     "test:bun-server": "bun test --timeout=30000 --isolate --parallel=1 ./tests/bun-server",
     "test:backend-parity": "bun ./tests/runtime/backend-parity.mjs",
+    "test:bun-http-runtime": "bun ./tests/runtime/bun-http-runtime.mjs",
+    "test:sqlite-runtime-compatibility": "bun ./tests/runtime/sqlite-runtime-compatibility.mjs",
     "test:toolchain": "bun test ./tests/runtime/bunToolchain.test.ts",
     "benchmark:backends": "bun ./tests/runtime/backend-benchmark.mjs",
     "test:client": "bun run --cwd client test:unit",

@@ -1,7 +1,7 @@
 import type { AuthConfig } from '../config/authConfig.ts'
-import type { Request } from 'express'
+import type { HttpRequest } from '../http/types.ts'
 
-function isAllowedAuthOrigin(request: Request, config: AuthConfig): boolean {
+function isAllowedAuthOrigin(request: HttpRequest, config: AuthConfig): boolean {
   const origin = request.get('origin')
   if (!origin) return false
 

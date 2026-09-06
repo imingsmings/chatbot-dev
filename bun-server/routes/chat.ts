@@ -1,8 +1,8 @@
-import express from 'express'
 import { askConversation } from '../controllers/chatController.ts'
+import { defineRoute } from '../http/router.ts'
 
-const router = express.Router()
+const chatRoutes = [
+  defineRoute('POST', '/conversations/:id/ask', askConversation, 'json'),
+]
 
-router.post('/conversations/:id/ask', askConversation)
-
-export default router
+export { chatRoutes }

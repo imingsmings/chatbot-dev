@@ -1,6 +1,6 @@
 import { getAuthConfig } from '../config/authConfig.ts'
 import { isAllowedAuthOrigin } from '../security/origin.ts'
-import type { RequestHandler } from 'express'
+import type { RequestHandler } from '../http/types.ts'
 
 const requireAuthOrigin: RequestHandler = (request, response, next) => {
   try {

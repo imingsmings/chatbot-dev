@@ -2,7 +2,7 @@ import {
   getLivenessStatus,
   getReadinessStatus,
 } from '../services/healthService.ts'
-import type { RequestHandler } from 'express'
+import type { RequestHandler } from '../http/types.ts'
 
 const getLiveness: RequestHandler = (req, res) => {
   res.json(getLivenessStatus())

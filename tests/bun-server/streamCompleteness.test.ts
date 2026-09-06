@@ -153,6 +153,48 @@ test('DeepSeek partial text EOF is not persisted and the next completed request 
   assert.equal((await getConversation(conversation.id))?.messages[1]?.generation?.finishReason, 'stop')
 })
 
+test('provider stream parsing waits for the asynchronous downstream writer', async () => {
+  const conversation = await createConversation('Async stream backpressure')
+  globalThis.fetch = async () => deepseekSse([
+    { choices: [{ delta: { reasoning_content: '第一段推理' } }] },
+    { choices: [{ delta: { reasoning_content: '第二段推理' } }] },
+    deepseekDelta('最终答案'),
+    { choices: [{ delta: {}, finish_reason: 'stop' }] },
+  ], true)
+
+  let releaseFirstWrite!: () => void
+  const firstWriteReleased = new Promise<void>((resolve) => {
+    releaseFirstWrite = resolve
+  })
+  let markFirstWriteStarted!: () => void
+  const firstWriteStarted = new Promise<void>((resolve) => {
+    markFirstWriteStarted = resolve
+  })
+  const chunks: string[] = []
+
+  const generation = generateConversationAnswer({
+    conversation,
+    conversationId: conversation.id,
+    question: '验证下游背压',
+    signal: new AbortController().signal,
+    onDelta: async (chunk) => {
+      chunks.push(chunk)
+      if (chunks.length === 1) {
+        markFirstWriteStarted()
+        await firstWriteReleased
+      }
+    },
+    modelOptions: { provider: 'deepseek' },
+  })
+
+  await firstWriteStarted
+  await Promise.resolve()
+  assert.deepEqual(chunks, ['第一段推理'])
+  releaseFirstWrite()
+  assert.equal((await generation).content, '最终答案')
+  assert.deepEqual(chunks, ['第一段推理', '第二段推理', '最终答案'])
+})
+
 test('DeepSeek reasoning-only and incomplete tool-argument EOF are rejected', async () => {
   const reasoningConversation = await createConversation('DeepSeek reasoning EOF')
   const reasoningDeltas: Array<{ chunk: string; type: string }> = []

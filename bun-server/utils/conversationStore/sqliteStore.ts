@@ -1,9 +1,8 @@
 import { randomUUID } from 'node:crypto'
 import { constants, mkdirSync } from 'node:fs'
 import { access } from 'node:fs/promises'
-import { createRequire } from 'node:module'
 import path from 'node:path'
-import type { DatabaseSync } from 'node:sqlite'
+import { Database } from 'bun:sqlite'
 import type {
   Conversation,
   ConversationContextSummary,
@@ -38,7 +37,6 @@ import {
   SQLITE_DB_PATH
 } from './paths.ts'
 
-const requireNodeModule = createRequire(import.meta.url)
 const SQLITE_JSON_MIGRATION_KEY = 'json_migration_completed'
 const SQLITE_HEALTH_KEY_PREFIX = 'health_probe_'
 
@@ -59,32 +57,13 @@ type SqliteConversationStoreOptions = {
 }
 
 let migrationPromise: Promise<void> | null = null
-let sqliteDb: DatabaseSync | null = null
-let sqliteDatabaseSync: (new (location: string) => DatabaseSync) | null = null
+let sqliteDb: Database | null = null
 
-function getSqliteDatabaseSync(): new (location: string) => DatabaseSync {
-  if (sqliteDatabaseSync) return sqliteDatabaseSync
-
-  try {
-    const sqliteModule = requireNodeModule('node:sqlite') as {
-      DatabaseSync: new (location: string) => DatabaseSync
-    }
-    sqliteDatabaseSync = sqliteModule.DatabaseSync
-    return sqliteDatabaseSync
-  } catch (error: unknown) {
-    throw new Error(
-      'SQLite 存储需要 Bun 1.4 或更高版本支持 node:sqlite；请升级 Bun，或显式设置 CONVERSATION_STORE=file',
-      { cause: error }
-    )
-  }
-}
-
-function getSqliteDb(): DatabaseSync {
+function getSqliteDb(): Database {
   if (sqliteDb) return sqliteDb
 
   mkdirSync(path.dirname(SQLITE_DB_PATH), { recursive: true })
-  const DatabaseSyncConstructor = getSqliteDatabaseSync()
-  const db = new DatabaseSyncConstructor(SQLITE_DB_PATH)
+  const db = new Database(SQLITE_DB_PATH)
   db.exec(`
     PRAGMA journal_mode = WAL;
     PRAGMA foreign_keys = ON;
@@ -542,7 +521,7 @@ function close(): void {
   if (!sqliteDb) return
 
   try {
-    sqliteDb.close()
+    sqliteDb.close(true)
   } finally {
     sqliteDb = null
     migrationPromise = null

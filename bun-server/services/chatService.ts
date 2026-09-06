@@ -27,8 +27,8 @@ type GenerateConversationAnswerOptions = {
   question: string
   attachments?: ImageAttachment[]
   signal: AbortSignal
-  onDelta: (chunk: string, type: LlmStreamChunkType) => void
-  onToolEvent?: (event: ToolExecutionEvent) => void
+  onDelta: (chunk: string, type: LlmStreamChunkType) => unknown | Promise<unknown>
+  onToolEvent?: (event: ToolExecutionEvent) => unknown | Promise<unknown>
   modelOptions?: ModelRequestOptions
   requestId?: string
 }
@@ -106,7 +106,10 @@ async function generateConversationAnswer({
     tools: toolDefinitions,
   })
   const prompt = await materializePromptAttachments(conversationId, context.messages)
-  const forwardStreamChunk = (chunk: string, type: LlmStreamChunkType = 'content'): void => {
+  const forwardStreamChunk = async (
+    chunk: string,
+    type: LlmStreamChunkType = 'content',
+  ): Promise<void> => {
     firstTokenAt ||= Date.now()
 
     if (type === 'reasoning') {
@@ -121,7 +124,7 @@ async function generateConversationAnswer({
       }
     }
 
-    onDelta(chunk, type)
+    await onDelta(chunk, type)
   }
 
   const getReasoningDuration = (endedAt: number): number | undefined => {
@@ -192,7 +195,7 @@ async function generateConversationAnswer({
     }
   }
 
-  const handleToolEvent = (event: ToolExecutionEvent): void => {
+  const handleToolEvent = async (event: ToolExecutionEvent): Promise<void> => {
     if (event.type === 'tool_result' && toolTrace.length < MAX_STORED_TOOL_TRACE_ITEMS) {
       toolTrace.push({
         name: event.name,
@@ -201,7 +204,7 @@ async function generateConversationAnswer({
         summary: event.summary
       })
     }
-    onToolEvent?.(event)
+    await onToolEvent?.(event)
   }
 
   try {

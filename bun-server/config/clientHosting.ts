@@ -1,7 +1,6 @@
 import { existsSync } from 'node:fs'
-import { join, sep } from 'node:path'
-import express from 'express'
-import type { Express, NextFunction, Request, Response } from 'express'
+import { stat } from 'node:fs/promises'
+import { join, relative, resolve, sep } from 'node:path'
 
 type ClientHostingConfig = {
   enabled: boolean
@@ -16,49 +15,74 @@ function assertClientBuild(config: ClientHostingConfig): string {
   return indexPath
 }
 
-function setStaticCacheHeaders(res: Response, filePath: string): void {
+function staticCacheControl(filePath: string): string {
   if (filePath.includes(`${sep}assets${sep}`)) {
-    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable')
-    return
+    return 'public, max-age=31536000, immutable'
   }
-  res.setHeader('Cache-Control', 'public, max-age=3600')
+  return 'public, max-age=3600'
 }
 
-function isHtmlNavigation(req: Request): boolean {
-  return req.method === 'GET'
-    && !req.path.startsWith('/api/')
-    && req.path !== '/api'
-    && Boolean(req.accepts('html'))
+function isHtmlNavigation(request: Request): boolean {
+  if (request.method !== 'GET') return false
+  const pathname = new URL(request.url).pathname
+  if (pathname.startsWith('/api/') || pathname === '/api') return false
+  const accept = request.headers.get('accept')?.toLowerCase()
+  return !accept || accept.includes('text/html') || accept.includes('*/*')
 }
 
-function registerClientHosting(app: Express, config: ClientHostingConfig): void {
-  if (!config.enabled) {
-    return
-  }
-
+function prepareClientHosting(config: ClientHostingConfig): string | null {
+  if (!config.enabled) return null
   const indexPath = assertClientBuild(config)
+  return indexPath
+}
 
-  app.use(express.static(config.distDir, {
-    fallthrough: true,
-    index: false,
-    setHeaders: setStaticCacheHeaders
-  }))
-
-  app.use((req: Request, res: Response, next: NextFunction) => {
-    if (!isHtmlNavigation(req)) {
-      next()
-      return
+async function serveClientRequest(
+  request: Request,
+  config: ClientHostingConfig,
+  indexPath: string,
+): Promise<Response | null> {
+  const pathname = new URL(request.url).pathname
+  if (request.method === 'GET' || request.method === 'HEAD') {
+    let decodedPath: string
+    try {
+      decodedPath = decodeURIComponent(pathname)
+    } catch {
+      return null
     }
+    const candidate = resolve(config.distDir, decodedPath.replace(/^\/+/, ''))
+    const relativePath = relative(config.distDir, candidate)
+    const insideDist = relativePath !== '..'
+      && !relativePath.startsWith(`..${sep}`)
+      && !relativePath.startsWith(sep)
+    if (insideDist && relativePath) {
+      const fileStat = await stat(candidate).catch(() => null)
+      if (fileStat?.isFile()) {
+        const file = Bun.file(candidate)
+        return new Response(request.method === 'HEAD' ? null : file, {
+          headers: {
+            'Cache-Control': staticCacheControl(candidate),
+            'Content-Type': file.type || 'application/octet-stream',
+          },
+        })
+      }
+    }
+  }
 
-    res.setHeader('Cache-Control', 'no-cache')
-    res.sendFile(indexPath)
+  if (!isHtmlNavigation(request)) return null
+  const index = Bun.file(indexPath)
+  return new Response(index, {
+    headers: {
+      'Cache-Control': 'no-cache',
+      'Content-Type': index.type || 'text/html; charset=utf-8',
+    },
   })
 }
 
 export {
   assertClientBuild,
   isHtmlNavigation,
-  registerClientHosting,
-  setStaticCacheHeaders
+  prepareClientHosting,
+  serveClientRequest,
+  staticCacheControl,
 }
 export type { ClientHostingConfig }

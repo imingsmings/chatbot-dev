@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict'
-import http from 'node:http'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterAll, beforeAll, test } from 'bun:test'
+import { startBunTestServer, type BunTestServer } from './helpers/bunTestServer.ts'
 
 const dataDir = await mkdtemp(path.join(tmpdir(), 'chatbot-attachment-api-'))
 const originalEnv = { ...process.env }
@@ -23,27 +23,19 @@ const PNG_1X1 = Buffer.from(
   'base64',
 )
 
-let server: http.Server
+let server: BunTestServer
 let origin = ''
 
 beforeAll(async () => {
-  server = http.createServer(createApp({
+  server = startBunTestServer(createApp({
     validateRuntime: false,
     clientHosting: { enabled: false, distDir: '' },
   }))
-  await new Promise<void>((resolve, reject) => {
-    server.once('error', reject)
-    server.listen(0, '127.0.0.1', () => resolve())
-  })
-  const address = server.address()
-  assert(address && typeof address !== 'string')
-  origin = `http://127.0.0.1:${address.port}`
+  origin = server.origin
 })
 
 afterAll(async () => {
-  await new Promise<void>((resolve, reject) => {
-    server.close((error) => error ? reject(error) : resolve())
-  })
+  await server.close()
   process.env = originalEnv
   await rm(dataDir, { recursive: true, force: true })
 })

@@ -102,7 +102,7 @@
 ## 生产运行
 
 - `bun run build` 完成静态检查并生成 React `client/dist`。
-- `bun-server/` 可用 Bun 1.4 独立运行相同 Express API、认证、存储和 NDJSON v2 协议；默认数据目录与 Node 后端隔离。
+- `bun-server/` 可用 Bun 1.4 `Bun.serve` 独立运行与 Node 后端相同的 API、认证、存储和 NDJSON v2 协议；默认数据目录与 Node 后端隔离。
 - Express 同源托管前端与 `/api/*`，支持 SPA HTML GET 回退。
 - Node HTTPS 直接读取可配置证书/私钥；校验证书有效期与密钥匹配。
 - 缺少前端构建或 TLS 配置非法时 fail-fast。

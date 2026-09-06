@@ -1,19 +1,9 @@
 import assert from 'node:assert/strict'
-import { createRequire } from 'node:module'
 import { mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterAll, test } from 'bun:test'
 
-const requireNodeModule = createRequire(import.meta.url)
-const sqliteAvailable = (() => {
-  try {
-    requireNodeModule('node:sqlite')
-    return true
-  } catch {
-    return false
-  }
-})()
 const dataDir = await mkdtemp(path.join(tmpdir(), 'chatbot-portable-sqlite-'))
 const databasePath = path.join(dataDir, 'db', 'conversations.sqlite3')
 const originalEnv = { ...process.env }
@@ -23,7 +13,7 @@ Object.assign(process.env, {
   CONVERSATION_DB_PATH: databasePath,
   CONVERSATION_STORE: 'sqlite',
 })
-if (sqliteAvailable) await mkdir(path.dirname(databasePath), { recursive: true })
+await mkdir(path.dirname(databasePath), { recursive: true })
 
 const { createImageAttachment, getConversationAttachment } = await import(
   '../../bun-server/services/attachmentService.ts'
@@ -50,7 +40,7 @@ afterAll(async () => {
   await rm(dataDir, { recursive: true, force: true })
 })
 
-test.skipIf(!sqliteAvailable)(
+test(
   'SQLite schema v2 ZIP preserves attachment bytes and remaps ownership',
   async () => {
     const conversation = await createNewConversation('Portable SQLite')

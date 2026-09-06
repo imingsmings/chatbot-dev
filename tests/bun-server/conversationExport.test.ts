@@ -23,7 +23,7 @@ const {
   exportAllConversations,
   exportConversationMarkdown
 } = await import('../../bun-server/controllers/conversationController.ts')
-const conversationRouter = (await import('../../bun-server/routes/conversations.ts')).default
+const { conversationRoutes } = await import('../../bun-server/routes/conversations.ts')
 const { appendMessages } = await import('../../bun-server/utils/conversationStore.ts')
 
 function restoreEnv(): void {
@@ -152,23 +152,14 @@ test('conversation export controllers set attachment headers and 404 missing con
 })
 
 test('conversation export routes are registered before dynamic conversation id route', () => {
-  type RouteLayer = {
-    route?: {
-      path: string
-      methods: Record<string, boolean>
-    }
-  }
-  const routeLayers = (conversationRouter as unknown as { stack: RouteLayer[] }).stack.filter(
-    (layer) => layer.route
+  const exportAllRouteIndex = conversationRoutes.findIndex(
+    (route) => route.pattern === '/conversations/export.json' && route.method === 'GET'
   )
-  const exportAllRouteIndex = routeLayers.findIndex(
-    (layer) => layer.route?.path === '/conversations/export.json' && layer.route.methods.get
+  const exportMarkdownRouteIndex = conversationRoutes.findIndex(
+    (route) => route.pattern === '/conversations/:id/export.md' && route.method === 'GET'
   )
-  const exportMarkdownRouteIndex = routeLayers.findIndex(
-    (layer) => layer.route?.path === '/conversations/:id/export.md' && layer.route.methods.get
-  )
-  const dynamicRouteIndex = routeLayers.findIndex(
-    (layer) => layer.route?.path === '/conversations/:id' && layer.route.methods.get
+  const dynamicRouteIndex = conversationRoutes.findIndex(
+    (route) => route.pattern === '/conversations/:id' && route.method === 'GET'
   )
 
   assert(exportAllRouteIndex >= 0, 'GET /conversations/export.json route is not registered')

@@ -141,4 +141,7 @@ export type EffectiveModelOptions = {
 
 export type LlmStreamChunkType = 'content' | 'reasoning'
 
-export type LlmStreamCallback = (chunk: string, type?: LlmStreamChunkType) => void
+export type LlmStreamCallback = (
+  chunk: string,
+  type?: LlmStreamChunkType,
+) => unknown | Promise<unknown>

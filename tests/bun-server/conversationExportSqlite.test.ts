@@ -1,19 +1,8 @@
 import { mkdir, mkdtemp, rm, stat } from 'node:fs/promises'
-import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import assert from 'node:assert/strict'
 import { afterAll, test } from 'bun:test'
-
-const requireNodeModule = createRequire(import.meta.url)
-const sqliteAvailable = (() => {
-  try {
-    requireNodeModule('node:sqlite')
-    return true
-  } catch {
-    return false
-  }
-})()
 
 const originalEnv = {
   CONVERSATION_DATA_DIR: process.env.CONVERSATION_DATA_DIR,
@@ -34,12 +23,10 @@ let conversationService: Awaited<typeof import('../../bun-server/services/conver
 let exportService: Awaited<typeof import('../../bun-server/services/conversationExportService.ts')> | null = null
 let storeModule: Awaited<typeof import('../../bun-server/utils/conversationStore.ts')> | null = null
 
-if (sqliteAvailable) {
-  await mkdir(path.dirname(sqliteDbPath), { recursive: true })
-  conversationService = await import('../../bun-server/services/conversationService.ts')
-  exportService = await import('../../bun-server/services/conversationExportService.ts')
-  storeModule = await import('../../bun-server/utils/conversationStore.ts')
-}
+await mkdir(path.dirname(sqliteDbPath), { recursive: true })
+conversationService = await import('../../bun-server/services/conversationService.ts')
+exportService = await import('../../bun-server/services/conversationExportService.ts')
+storeModule = await import('../../bun-server/utils/conversationStore.ts')
 
 function restoreEnv(): void {
   for (const [key, value] of Object.entries(originalEnv)) {
@@ -56,7 +43,7 @@ afterAll(async () => {
   await rm(dataDir, { recursive: true, force: true })
 })
 
-test.skipIf(!sqliteAvailable)(
+test(
   'conversation export uses the configured SQLite store and preserves reasoning data',
   async () => {
     assert(conversationService)

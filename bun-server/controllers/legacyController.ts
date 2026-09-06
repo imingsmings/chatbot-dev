@@ -1,5 +1,5 @@
 import { clearAllConversations, listConversationSummaries } from '../services/conversationService.ts'
-import type { RequestHandler } from 'express'
+import type { RequestHandler } from '../http/types.ts'
 
 const listHistory: RequestHandler = async (req, res, next) => {
   try {

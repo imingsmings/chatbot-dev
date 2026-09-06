@@ -1,101 +1,87 @@
-import Busboy from 'busboy'
-import type { Request } from 'express'
-
 import { MAX_IMAGE_ATTACHMENT_BYTES } from '../config/productLimits.ts'
+import type { HttpRequest } from '../http/types.ts'
 import { AttachmentError, type ImageUpload } from '../services/attachmentService.ts'
 import type { ImageAttachmentDetail } from '../types/conversation.ts'
 
-function parseImageUploadRequest(req: Request): Promise<ImageUpload> {
-  return new Promise((resolve, reject) => {
-    let parser: ReturnType<typeof Busboy>
-    try {
-      parser = Busboy({
-        headers: req.headers,
-        limits: {
-          fieldNameSize: 64,
-          fieldSize: 32,
-          fields: 2,
-          fileSize: MAX_IMAGE_ATTACHMENT_BYTES,
-          files: 2,
-          parts: 3,
-        },
-      })
-    } catch {
-      reject(new AttachmentError('请求必须使用 multipart/form-data'))
-      return
+const MAX_MULTIPART_OVERHEAD_BYTES = 64 * 1024
+
+async function readBoundedMultipartBody(request: Request): Promise<Buffer> {
+  const limit = MAX_IMAGE_ATTACHMENT_BYTES + MAX_MULTIPART_OVERHEAD_BYTES
+  const contentLength = Number(request.headers.get('content-length'))
+  if (Number.isFinite(contentLength) && contentLength > limit) {
+    throw new AttachmentError(`单张图片不能超过 ${MAX_IMAGE_ATTACHMENT_BYTES / 1024 / 1024} MiB`, 413)
+  }
+  if (!request.body) return Buffer.alloc(0)
+
+  const reader = request.body.getReader()
+  const chunks: Buffer[] = []
+  let total = 0
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      total += value.byteLength
+      if (total > limit) {
+        await reader.cancel()
+        throw new AttachmentError(`单张图片不能超过 ${MAX_IMAGE_ATTACHMENT_BYTES / 1024 / 1024} MiB`, 413)
+      }
+      chunks.push(Buffer.from(value))
     }
+  } catch (error) {
+    if (request.signal.aborted) throw new AttachmentError('图片上传已取消', 499)
+    throw error
+  }
+  return Buffer.concat(chunks, total)
+}
 
-    let filename = ''
-    let mediaType = ''
-    let detail: ImageAttachmentDetail = 'auto'
-    let sawFile = false
-    let fileCount = 0
-    let fieldCount = 0
-    let tooLarge = false
-    let invalidField = false
-    const chunks: Buffer[] = []
+async function parseImageUploadRequest(req: HttpRequest): Promise<ImageUpload> {
+  const contentType = req.get('content-type') ?? ''
+  if (!contentType.toLowerCase().startsWith('multipart/form-data')) {
+    throw new AttachmentError('请求必须使用 multipart/form-data')
+  }
 
-    parser.on('file', (fieldName, stream, info) => {
-      fileCount += 1
-      if (fileCount > 1 || fieldName !== 'image') {
-        invalidField = true
-        stream.resume()
-        return
-      }
-      sawFile = true
-      filename = info.filename
-      mediaType = info.mimeType
-      stream.on('limit', () => {
-        tooLarge = true
-      })
-      stream.on('data', (chunk: Buffer) => {
-        if (!tooLarge) chunks.push(Buffer.from(chunk))
-      })
-    })
+  const body = await readBoundedMultipartBody(req.raw)
+  let form: FormData
+  try {
+    form = await new Request(req.raw.url, {
+      body: new Uint8Array(body),
+      headers: req.raw.headers,
+      method: 'POST',
+    }).formData()
+  } catch {
+    throw new AttachmentError('请求必须使用 multipart/form-data')
+  }
 
-    parser.on('field', (name, value) => {
-      fieldCount += 1
-      if (fieldCount > 1 || name !== 'detail' || !['auto', 'low', 'original'].includes(value)) {
-        invalidField = true
-        return
-      }
-      detail = value as ImageAttachmentDetail
-    })
+  const entries = [...form.entries()]
+  const images = form.getAll('image')
+  const details = form.getAll('detail')
+  if (
+    entries.some(([name]) => name !== 'image' && name !== 'detail') ||
+    images.length !== 1 ||
+    details.length > 1
+  ) {
+    throw new AttachmentError('图片上传字段不合法')
+  }
 
-    parser.once('filesLimit', () => {
-      invalidField = true
-    })
-    parser.once('fieldsLimit', () => {
-      invalidField = true
-    })
-    parser.once('partsLimit', () => {
-      invalidField = true
-    })
-    parser.once('error', reject)
-    req.once('aborted', () => reject(new AttachmentError('图片上传已取消', 499)))
-    parser.once('close', () => {
-      if (tooLarge) {
-        reject(new AttachmentError(`单张图片不能超过 ${MAX_IMAGE_ATTACHMENT_BYTES / 1024 / 1024} MiB`, 413))
-        return
-      }
-      if (invalidField) {
-        reject(new AttachmentError('图片上传字段不合法'))
-        return
-      }
-      if (!sawFile || chunks.length === 0) {
-        reject(new AttachmentError('请选择要上传的图片'))
-        return
-      }
-      resolve({
-        buffer: Buffer.concat(chunks),
-        filename,
-        mediaType,
-        detail,
-      })
-    })
+  const image = images[0]
+  if (!(image instanceof File) || image.size === 0) {
+    throw new AttachmentError('请选择要上传的图片')
+  }
+  if (image.size > MAX_IMAGE_ATTACHMENT_BYTES) {
+    throw new AttachmentError(`单张图片不能超过 ${MAX_IMAGE_ATTACHMENT_BYTES / 1024 / 1024} MiB`, 413)
+  }
 
-    req.pipe(parser)
-  })
+  const detailValue = details[0] ?? 'auto'
+  if (typeof detailValue !== 'string' || !['auto', 'low', 'original'].includes(detailValue)) {
+    throw new AttachmentError('图片上传字段不合法')
+  }
+
+  return {
+    buffer: Buffer.from(await image.arrayBuffer()),
+    detail: detailValue as ImageAttachmentDetail,
+    filename: image.name,
+    mediaType: image.type,
+  }
 }
 
 export { parseImageUploadRequest }

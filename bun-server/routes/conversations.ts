@@ -1,5 +1,3 @@
-import express from 'express'
-import { MAX_PORTABLE_BACKUP_BYTES } from '../config/productLimits.ts'
 import {
   branchConversation,
   clearConversation,
@@ -16,41 +14,35 @@ import {
   renameConversation,
   searchConversations,
   summarizeConversation,
-  updateConversationModelOptions
+  updateConversationModelOptions,
 } from '../controllers/conversationController.ts'
 import {
   deleteConversationAttachmentHandler,
   readConversationAttachment,
   uploadConversationAttachment,
 } from '../controllers/attachmentController.ts'
+import { defineRoute } from '../http/router.ts'
 
-const router = express.Router()
+const conversationRoutes = [
+  defineRoute('GET', '/conversations', listConversations),
+  defineRoute('POST', '/conversations', createConversation, 'json'),
+  defineRoute('GET', '/conversations/search', searchConversations),
+  defineRoute('GET', '/conversations/export.json', exportAllConversations),
+  defineRoute('GET', '/conversations/export.zip', exportAllConversationsZip),
+  defineRoute('POST', '/conversations/import', importConversations, 'json'),
+  defineRoute('POST', '/conversations/import.zip', importConversationsZip, 'raw-zip'),
+  defineRoute('POST', '/conversations/:id/branches', branchConversation, 'json'),
+  defineRoute('POST', '/conversations/:id/attachments', uploadConversationAttachment, 'multipart'),
+  defineRoute('GET', '/conversations/:id/attachments/:attachmentId', readConversationAttachment),
+  defineRoute('DELETE', '/conversations/:id/attachments/:attachmentId', deleteConversationAttachmentHandler),
+  defineRoute('POST', '/conversations/:id/context-preview', previewConversationContext, 'json'),
+  defineRoute('POST', '/conversations/:id/summary', summarizeConversation, 'json'),
+  defineRoute('GET', '/conversations/:id/export.md', exportConversationMarkdown),
+  defineRoute('GET', '/conversations/:id', getConversation),
+  defineRoute('PATCH', '/conversations/:id/model-options', updateConversationModelOptions, 'json'),
+  defineRoute('PATCH', '/conversations/:id', renameConversation, 'json'),
+  defineRoute('DELETE', '/conversations/:id', deleteConversation),
+  defineRoute('POST', '/conversations/:id/clear', clearConversation, 'json'),
+]
 
-router.get('/conversations', listConversations)
-router.post('/conversations', createConversation)
-router.get('/conversations/search', searchConversations)
-router.get('/conversations/export.json', exportAllConversations)
-router.get('/conversations/export.zip', exportAllConversationsZip)
-router.post('/conversations/import', importConversations)
-router.post(
-  '/conversations/import.zip',
-  express.raw({
-    type: ['application/zip', 'application/octet-stream'],
-    limit: MAX_PORTABLE_BACKUP_BYTES,
-  }),
-  importConversationsZip,
-)
-router.post('/conversations/:id/branches', branchConversation)
-router.post('/conversations/:id/attachments', uploadConversationAttachment)
-router.get('/conversations/:id/attachments/:attachmentId', readConversationAttachment)
-router.delete('/conversations/:id/attachments/:attachmentId', deleteConversationAttachmentHandler)
-router.post('/conversations/:id/context-preview', previewConversationContext)
-router.post('/conversations/:id/summary', summarizeConversation)
-router.get('/conversations/:id/export.md', exportConversationMarkdown)
-router.get('/conversations/:id', getConversation)
-router.patch('/conversations/:id/model-options', updateConversationModelOptions)
-router.patch('/conversations/:id', renameConversation)
-router.delete('/conversations/:id', deleteConversation)
-router.post('/conversations/:id/clear', clearConversation)
-
-export default router
+export { conversationRoutes }

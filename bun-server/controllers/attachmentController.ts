@@ -1,4 +1,4 @@
-import type { RequestHandler, Response } from 'express'
+import type { HttpResponse, RequestHandler } from '../http/types.ts'
 
 import {
   AttachmentError,
@@ -13,7 +13,7 @@ type AttachmentParams = {
   attachmentId: string
 }
 
-function handleAttachmentError(error: unknown, res: Response): boolean {
+function handleAttachmentError(error: unknown, res: HttpResponse): boolean {
   if (!(error instanceof AttachmentError)) return false
   if (error.status === 499) {
     if (!res.headersSent) res.status(499).end()

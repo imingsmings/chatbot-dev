@@ -56,3 +56,80 @@ test('Bun backend tests use bun:test and no Node compatibility test module', asy
     assert.doesNotMatch(source, /from ['"]node:test['"]/, file)
   }
 })
+
+test('Bun backend uses bun:sqlite without node:sqlite compatibility imports', async () => {
+  const sourceDirectories = [
+    path.join(REPO_ROOT, 'bun-server'),
+    path.join(REPO_ROOT, 'tests', 'bun-server'),
+  ]
+  const sourceFiles: string[] = []
+
+  for (const directory of sourceDirectories) {
+    const entries = await readdir(directory, { recursive: true, withFileTypes: true })
+    for (const entry of entries) {
+      if (
+        !entry.parentPath.split(path.sep).includes('node_modules') &&
+        entry.isFile() &&
+        entry.name.endsWith('.ts')
+      ) {
+        sourceFiles.push(path.join(entry.parentPath, entry.name))
+      }
+    }
+  }
+
+  const sources = await Promise.all(sourceFiles.map((file) => readFile(file, 'utf8')))
+  assert.equal(sources.some((source) => source.includes("from 'node:sqlite'")), false)
+  assert.equal(sources.some((source) => source.includes('from "node:sqlite"')), false)
+  assert.match(
+    await readFile(path.join(REPO_ROOT, 'bun-server', 'utils', 'conversationStore', 'sqliteStore.ts'), 'utf8'),
+    /from ['"]bun:sqlite['"]/,
+  )
+  assert.match(
+    await readFile(path.join(REPO_ROOT, 'bun-server', 'utils', 'authSessionStore.ts'), 'utf8'),
+    /from ['"]bun:sqlite['"]/,
+  )
+})
+
+test('Bun backend owns HTTP through Bun.serve without Express compatibility dependencies', async () => {
+  const manifest = await readJson('bun-server/package.json')
+  const dependencies = {
+    ...(manifest.dependencies as Record<string, string>),
+    ...(manifest.devDependencies as Record<string, string>),
+  }
+  for (const dependency of [
+    'busboy',
+    'cookie-parser',
+    'debug',
+    'express',
+    'express-rate-limit',
+    'http-errors',
+    'morgan',
+    '@types/busboy',
+    '@types/cookie-parser',
+    '@types/debug',
+    '@types/express',
+    '@types/http-errors',
+    '@types/morgan',
+  ]) {
+    assert.equal(dependencies[dependency], undefined, dependency)
+  }
+
+  const sourceDirectory = path.join(REPO_ROOT, 'bun-server')
+  const sourceFiles = (await readdir(sourceDirectory, { recursive: true, withFileTypes: true }))
+    .filter((entry) => (
+      !entry.parentPath.split(path.sep).includes('node_modules') &&
+      entry.isFile() &&
+      entry.name.endsWith('.ts')
+    ))
+    .map((entry) => path.join(entry.parentPath, entry.name))
+  const sources = await Promise.all(sourceFiles.map((file) => readFile(file, 'utf8')))
+  const forbiddenRuntimeImports = /from ['"](?:express|express-rate-limit|cookie-parser|morgan|busboy|debug|http-errors|node:http|node:https)['"]/
+  for (const [index, source] of sources.entries()) {
+    assert.doesNotMatch(source, forbiddenRuntimeImports, sourceFiles[index])
+  }
+
+  assert.match(
+    await readFile(path.join(REPO_ROOT, 'bun-server', 'bin', 'www.ts'), 'utf8'),
+    /Bun\.serve\(/,
+  )
+})

@@ -222,7 +222,7 @@ async function callLLM({
       throw new Error('模型未返回流式响应')
     }
 
-    const handleStreamLine = (line: string): false | void => {
+    const handleStreamLine = async (line: string): Promise<false | void> => {
       const event = parseStreamLine(line)
       if (!event) return
 
@@ -244,24 +244,24 @@ async function callLLM({
 
       if (event.reasoningContent) {
         reasoningContent += event.reasoningContent
-        callback?.(event.reasoningContent, 'reasoning')
+        await callback?.(event.reasoningContent, 'reasoning')
       }
 
       if (event.content) {
         fullResponse += event.content
-        callback?.(event.content, 'content')
+        await callback?.(event.content, 'content')
       }
 
       const reasoningSnapshotDelta = getSnapshotDelta(reasoningContent, event.reasoningSnapshot)
       if (reasoningSnapshotDelta) {
         reasoningContent += reasoningSnapshotDelta
-        callback?.(reasoningSnapshotDelta, 'reasoning')
+        await callback?.(reasoningSnapshotDelta, 'reasoning')
       }
 
       const contentSnapshotDelta = getSnapshotDelta(fullResponse, event.contentSnapshot)
       if (contentSnapshotDelta) {
         fullResponse += contentSnapshotDelta
-        callback?.(contentSnapshotDelta, 'content')
+        await callback?.(contentSnapshotDelta, 'content')
       }
 
       if (event.done) {
@@ -339,18 +339,18 @@ async function callLLMStreamWithTools(
     const toolCalls = new Map<number, ChatCompletionToolCall>()
     const parseStreamLine = adapter.createStreamParser?.() ?? adapter.parseStreamLine
 
-    const flushPendingContent = (): void => {
+    const flushPendingContent = async (): Promise<void> => {
       if (!pendingContent) {
         return
       }
 
       contentUnlocked = true
-      callback(pendingContent, 'content')
+      await callback(pendingContent, 'content')
       pendingContent = ''
       pendingContentStartedAt = 0
     }
 
-    const handleStreamLine = (line: string): false | void => {
+    const handleStreamLine = async (line: string): Promise<false | void> => {
       const event = parseStreamLine(line)
       if (!event) return
 
@@ -368,13 +368,13 @@ async function callLLMStreamWithTools(
 
       if (event.reasoningContent) {
         reasoningContent += event.reasoningContent
-        callback(event.reasoningContent, 'reasoning')
+        await callback(event.reasoningContent, 'reasoning')
       }
 
       const reasoningSnapshotDelta = getSnapshotDelta(reasoningContent, event.reasoningSnapshot)
       if (reasoningSnapshotDelta) {
         reasoningContent += reasoningSnapshotDelta
-        callback(reasoningSnapshotDelta, 'reasoning')
+        await callback(reasoningSnapshotDelta, 'reasoning')
       }
 
       if (event.toolCallDeltas?.length) {
@@ -387,12 +387,12 @@ async function callLLMStreamWithTools(
         fullResponse += event.content
 
         if (event.contentPhase === 'final_answer' && !contentUnlocked) {
-          flushPendingContent()
+          await flushPendingContent()
           contentUnlocked = true
         }
 
         if (contentUnlocked) {
-          callback(event.content, 'content')
+          await callback(event.content, 'content')
           return
         }
 
@@ -403,7 +403,7 @@ async function callLLMStreamWithTools(
           event.contentPhase !== 'commentary' &&
           Date.now() - pendingContentStartedAt >= TOOL_STREAM_CONTENT_BUFFER_MS
         ) {
-          flushPendingContent()
+          await flushPendingContent()
         }
       }
 
@@ -411,7 +411,7 @@ async function callLLMStreamWithTools(
       if (contentSnapshotDelta) {
         fullResponse += contentSnapshotDelta
         if (contentUnlocked) {
-          callback(contentSnapshotDelta, 'content')
+          await callback(contentSnapshotDelta, 'content')
         } else {
           pendingContent += contentSnapshotDelta
         }
@@ -435,7 +435,7 @@ async function callLLMStreamWithTools(
     const collectedToolCalls = normalizeCollectedToolCalls(toolCalls)
 
     if (collectedToolCalls.length === 0) {
-      flushPendingContent()
+      await flushPendingContent()
     }
 
     if (!streamCompleted) {

@@ -1,8 +1,8 @@
-import express from 'express'
 import { getRuntimeConfiguration } from '../controllers/runtimeController.ts'
+import { defineRoute } from '../http/router.ts'
 
-const router = express.Router()
+const runtimeRoutes = [
+  defineRoute('GET', '/runtime-config', getRuntimeConfiguration),
+]
 
-router.get('/runtime-config', getRuntimeConfiguration)
-
-export default router
+export { runtimeRoutes }

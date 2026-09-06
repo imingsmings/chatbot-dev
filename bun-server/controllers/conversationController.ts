@@ -32,7 +32,7 @@ import {
   MAX_QUESTION_LENGTH,
   MAX_SEARCH_QUERY_LENGTH,
 } from '../config/productLimits.ts'
-import type { RequestHandler, Response } from 'express'
+import type { HttpResponse, RequestHandler } from '../http/types.ts'
 
 type ConversationParams = {
   id: string
@@ -78,13 +78,13 @@ type ImportZipQuery = {
   conflictStrategy?: unknown
 }
 
-function writeNotFound(res: Response): void {
+function writeNotFound(res: HttpResponse): void {
   res.status(404).json({
     message: '会话不存在'
   })
 }
 
-function setAttachmentHeaders(res: Response, filename: string, contentType: string): void {
+function setAttachmentHeaders(res: HttpResponse, filename: string, contentType: string): void {
   res.setHeader('Content-Disposition', `attachment; filename="${filename}"`)
   res.setHeader('Content-Type', contentType)
 }

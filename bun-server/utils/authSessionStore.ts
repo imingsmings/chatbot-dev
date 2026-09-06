@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { mkdirSync } from 'node:fs'
 import path from 'node:path'
-import { DatabaseSync } from 'node:sqlite'
+import { Database } from 'bun:sqlite'
 import type { AuthConfig } from '../config/authConfig.ts'
 
 type CreateAuthSessionInput = {
@@ -25,18 +25,18 @@ type RotationResult =
   | { status: 'rotated'; sessionExpiresAt: number }
   | { status: 'invalid' | 'replayed' | 'revoked' }
 
-const databases = new Map<string, DatabaseSync>()
+const databases = new Map<string, Database>()
 
 function digestJti(jti: string): string {
   return createHash('sha256').update(jti).digest('hex')
 }
 
-function getDatabase(config: AuthConfig): DatabaseSync {
+function getDatabase(config: AuthConfig): Database {
   const existing = databases.get(config.databasePath)
   if (existing) return existing
 
   mkdirSync(path.dirname(config.databasePath), { recursive: true })
-  const database = new DatabaseSync(config.databasePath)
+  const database = new Database(config.databasePath)
   database.exec(`
     PRAGMA journal_mode = WAL;
     PRAGMA foreign_keys = ON;
@@ -69,7 +69,7 @@ function getDatabase(config: AuthConfig): DatabaseSync {
   return database
 }
 
-function withTransaction<T>(database: DatabaseSync, callback: () => T): T {
+function withTransaction<T>(database: Database, callback: () => T): T {
   database.exec('BEGIN IMMEDIATE')
   try {
     const result = callback()
@@ -81,7 +81,7 @@ function withTransaction<T>(database: DatabaseSync, callback: () => T): T {
   }
 }
 
-function cleanupExpired(database: DatabaseSync, now: number): void {
+function cleanupExpired(database: Database, now: number): void {
   database.prepare('DELETE FROM auth_sessions WHERE expires_at <= ?').run(now)
 }
 
@@ -114,7 +114,7 @@ function createAuthSession(config: AuthConfig, input: CreateAuthSessionInput): v
 }
 
 function revokeSessionInTransaction(
-  database: DatabaseSync,
+  database: Database,
   sid: string,
   now: number,
   reason: string
@@ -254,7 +254,7 @@ function checkAuthSessionStoreHealth(config: AuthConfig): void {
 }
 
 function closeAuthSessionStores(): void {
-  for (const database of databases.values()) database.close()
+  for (const database of databases.values()) database.close(true)
   databases.clear()
 }
 
