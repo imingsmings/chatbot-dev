@@ -15,9 +15,11 @@ logs
 
 .env
 .env.*
-!server/.env.example
+!bun-server/.env.example
 server/.env
 server/data
+bun-server/.env
+bun-server/data
 backups
 *.tar
 *.manifest.json

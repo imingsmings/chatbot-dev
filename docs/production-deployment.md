@@ -1,24 +1,24 @@
 # 生产部署说明
 
-本文覆盖本阶段的单机/局域网正式运行方式：Node HTTPS 直接终止 TLS，Express 同源托管 React 构建和 `/api/*`，并启用单个固定用户认证。项目没有注册、角色、多用户隔离、WAF 和公网运营防护，因此不应直接暴露为公共互联网服务。
+本文覆盖本阶段的单机/局域网正式运行方式：Bun HTTPS 直接终止 TLS，`Bun.serve`/`Bun.file` 同源托管 React 构建和 `/api/*`，并启用单个固定用户认证。项目没有注册、角色、多用户隔离、WAF 和公网运营防护，因此不应直接暴露为公共互联网服务。
 
-直接在宿主机运行 Node 的流程见本文；使用单 Node 容器时见 [Docker 部署说明](docker-deployment.md)。两种方式使用相同的 Express、HTTPS、API 和存储协议，不能同时写入同一份会话数据。
+直接在宿主机运行 Bun 的流程见本文；容器部署使用同一 `bun-server/`、环境变量和数据协议，详见 [Docker 部署说明](docker-deployment.md)。
 
 ## 启动拓扑
 
 ```mermaid
 flowchart LR
-  Browser["Browser"] -->|"HTTPS"| Node["Node HTTPS / Express"]
-  Node -->|"/ and SPA routes"| Dist["client/dist"]
-  Node -->|"/api/*"| API["Controllers / services"]
+  Browser["Browser"] -->|"HTTPS"| Bun["Bun HTTPS / Bun.serve"]
+  Bun -->|"/ and SPA routes"| Dist["client/dist"]
+  Bun -->|"/api/*"| API["Controllers / services"]
   API --> Store["file or SQLite"]
   API --> Providers["DeepSeek / OpenAI / Weather"]
 ```
 
 ## 前置条件
 
-- Bun `>=1.4.0` 用于安装、构建和脚本；Node.js `>=22.18.0` 用于当前 production 服务进程。
-- 已填写且未提交的 `server/.env`。
+- Bun `>=1.4.0` 用于安装、构建、脚本和 production 服务进程。
+- 已填写且未提交的 `bun-server/.env`。
 - 已生成 Argon2id 密码哈希和两组不同的 JWT secret；生产不接受明文密码或缺失认证配置。
 - 可读的证书和私钥；私钥建议权限 `600`。
 - 数据目录有写权限，并已制定备份策略。
@@ -57,15 +57,15 @@ AUTH_COOKIE_SECURE=true
 - `CLIENT_DIST_DIR`：默认仓库内 `client/dist`。
 - `HTTPS_CA_PATH`：需要额外 CA chain 时设置。
 - `SERVE_CLIENT_BUILD=false`：仅在外部静态站点接管前端时使用。
-- `HTTPS_ENABLED=false`：仅在受信反向代理已终止 TLS 时使用，Node 端口不得直接暴露公网。
+- `HTTPS_ENABLED=false`：仅在受信反向代理已终止 TLS 时使用，Bun 端口不得直接暴露公网。
 
-模型、天气和存储变量沿用 `server/.env.example`。密钥、证书私钥和真实 `.env` 均不得提交。
+模型、天气和存储变量沿用 `bun-server/.env.example`。密钥、证书私钥和真实 `.env` 均不得提交。
 
 认证配置先通过本地 CLI 生成，再手工填入 `.env`：
 
 ```bash
-bun run --cwd server auth:hash-password
-bun run --cwd server auth:generate-secrets
+bun run --cwd bun-server auth:hash-password
+bun run --cwd bun-server auth:generate-secrets
 ```
 
 至少配置 `AUTH_USERNAME`、`AUTH_PASSWORD_HASH`、`AUTH_ACCESS_TOKEN_SECRET` 和
@@ -120,7 +120,7 @@ curl --fail --show-error https://localhost:7001/api/health/ready
 ## 运维边界
 
 - 启动前备份完整 `CONVERSATION_DATA_DIR`，同时覆盖会话和认证 Session SQLite/WAL。
-- 怀疑 Refresh Token 泄漏时运行 `bun run --cwd server auth:revoke-all` 或轮换 Refresh secret；两种方式都会要求重新登录。
+- 怀疑 Refresh Token 泄漏时运行 `bun run --cwd bun-server auth:revoke-all` 或轮换 Refresh secret；两种方式都会要求重新登录。
 - 使用 launchd、systemd 或受控进程管理器负责开机启动、崩溃重启和日志轮转；仓库不绑定具体平台。
 - Provider 非 2xx 日志只保留限长、脱敏的结构化错误、Provider request id 和内部 correlation id。按客户端显示的 reference 定位日志，不要临时改为记录完整 Prompt、响应 body、Cookie、Token 或 API key。
 - 证书续期或主机/IP 变化后替换证书并重启，启动校验只检查有效期和密钥匹配，不负责自动续期。
@@ -132,7 +132,7 @@ curl --fail --show-error https://localhost:7001/api/health/ready
 
 1. 保留当前会话数据，不运行清理或迁移命令；
 2. 恢复上一份已验证源码/构建；
-3. 继续使用相同 `server/.env` 和完整数据目录；若回滚到 R20 之前版本，旧应用会忽略独立认证库，但 API 将重新变为未认证访问；
+3. 继续使用相同 `bun-server/.env` 和完整数据目录；若回滚到 R28 前的 Node 版本，需要改用旧版本匹配的环境文件路径并确保同一时刻只有一个进程写数据；
 4. 重新执行静态检查、单测、构建和 HTTPS 冒烟。
 
 R20 未改变聊天 file/SQLite 数据协议。认证库是独立文件，不需要迁移回退；紧急设置 `AUTH_ENABLED=false` 会重新开放局域网 API，只能作为明确记录的短时降级。

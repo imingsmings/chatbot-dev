@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import { mkdir, readFile } from 'node:fs/promises'
 import path from 'node:path'
-import { strFromU8, unzipSync } from '../../server/node_modules/fflate/esm/index.mjs'
+import { strFromU8, unzipSync } from '../../bun-server/node_modules/fflate/esm/index.mjs'
 import { authenticateBrowser, createAuthenticatedFetch } from './helpers/authentication.mjs'
 import { screenshot, waitForEval } from './helpers/appActions.mjs'
 import { getPageTarget, launchChrome } from './helpers/browser.mjs'

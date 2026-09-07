@@ -5,7 +5,7 @@ import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
 import { parseEnv } from 'node:util'
-import { hashPassword } from '../../server/security/password.ts'
+import { hashPassword } from '../../bun-server/security/password.ts'
 
 const REAL_SUITES = new Set([
   'all-real',
@@ -47,7 +47,7 @@ async function resolveRealModelWaitTimeoutMs() {
 
   let configuredLlmTimeout = readPositiveInteger(process.env.LLM_TIMEOUT_MS, 30_000)
   try {
-    const serverEnv = parseEnv(await readFile(path.join(process.cwd(), 'server/.env'), 'utf8'))
+    const serverEnv = parseEnv(await readFile(path.join(process.cwd(), 'bun-server/.env'), 'utf8'))
     configuredLlmTimeout = readPositiveInteger(serverEnv.LLM_TIMEOUT_MS, configuredLlmTimeout)
   } catch (error) {
     if (error?.code !== 'ENOENT') throw error

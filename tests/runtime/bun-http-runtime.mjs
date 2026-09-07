@@ -2,13 +2,29 @@ import assert from 'node:assert/strict'
 import { execFile, spawn } from 'node:child_process'
 import { mkdtemp, rm } from 'node:fs/promises'
 import https from 'node:https'
+import net from 'node:net'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
-import { findAvailablePort } from './backendHarness.mjs'
 
 const execFileAsync = promisify(execFile)
 const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..')
+
+function findAvailablePort() {
+  return new Promise((resolve, reject) => {
+    const server = net.createServer()
+    server.once('error', reject)
+    server.listen(0, '127.0.0.1', () => {
+      const address = server.address()
+      if (!address || typeof address === 'string') {
+        server.close()
+        reject(new Error('Unable to allocate a TCP port'))
+        return
+      }
+      server.close((error) => error ? reject(error) : resolve(address.port))
+    })
+  })
+}
 
 function requestHttps(url) {
   return new Promise((resolve, reject) => {

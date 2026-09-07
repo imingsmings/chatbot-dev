@@ -7,7 +7,7 @@ import https from 'node:https'
 import net from 'node:net'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { hashPassword } from '../../server/security/password.ts'
+import { hashPassword } from '../../bun-server/security/password.ts'
 
 const REPO_ROOT = process.cwd()
 const PROJECT_NAME = `chatbot-docker-test-${process.pid}`
@@ -325,22 +325,29 @@ async function main() {
       runtimeImageSizeBytes < MAX_RUNTIME_IMAGE_SIZE_BYTES,
       `Runtime image is too large: ${runtimeImageSizeBytes} bytes`,
     )
-    await run('docker', [
-      'exec',
-      '--user',
-      'root',
-      containerId,
-      'sh',
-      '-lc',
-      'test ! -e /root/.cache/pnpm && test ! -e /root/.cache/node/corepack/v1/pnpm',
+    const runtimeDetails = await run('docker', [
+      'exec', '--user', 'root', containerId, 'sh', '-lc',
+      [
+        'test "$(bun --version)" = "1.4.0"',
+        'test ! -e /root/.cache/pnpm',
+        'test ! -e /root/.cache/node/corepack/v1/pnpm',
+        'test ! -e /root/.bun/install/cache',
+        'test ! -e /app/client/node_modules',
+        'test ! -e /app/tests',
+        'test ! -e /app/pnpm-lock.yaml',
+        'test ! -e /app/pnpm-workspace.yaml',
+        'test ! -e /app/bun-server/node_modules/typescript',
+        'printf "runtime=%s uid=%s\\n" "$(bun --version)" "$(id -u bun)"',
+      ].join(' && '),
     ])
+    assert.match(runtimeDetails.stdout, /runtime=1\.4\.0 uid=1000/)
     const processList = (await run('docker', [
       'top',
       containerId,
       '-eo',
       'pid,user,args',
     ])).stdout.trim()
-    assert.match(processList, /^\s*\d+\s+(?:1000|node)\s+node server\/bin\/www\.ts$/m)
+    assert.match(processList, /^\s*\d+\s+(?:1000|bun)\s+bun bun-server\/bin\/www\.ts$/m)
 
     const missingAuthConfig = await run('docker', [
       'run', '--rm',
@@ -604,7 +611,7 @@ async function main() {
       return [conversation.id, JSON.parse(detail.text).conversation]
     })))
 
-    const runningBackupAttempt = await run('node', [
+    const runningBackupAttempt = await run('bun', [
       'scripts/docker-volume-backup.mjs',
       '--volume',
       sourceVolume,
@@ -665,7 +672,7 @@ async function main() {
     assert.match(logs, /收到 SIGTERM，正在停止服务/)
     assert.match(logs, /服务已停止/)
 
-    await run('node', [
+    await run('bun', [
       'scripts/docker-volume-backup.mjs',
       '--volume',
       sourceVolume,
@@ -696,7 +703,7 @@ async function main() {
       ...manifest,
       archive: { ...manifest.archive, sha256: '0'.repeat(64) },
     }))
-    const rejectedRestore = await run('node', [
+    const rejectedRestore = await run('bun', [
       'scripts/docker-volume-restore.mjs',
       '--manifest',
       rejectedManifestPath,
@@ -710,14 +717,14 @@ async function main() {
     })
     assert.notEqual(rejectedInspect.code, 0)
 
-    await run('node', [
+    await run('bun', [
       'scripts/docker-volume-restore.mjs',
       '--manifest',
       manifestPath,
       '--volume',
       restoredVolume,
     ], { env: composeEnv })
-    const overwriteAttempt = await run('node', [
+    const overwriteAttempt = await run('bun', [
       'scripts/docker-volume-restore.mjs',
       '--manifest',
       manifestPath,
@@ -764,7 +771,7 @@ async function main() {
     assert.equal(createHash('sha256').update(attachmentAfterRestore.buffer).digest('hex'), imageSha256)
 
     const dockerUiDebugPort = await findAvailablePort()
-    const dockerUi = await run('node', ['tests/cdp/docker-ui.mjs'], {
+    const dockerUi = await run('bun', ['tests/cdp/docker-ui.mjs'], {
       env: {
         ...process.env,
         APP_URL: `https://127.0.0.1:${port}/`,
@@ -806,7 +813,7 @@ async function main() {
       'run',
       '--rm',
       '--entrypoint',
-      'node',
+      'bun',
       '--mount',
       `type=volume,source=${sourceVolume},target=/data,readonly`,
       'chatbot:local',
@@ -837,16 +844,16 @@ async function main() {
         'compose config valid',
         'default and overridden TLS source paths valid',
         'image built and container healthy',
-        'runtime image stays below 300MB without pnpm/Corepack caches',
-        'application process runs as non-root node user',
-        'React build served over HTTPS',
+        'runtime image stays below 300MB without build, pnpm, or Bun install caches',
+        'application process runs with Bun 1.4.0 as the non-root bun user',
+        'React build served over Bun HTTPS',
         'authentication fail-fast, login, secure refresh cookie, and API protection valid',
         'runtime config, compatibility health, liveness, readiness, and JSON 404 valid',
         'unwritable storage reports readiness 503 while liveness remains 200, then recovers',
         'SQLite conversation, model options, image attachment, and request records persist across restart',
         'completed requestId replay after restart does not call the Provider twice',
         'authentication session persists across restart and restored volume, then logout revokes access',
-        'SIGTERM shutdown exited with code 0',
+        'SIGTERM stopped Bun gracefully with exit code 0',
         'backup refuses a volume mounted by a running container',
         'stopped-volume backup includes checksums, SQLite data, and attachment data/sidecar files',
         'checksum mismatch and existing restore target fail safely',

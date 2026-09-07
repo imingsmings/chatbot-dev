@@ -25,7 +25,7 @@ flowchart LR
     UI --> Markdown
   end
 
-  subgraph Server["Node Express 5 / Bun.serve backends"]
+  subgraph Server["Bun 1.4 / Bun.serve backend"]
     TLS["Runtime HTTPS + certificate validation"]
     Static["Vite dist + SPA fallback"]
     Routes["Routes"] --> Controllers["Controllers"] --> Services["Services"]
@@ -88,78 +88,78 @@ flowchart LR
 
 ## 共享 TypeScript 工具链
 
-- 根 `package.json` 的 Bun workspace/catalog 为 client/server/bun-server 单点锁定 TypeScript 7.0.2、Node 22 类型和 Bun 1.4 类型；`bun-server/tsconfig.json` 只引入 `bun-types/sqlite`、`bun-types/test` 和仓库内最小 `Bun.serve` 声明，避免完整 Bun 全局类型改变现有 `fetch` mock 契约。
+- 根 `package.json` 的 Bun workspace/catalog 为 client/bun-server 单点锁定 TypeScript 7.0.2、Node 兼容 API 类型和 Bun 1.4 类型；`bun-server/tsconfig.json` 只引入 `bun-types/sqlite`、`bun-types/test` 和仓库内最小 `Bun.serve` 声明，避免完整 Bun 全局类型改变现有 `fetch` mock 契约。
 - 根 `tsconfig.base.json` 共享 `strict`、`noEmit`、`verbatimModuleSyntax`、side-effect import 和大小写一致性等通用规则。
-- `client/tsconfig.*.json` 只保留 DOM/JSX、Bundler 解析和 Vite 类型；`server/tsconfig.json` 与 `bun-server/tsconfig.json` 保留 NodeNext、TS 扩展名导入和 erasable syntax 规则。
-- `bun.lock` 是本地安装、构建、测试和审计的权威锁；`bunfig.toml` 使用 isolated linker。`pnpm-workspace.yaml` 与 `pnpm-lock.yaml` 只为延期的 Node Docker 链路临时保留，不再作为本地工具链事实源。
-- `shared/chatStreamProtocol.ts` 只承载 NDJSON v2 常量和判别联合，不引入运行时框架；client、server 与 bun-server 均从该模块导入。
+- `client/tsconfig.*.json` 只保留 DOM/JSX、Bundler 解析和 Vite 类型；`bun-server/tsconfig.json` 保留 NodeNext、TS 扩展名导入和 erasable syntax 规则。
+- `bun.lock` 是本地安装、构建、测试、审计和 Docker 镜像的唯一权威锁；`bunfig.toml` 使用 isolated linker。仓库不再保留 pnpm workspace 或 lockfile。
+- `shared/chatStreamProtocol.ts` 只承载 NDJSON v2 常量和判别联合，不引入运行时框架；client 与 bun-server 均从该模块导入。
 
-## 双后端运行时边界
+## 单一 Bun 运行时边界
 
-- `server/` 是现有 Node 基线，也是 `start:production` 和 Docker 唯一使用的后端。
-- `bun-server/` 是 Bun 1.4 的独立实现；业务源码层面不从 `server/` 导入模块，只复用框架无关的 `shared/chatStreamProtocol.ts` 类型与常量。
-- 两套后端保持相同路由、环境变量、认证规则、file/SQLite schema、Provider 适配语义和 NDJSON v2 输出协议。Node 使用 Express、Node HTTP/HTTPS 和 `node:sqlite`；Bun 使用 `Bun.serve`、Web Request/Response/Stream、`Bun.file` 与 `bun:sqlite`，不再依赖 Express、Busboy 或 Node HTTP 兼容边界。
-- 默认数据分别位于 `server/data/` 与 `bun-server/data/`。并行启动时必须使用不同端口和数据路径；不得让两个进程同时写同一个 SQLite 或 file store。
-- `tests/runtime/backend-parity.mjs` 在隔离目录中分别以 file/SQLite 比较两套实现的 API、流事件和重启持久化；`tests/runtime/sqlite-runtime-compatibility.mjs` 以 Node → Bun → Node 顺序复用同一数据库，验证升级与回滚兼容。`tests/cdp/helpers/backendRuntime.mjs` 允许同一套后端/CDP 场景选择 Node 或 Bun。
+- `bun-server/` 是唯一后端业务实现；开发、非容器 production、单元测试和 CDP 默认都从该目录启动。
+- HTTP/HTTPS 使用 `Bun.serve`，请求与响应使用 Web API，静态文件使用 `Bun.file`，SQLite 使用 `bun:sqlite`；不依赖 Express、Busboy、Node HTTP server 或 `node:sqlite`。
+- API、环境变量、认证规则、file/SQLite schema、Provider 适配语义和 NDJSON v2 输出协议在 R28 不变。
+- 默认数据位于 `bun-server/data/`。旧 `server/data/` 只可能作为本地被忽略的迁移输入存在；复用前必须停止旧进程、备份并通过环境变量显式选择，禁止并发写入。
+- `tests/cdp/helpers/backendRuntime.mjs` 只接受 Bun；Node/Bun parity、跨运行时 SQLite 对照和双后端观测基准已删除。
 
 ## 后端边界
 
-业务服务和持久化模块在两套后端中保持相同职责；HTTP 边界按运行时独立实现。下表以 Node 的 `server/` 路径表示公共业务职责，并单列 Bun 原生适配模块。
+业务服务、持久化模块和 Bun HTTP 适配保持各自职责：
 
 | 模块 | 职责 |
 | --- | --- |
-| `server/routes/*` | 路由与静态/动态路径顺序 |
+| `bun-server/routes/*` | 路由注册与静态/动态路径顺序 |
 | `bun-server/http/router.ts` | 路由匹配、中间件链、参数/查询解析，以及有界 JSON、urlencoded、ZIP 和 multipart 请求体入口 |
 | `bun-server/http/types.ts` | 控制器请求/响应适配、Cookie、状态/响应头、Web Response 生成和可等待的 NDJSON TransformStream 写入 |
 | `bun-server/bin/www.ts` | 通过 `Bun.serve` 启动 HTTP/HTTPS、TLS 和 Unix socket，处理 SIGINT/SIGTERM 优雅停止 |
-| `server/config/deploymentConfig.ts` | HOST/PORT、生产默认值、`~/` 路径和 TLS 证书/私钥校验 |
-| `server/config/authConfig.ts` | production 默认认证、凭据/JWT/Cookie/Origin/TTL/Session DB 配置及 fail-fast |
-| `server/middleware/authentication.ts` | 在控制器前验证 Bearer、JWT claims 和服务端 Session 活性 |
-| `server/controllers/authController.ts` | status/login/refresh/logout、Refresh Cookie 与稳定认证错误 |
-| `server/services/authService.ts` | Argon2id 登录、JWT 签发验证、Refresh 轮换和 Session 撤销编排 |
-| `server/utils/authSessionStore.ts` | 独立 SQLite WAL、哈希 refresh jti、原子轮换、重放撤销和健康探针 |
-| `server/config/clientHosting.ts` / `bun-server/config/clientHosting.ts` | `client/dist` 校验、静态缓存与 HTML SPA 回退；Bun 实现使用 `Bun.file` |
-| `server/controllers/*` | HTTP 输入、长度边界、状态码和流响应 |
-| `server/services/chatService.ts` | ask 前绑定完整会话模型配置、上下文、工具两阶段、生成元数据聚合和完成/手动停止持久化 |
-| `server/services/contextService.ts` | 摘要覆盖边界、历史/图片裁剪顺序、消息数/字符二级护栏与统一 token 预算编排 |
-| `server/services/contextBudgetService.ts` | Provider/model 上下文配置、保守 token/图片估算、输出和工具续调预留及超限错误 |
-| `server/services/conversationSummaryService.ts` | 覆盖边界后的增量滚动摘要、输入预算及会话变化检测 |
-| `server/services/conversationService.ts` | 会话列表/标题/搜索、模型配置保存，以及继承配置但只复制目标消息前缀的普通会话分支 |
-| `server/services/attachmentService.ts` | 图片魔数/尺寸校验、原子文件和 sidecar、本地读取、会话绑定、引用状态、TTL 与孤儿清理 |
-| `server/services/conversationExportService.ts` / `conversationImportService.ts` | schema v1 JSON 兼容、schema v2 ZIP 附件清单/校验和、ID 重映射、完整预检和批次级附件回滚 |
-| `server/services/toolService.ts` | 工具参数校验、失败隔离、耗时和生命周期事件 |
-| `server/services/healthService.ts` | 轻量 liveness，以及启动级配置、当前会话 store 和认证 Session Store 的 readiness 读写探针；仅输出稳定状态 |
-| `server/tools/*` | 单工具 schema、validator 和 handler |
-| `server/utils/llm/providerConfig.ts` | HTTP/HTTPS endpoint、凭据和默认模型 |
-| `server/utils/llm/modelCatalog.ts` | 公共模型能力与禁用状态 |
-| `server/utils/llm/providerDiagnostics.ts` | 非 2xx 响应限长结构化提取、凭据脱敏、Provider request id 和内部 correlation id 日志 |
-| `server/utils/llm/adapters/*` | provider body、SSE 语义与 continuation |
-| `server/utils/requestRegistry.ts` | 当前进程的 requestId 与单会话活动请求互斥、取消信号和请求完成通知；持久终态由 conversation store 管理 |
-| `server/utils/conversationStore.ts` | 稳定 facade；按运行配置选择 file/SQLite 实现并保持既有导出 |
-| `server/utils/conversationStore/contracts.ts` | 存储公共契约和默认标题 |
-| `server/utils/conversationStore/normalization.ts` | ID、消息、时间、摘要、标题、模型配置安全降级和深副本规范化 |
-| `server/utils/conversationStore/migration.ts` | file/legacy aggregate 的共享迁移读取 |
-| `server/utils/conversationStore/fileStore.ts` | 原子 JSON 文件、全局 mutation queue、批次 staging/backup/rename/rollback 和 legacy file 迁移 |
-| `server/utils/conversationStore/sqliteStore.ts` | SQLite schema/WAL、幂等 `model_options` 迁移、JSON 迁移、CRUD 和连接关闭 |
+| `bun-server/config/deploymentConfig.ts` | HOST/PORT、生产默认值、`~/` 路径和 TLS 证书/私钥校验 |
+| `bun-server/config/authConfig.ts` | production 默认认证、凭据/JWT/Cookie/Origin/TTL/Session DB 配置及 fail-fast |
+| `bun-server/middleware/authentication.ts` | 在控制器前验证 Bearer、JWT claims 和服务端 Session 活性 |
+| `bun-server/controllers/authController.ts` | status/login/refresh/logout、Refresh Cookie 与稳定认证错误 |
+| `bun-server/services/authService.ts` | Argon2id 登录、JWT 签发验证、Refresh 轮换和 Session 撤销编排 |
+| `bun-server/utils/authSessionStore.ts` | 独立 SQLite WAL、哈希 refresh jti、原子轮换、重放撤销和健康探针 |
+| `bun-server/config/clientHosting.ts` | `client/dist` 校验、静态缓存、`Bun.file` 与 HTML SPA 回退 |
+| `bun-server/controllers/*` | HTTP 输入、长度边界、状态码和流响应 |
+| `bun-server/services/chatService.ts` | ask 前绑定完整会话模型配置、上下文、工具两阶段、生成元数据聚合和完成/手动停止持久化 |
+| `bun-server/services/contextService.ts` | 摘要覆盖边界、历史/图片裁剪顺序、消息数/字符二级护栏与统一 token 预算编排 |
+| `bun-server/services/contextBudgetService.ts` | Provider/model 上下文配置、保守 token/图片估算、输出和工具续调预留及超限错误 |
+| `bun-server/services/conversationSummaryService.ts` | 覆盖边界后的增量滚动摘要、输入预算及会话变化检测 |
+| `bun-server/services/conversationService.ts` | 会话列表/标题/搜索、模型配置保存，以及继承配置但只复制目标消息前缀的普通会话分支 |
+| `bun-server/services/attachmentService.ts` | 图片魔数/尺寸校验、原子文件和 sidecar、本地读取、会话绑定、引用状态、TTL 与孤儿清理 |
+| `bun-server/services/conversationExportService.ts` / `conversationImportService.ts` | schema v1 JSON 兼容、schema v2 ZIP 附件清单/校验和、ID 重映射、完整预检和批次级附件回滚 |
+| `bun-server/services/toolService.ts` | 工具参数校验、失败隔离、耗时和生命周期事件 |
+| `bun-server/services/healthService.ts` | 轻量 liveness，以及启动级配置、当前会话 store 和认证 Session Store 的 readiness 读写探针；仅输出稳定状态 |
+| `bun-server/tools/*` | 单工具 schema、validator 和 handler |
+| `bun-server/utils/llm/providerConfig.ts` | HTTP/HTTPS endpoint、凭据和默认模型 |
+| `bun-server/utils/llm/modelCatalog.ts` | 公共模型能力与禁用状态 |
+| `bun-server/utils/llm/providerDiagnostics.ts` | 非 2xx 响应限长结构化提取、凭据脱敏、Provider request id 和内部 correlation id 日志 |
+| `bun-server/utils/llm/adapters/*` | provider body、SSE 语义与 continuation |
+| `bun-server/utils/requestRegistry.ts` | 当前进程的 requestId 与单会话活动请求互斥、取消信号和请求完成通知；持久终态由 conversation store 管理 |
+| `bun-server/utils/conversationStore.ts` | 稳定 facade；按运行配置选择 file/SQLite 实现并保持既有导出 |
+| `bun-server/utils/conversationStore/contracts.ts` | 存储公共契约和默认标题 |
+| `bun-server/utils/conversationStore/normalization.ts` | ID、消息、时间、摘要、标题、模型配置安全降级和深副本规范化 |
+| `bun-server/utils/conversationStore/migration.ts` | file/legacy aggregate 的共享迁移读取 |
+| `bun-server/utils/conversationStore/fileStore.ts` | 原子 JSON 文件、全局 mutation queue、批次 staging/backup/rename/rollback 和 legacy file 迁移 |
+| `bun-server/utils/conversationStore/sqliteStore.ts` | SQLite schema/WAL、幂等 `model_options` 迁移、JSON 迁移、CRUD 和连接关闭 |
 
 Provider 特有字段只存在于 adapter。控制器不拼 prompt，工具注册表不内嵌天气/计算器实现。附件原图始终以本地文件为准；DeepSeek adapter 只在最终请求组装时读取图片并创建 Base64 Data URL，文本消息仍保持字符串 content。
 
 ## 生产部署边界
 
-当前生产脚本与 Docker 拓扑仍以 Node 为部署基线；本节不代表 Bun 已完成容器化。
+非容器 production 与 Docker 使用同一个 `bun-server/` 和 Bun 1.4.0 运行时；差异只在 TLS 文件注入、静态构建来源和 `/app/data` Volume。
 
 ```mermaid
 flowchart TD
   Build["bun run build"] --> Dist["client/dist hashed assets"]
-  Env["NODE_ENV=production + server/.env"] --> Boot["server/bin/www.ts"]
+  Env["NODE_ENV=production + bun-server/.env"] --> Boot["bun-server/bin/www.ts"]
   AuthConfig["Argon2id hash + two JWT secrets"] --> Boot
   Cert["certificate + private key"] --> Validate["existence / dates / key match"]
   Validate --> Boot
   Dist --> Guard["index.html startup guard"] --> Boot
-  Boot --> HTTPS["Node HTTPS listener"]
+  Boot --> HTTPS["Bun.serve HTTPS listener"]
   HTTPS --> Assets["/assets/* one-year immutable cache"]
   HTTPS --> Index["HTML GET -> index.html no-cache"]
-  HTTPS --> API["/api/* -> Express routes"]
+  HTTPS --> API["/api/* -> Bun route adapter"]
   API --> AuthGate["public health/auth; other API requires Bearer"]
   AuthGate --> Missing["unknown authenticated API -> JSON 404; never SPA HTML"]
 ```
@@ -167,26 +167,26 @@ flowchart TD
 - `NODE_ENV=production` 时默认启用 HTTPS 和前端构建托管；均可用显式环境变量覆盖。
 - 生产 API 只位于 `/api/*`，避免会话 API 与 React 路由冲突。未托管前端的开发模式暂时保留根路径 API 兼容面。
 - `index.html` 使用 `no-cache`；带 hash 的 `/assets/*` 使用一年 immutable cache。
-- Node 直接终止 TLS；若改由反向代理终止 TLS，应显式设置 `HTTPS_ENABLED=false`，并只在受控网络内暴露 Node 端口。
+- Bun 直接终止 TLS；若改由反向代理终止 TLS，应显式设置 `HTTPS_ENABLED=false`，并只在受控网络内暴露应用端口。
 - 当前只提供单个固定用户认证，不包含注册、RBAC、多用户隔离、WAF 或公网运营能力；启用 HTTPS 与登录仍不等于适合公开互联网访问。
 
-### Docker 单容器拓扑
+### Bun Docker 拓扑
 
 ```mermaid
 flowchart LR
   LAN["LAN browser"] -->|"HTTPS :7001"| Port["Docker published port"]
-  Port --> Node["Node / Express container"]
-  Node --> Dist["client/dist"]
-  Node --> API["/api/*"]
-  Node --> Data["/app/data volume"]
-  Node --> AuthDB["/app/data/auth-sessions.sqlite3"]
-  Cert["host TLS cert + key"] -->|"read-only mounts"| Node
-  Env["host server/.env"] -->|"runtime injection"| Node
+  Port --> Bun["Bun 1.4 / Bun.serve container"]
+  Bun --> Dist["client/dist"]
+  Bun --> API["/api/*"]
+  Bun --> Data["/app/data volume"]
+  Bun --> AuthDB["/app/data/auth-sessions.sqlite3"]
+  Cert["host TLS cert + key"] -->|"read-only mounts"| Bun
+  Env["host bun-server/.env"] -->|"runtime injection"| Bun
 ```
 
-- Docker 不改变应用模块边界：镜像只负责封装 Node、server 生产依赖和 `client/dist`。
-- Node 仍是唯一 HTTPS 与应用进程，不增加反向代理或第二套前端服务。
-- `server/.env`、TLS 文件和会话数据均不进入镜像层；容器可替换，运行配置和数据独立保留。
+- Bun 多阶段镜像使用 `bun.lock` 冻结安装：构建阶段生成 `client/dist`，production 阶段只安装 `bun-server` 运行依赖，最终镜像不包含测试、源码构建依赖或包管理缓存。
+- entrypoint 仅在复制只读 TLS 文件时保留 root 权限，随后使用 UID/GID 1000 的 `bun` 用户执行单一应用进程；不增加反向代理或第二套前端服务。
+- `.env`、TLS 文件和会话数据不得进入镜像层；容器可替换，运行配置和数据独立保留。
 - Compose 只运行一个实例。file store 的队列和 SQLite 写入边界都是单进程语义，不支持横向扩容。
 - Compose healthcheck 使用公开的轻量 `/api/health/live`，避免高频触发文件或 SQLite 写探针。`/api/health/ready` 在发布、数据卷切换和人工诊断时探测运行配置、会话 store 与启用时的认证 Session Store；兼容 `/api/health` 与 readiness 等价。任一 readiness 检查不可用映射为 503，且不返回路径、endpoint、凭据或底层异常。
 - `docker:backup` 只读挂载已停止的完整 `/app/data` volume，tar 与 manifest 分别提供 archive 和数据树 SHA-256；`docker:restore` 只创建新 volume，校验后通过独立 Compose override 切换。
@@ -196,7 +196,7 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-  Stop["stop single Node writer"] --> Source["source /app/data volume"]
+  Stop["stop single application writer"] --> Source["source /app/data volume"]
   Source -->|"read-only tar + file hashes"| Backup["tar + manifest"]
   Backup -->|"archive sha256 verified"| NewVolume["new restored volume"]
   NewVolume -->|"tree sha256 verified"| Switch["Compose external-volume override"]
@@ -205,7 +205,7 @@ flowchart LR
   Health -->|"fail"| Rollback["switch back to untouched source"]
 ```
 
-备份与恢复工具不读取或复制 `server/.env`、API key、宿主机 TLS 文件或 CA 私钥。数据 volume 的选择是显式运维状态；它不被写入应用持久化 schema，也不改变 file/SQLite 对外契约。
+备份与恢复工具不读取或复制 `.env`、API key、宿主机 TLS 文件或 CA 私钥。数据 volume 的选择是显式运维状态；它不被写入应用持久化 schema，也不改变 file/SQLite 对外契约。
 
 ## 认证时序
 
@@ -396,7 +396,7 @@ flowchart TD
 
 ## 输入与错误边界
 
-集中限制分别位于 `server/config/productLimits.ts` 与 `bun-server/config/productLimits.ts`：自动标题、会话标题、搜索词、问题、导入会话数和单会话消息数。Provider endpoint 仅支持 HTTP/HTTPS；天气网络异常返回稳定可恢复错误；生产环境未处理的 5xx 不向客户端泄漏内部路径或上游细节。Provider 非 2xx 诊断只读取最多 4 KiB 结构化错误，先脱敏凭据再记录限长详情、Provider request id 和内部 correlation id；不记录完整 Prompt、请求 body、Cookie、Token 或原始响应 body。
+集中限制位于 `bun-server/config/productLimits.ts`：自动标题、会话标题、搜索词、问题、导入会话数和单会话消息数。Provider endpoint 仅支持 HTTP/HTTPS；天气网络异常返回稳定可恢复错误；生产环境未处理的 5xx 不向客户端泄漏内部路径或上游细节。Provider 非 2xx 诊断只读取最多 4 KiB 结构化错误，先脱敏凭据再记录限长详情、Provider request id 和内部 correlation id；不记录完整 Prompt、请求 body、Cookie、Token 或原始响应 body。
 
 ## 扩展约束
 

@@ -4,23 +4,25 @@
 
 ## 当前结论
 
-- P0-P7、R8.0-R8.9、R9-R27 已完成；Bun 后端现已使用 Bun 工具链、`bun:sqlite` 和 `Bun.serve`。
-- 最近完成的编号阶段是 R27：Bun 原生 HTTP/HTTPS、路由/响应适配、multipart、`Bun.file` 静态托管和可等待的 NDJSON 背压。
-- R21 静态、单元/API、构建、18/18 全量 Mock 与全量真实 Provider 已通过；Docker 实机新 Volume 恢复门禁按用户要求暂缓。
+- P0-P7、R8.0-R8.9、R9-R29 已完成；应用、工具链、非容器 production 与 Docker 均使用 Bun。
+- 最近完成的编号阶段是 R29：Dockerfile、Compose、TLS/健康检查、Volume 工具和容器回归已收口到 Bun 1.4.0，pnpm 输入已删除。
+- R21 静态、单元/API、构建、18/18 全量 Mock 与全量真实 Provider 已通过；R29 已补齐图片附件的新 Volume 恢复、校验和与浏览器读取门禁。
 - R23 静态检查、168 项服务端单测、114 项 React 单测、无重试 18/18 全量 Mock 和无重试全量真实 Provider 已通过；Docker 按用户要求不验证。
 - 2026-08-31 完成健康检查拆分、Provider 非 2xx 安全诊断和超时取消后立即重试协调；静态、172 项服务端单测、115 项 React 单测、18/18 全量 Mock 及全量真实 Provider 通过，Docker 运行验证按用户要求暂缓。
 - 2026-09-04 完成独立 Bun 后端；Node 177 项、Bun 45 个测试文件、React 119 项、契约对照、构建、无重试 Bun `all-mock` 及 DeepSeek/OpenAI 真实功能门禁通过，Docker 未执行；真实总入口的 Vite 清理问题随后完成聚焦修复验证。
 - 2026-09-04 完成 Bun 工具链迁移；冻结安装、静态检查、Node 177 项、Bun 174 项、React 119 项、契约对照、构建和无重试 Bun 全量 Mock 通过。真实 Provider 与 Docker 未执行。
 - 2026-09-05 完成 Bun 原生 SQLite 迁移；旧数据库双向兼容、file/SQLite parity、静态检查、Node 177 项、Bun 174 项、React 119 项、构建、依赖审计和无重试 18/18 Bun 全量 Mock 通过。真实 Provider 与 Docker 未执行。
 - 2026-09-05 完成 Bun 原生 HTTP 迁移；静态检查、Node 177 项、Bun 175 项、React 119 项、HTTP/HTTPS 运行时、file/SQLite parity、数据库双向兼容、构建、审计和无重试 18/18 Bun 全量 Mock 通过。真实 Provider 与 Docker 未执行。
-- 详细范围和交付证据见 [P0-R21 历史阶段记录](roadmap-history.md)、[R22 验收记录](r22-request-consistency-atomic-import-2026-08-29.md)、[R23 验收记录](r23-provider-aware-context-budget-2026-08-29.md)、[P1 工程可靠性优化验收记录](engineering-hardening-2026-08-31.md)、[R24 验收记录](r24-bun-server-2026-09-04.md)、[R25 验收记录](r25-bun-toolchain-2026-09-04.md)、[R26 验收记录](r26-bun-sqlite-2026-09-05.md)与 [R27 验收记录](r27-bun-http-runtime-2026-09-05.md)。
+- 2026-09-06 完成单一 Bun 后端收口；工具链守卫、静态检查、Bun/React 单测、HTTPS/SIGTERM、构建、审计和无重试全量 Mock 验证见 R28 记录。真实 Provider 与 Docker 未执行。
+- 2026-09-07 完成 Bun 生产与 Docker 交付；Bun 1.4.0 精简镜像、非 root、TLS、认证、liveness/readiness、SQLite/附件/幂等重启、SIGTERM、备份恢复和无截图 Docker UI 门禁通过。Provider 请求形状未变化，未重复付费真实调用。
+- 详细范围和交付证据见 [P0-R21 历史阶段记录](roadmap-history.md)、[R22 验收记录](r22-request-consistency-atomic-import-2026-08-29.md)、[R23 验收记录](r23-provider-aware-context-budget-2026-08-29.md)、[P1 工程可靠性优化验收记录](engineering-hardening-2026-08-31.md)、[R24 验收记录](r24-bun-server-2026-09-04.md)、[R25 验收记录](r25-bun-toolchain-2026-09-04.md)、[R26 验收记录](r26-bun-sqlite-2026-09-05.md)、[R27 验收记录](r27-bun-http-runtime-2026-09-05.md)、[R28 验收记录](r28-single-bun-runtime-2026-09-06.md)与 [R29 验收记录](r29-bun-production-docker-2026-09-07.md)。
 
 ## 当前基线
 
 ### 应用与模型
 
 - React 19 + TypeScript 7 + Vite 8；Tailwind CSS 4 + shadcn/ui Base UI + Lucide React。
-- Node `server/` 是 Express 5.2 后端，Bun `bun-server/` 是 `Bun.serve` 后端；两者均使用 TypeScript 7，并与前端共用根 Bun workspace/catalog、`bun.lock` 和基础 tsconfig。Node 后端只作为过渡与对照基线保留。
+- `bun-server/` 是唯一后端，使用 Bun 1.4 `Bun.serve`、`bun:sqlite` 与 TypeScript 7，并与前端共用根 Bun workspace/catalog、`bun.lock` 和基础 tsconfig。
 - DeepSeek Chat Completions 与 OpenAI Responses adapters；支持 reasoning、模型能力参数和 Function Calling。
 - Provider SSE 经服务端转换为应用 NDJSON v2；DeepSeek `[DONE]` 和 OpenAI `response.completed` 是成功完成门禁。
 
@@ -44,8 +46,8 @@
 
 - production 默认启用单用户认证；除健康检查与认证入口外，API 需要短期 Bearer Access Token。
 - Access Token 只保存在 React 内存；Refresh Token 只存在于受限 Cookie，并由独立 SQLite Session Store 执行轮换、重放检测和撤销。
-- 单 Node Docker HTTPS 部署、只读 TLS 挂载、非 root 应用进程、持久化 `/app/data`、轻量 liveness、深度 readiness 和完整 Volume 备份恢复框架；Bun Docker 不在当前基线，R21 附件的新 Volume 实机恢复仍待补证。
-- Node test 对照、原生 `bun:test`、Node/Bun 契约对照、Bun 驱动的 Vitest 与 CDP 覆盖聊天、存储、上下文、工具、Markdown、UI、认证和隔离门禁。
+- 非容器 production 与 Docker 均由 Bun HTTPS 同源托管；容器使用固定 Bun 1.4.0 slim 镜像、非 root `bun` 用户、TLS 只读挂载、`/app/data` Volume 和校验和备份恢复。
+- 原生 `bun:test`、Bun 驱动的 Vitest、Bun HTTP/HTTPS 运行时与 CDP 覆盖聊天、存储、上下文、工具、Markdown、UI、认证和隔离门禁。
 
 ## 阶段矩阵
 
@@ -65,19 +67,19 @@
 | R18 | 自定义 Prompt 模板 CRUD、浏览器持久化和 JSON 导入导出 | 完成并验证 |
 | R19 | 流式渲染平滑度、历史行隔离、快速到底和性能门禁 | 完成并验证 |
 | R20 | JWT 单用户认证、Refresh 轮换、Session 撤销和登录 UI | 完成并验证 |
-| R21 | 图片附件、DeepSeek Vision 多模态输入、本地持久化和备份恢复 | 完成（Docker 实机恢复暂缓） |
-| R22 | 请求幂等、断线结果恢复和批量导入原子性 | 功能与非 Docker 验收完成 |
+| R21 | 图片附件、DeepSeek Vision 多模态输入、本地持久化和备份恢复 | 完成并验证（含 R29 Docker 新卷恢复） |
+| R22 | 请求幂等、断线结果恢复和批量导入原子性 | 完成并验证（含 R29 Docker 重启重放） |
 | R23 | Provider-aware 上下文预算 | 完成并验证（Docker 按要求未跑） |
 | R24 | 独立 Bun 后端、运行时兼容、契约对照与 Bun Mock/真实 Provider 回归 | 完成并验证（Docker 未跑） |
 | R25 | Bun 包管理、workspace/catalog、脚本执行与原生 `bun:test` | 完成并验证（Docker/真实 Provider 未跑） |
 | R26 | Bun 原生 SQLite 替换 Bun 后端的 `node:sqlite` | 完成并验证（Docker/真实 Provider 未跑） |
 | R27 | `Bun.serve`、原生路由/multipart/静态文件与流式背压 | 完成并验证（Docker/真实 Provider 未跑） |
-| R28 | 删除 Node 后端与 Node 对照链路，收口单一 Bun 应用 | 待实施 |
-| R29 | Bun 生产启动、Docker 镜像、备份恢复与部署门禁 | 待实施 |
+| R28 | 删除 Node 后端与 Node 对照链路，收口单一 Bun 应用 | 完成并验证（Docker/真实 Provider 未跑） |
+| R29 | Bun 生产启动、Docker 镜像、备份恢复与部署门禁 | 完成并验证（真实 Provider 未重复调用） |
 
 ## R21 图片附件与多模态理解
 
-状态：功能与非 Docker 验收已完成。完整范围与设计见 [R21 图片附件与多模态理解方案](r21-multimodal-vision-plan.md)，验收证据见 [R21 验收记录](r21-multimodal-vision-2026-08-24.md)。
+状态：功能与部署验收已完成。完整范围与设计见 [R21 图片附件与多模态理解方案](r21-multimodal-vision-plan.md)，功能证据见 [R21 验收记录](r21-multimodal-vision-2026-08-24.md)，Docker 新卷恢复证据见 [R29 验收记录](r29-bun-production-docker-2026-09-07.md)。
 
 - 直接价值：支持围绕截图、照片和图表提问，并学习上传安全、多模态消息建模、Provider 能力约束、附件生命周期和上下文预算。
 - 模型边界：接入 `deepseek-v4-flash-vision-exp`；该模型默认支持纯文本，图片是可选输入，同时支持文本加图片和仅图片消息。
@@ -85,23 +87,23 @@
 - Provider 边界：首期调用时由服务端临时转 Base64 Data URL；不把 Base64 长期保存，不接外部 URL，DeepSeek Files API 暂缓。
 - 协议边界：现有 NDJSON v2 输出协议保持不变；不支持图片的模型不得静默接收或降级图片请求。
 - 已验证：上传状态、刷新、停止/恢复、重试、分支、file/SQLite、schema v1/v2、上下文预算、请求时 Base64、安全边界、全量 Mock 和真实图片完整识别。
-- 暂缓项：用户恢复 Docker 工作后执行新 Volume 恢复实机验证；不影响本轮功能与非 Docker 验收结论。
+- 部署证据：R29 已验证附件二进制、sidecar、缩略图、原图和历史图片续问跨容器重启与新 Volume 恢复保持一致。
 - 非目标：文档文本提取、OCR/RAG、图片生成/编辑、音视频和通用多模态网关。
 
 ### R21 遗留验收
 
-R21 不新增功能，只补齐部署证据。当前 Docker smoke 脚本已实现以下场景，但本轮未执行容器门禁：
+R21 不新增功能，只补齐部署证据。R29 Docker smoke 已执行以下场景：
 
 - Docker smoke 创建带图片消息的会话，确认附件二进制和 sidecar 位于 `/app/data/attachments`。
 - 停止容器后执行整卷备份，恢复到从未存在过的新 Volume，再验证会话详情、缩略图、原图读取和携带历史图片继续提问。
 - 比较恢复前后的附件大小与 SHA-256，并确认源 Volume 未被修改。
 - 失败时只删除本次测试创建的新恢复卷和测试数据，不使用 `docker compose down -v`。
 
-该门禁按用户最新要求暂缓；在实际执行完成前不得把“附件已通过新 Volume 恢复”写成既成事实。
+该门禁已于 2026-09-07 使用本地 Mock Provider、真实 Bun 容器和无截图浏览器自动化通过。
 
 ## R22 请求一致性与原子导入
 
-状态：功能与非 Docker 验收已完成。实现与验证证据见 [R22 验收记录](r22-request-consistency-atomic-import-2026-08-29.md)。
+状态：功能与非 Docker 验收已完成；R29 已补充相同 `requestId` 跨 Docker 重启恢复且不二次调用 Provider 的证据。实现与验证证据见 [R22 验收记录](r22-request-consistency-atomic-import-2026-08-29.md)与 [R29 验收记录](r29-bun-production-docker-2026-09-07.md)。
 
 ### 直接价值
 
@@ -186,13 +188,34 @@ R21 不新增功能，只补齐部署证据。当前 Docker smoke 脚本已实�
 - 兼容边界：API、环境变量、认证、file/SQLite schema、附件格式、Provider 请求和 NDJSON v2 事件不变；Node 后端继续作为 R28 前的对照和回滚基线。
 - 暂缓项：默认生产命令和 Docker 仍使用 Node；真实 Provider 未重复调用。二者分别保留到 R29 和需要 Provider 形状变化时的单独授权门禁。
 
+## R28 单一 Bun 后端收口
+
+状态：本地非 Docker 验收已完成。实现与证据见 [R28 验收记录](r28-single-bun-runtime-2026-09-06.md)。
+
+- 直接价值：移除两套业务源码和两份测试造成的同步成本，使日常开发、静态检查、单元测试、非容器 production 与 CDP 只经过实际维护的 Bun 后端。
+- 实现边界：删除 Git 跟踪的 Node `server/` 与 `tests/server/`，删除 parity、跨运行时 SQLite 兼容和双后端基准；根 workspace 只保留 client/bun-server。
+- 兼容边界：稳定脚本名 `dev:server`、`start:server`、`typecheck:server`、`test:server` 保留并改为 Bun；API、认证、Provider、环境变量、file/SQLite schema、附件和 NDJSON v2 不变。
+- 数据边界：未删除本地 Git ignore 的 `server/.env`、`server/data/` 或 `server/node_modules/`；旧数据要复用时需先备份、停止旧进程并显式配置 Bun 数据目录。
+- 暂缓项：旧 Dockerfile/Compose/pnpm 文件只作为 R29 迁移输入，当前不能重建；真实 Provider 因请求形状未变化而不重复付费验证。
+
+## R29 Bun 生产与 Docker 交付
+
+状态：已完成并通过本地 Docker 实机验收。实现与证据见 [R29 验收记录](r29-bun-production-docker-2026-09-07.md)。
+
+- 直接价值：让开发、非容器 production、容器镜像、健康检查和 Volume 运维只依赖一套 Bun 工具链，消除已删除 Node 后端和 pnpm 构建输入造成的部署断点。
+- 镜像边界：固定 `oven/bun:1.4.0-slim`；构建阶段按 `bun.lock` 生成 React，production 阶段只安装 `bun-server` 依赖，最终镜像不带测试、构建依赖或安装缓存。
+- 运行边界：entrypoint 以 root 复制只读 TLS 文件后降权到 UID/GID 1000 的 `bun` 用户；`Bun.serve` 同源承载 HTTPS、React 和 `/api/*`。
+- 数据边界：保留完整 `/app/data` Volume、SQLite WAL、附件、认证 Session、只读备份、archive/tree SHA-256、新卷恢复与显式 Volume 切换。
+- 验收：Bun 镜像构建、188,509,646 字节镜像边界、非 root、TLS、认证、liveness/readiness、存储故障恢复、SQLite/附件/requestId 跨重启、SIGTERM、备份拒绝/校验、新 Volume 恢复和 Docker UI 均通过。
+- Provider 边界：容器使用本地 Mock Provider 验证应用与网络路径；本阶段未改变 Provider 请求形状，因此未重复调用 DeepSeek/OpenAI/Vision 真实接口。
+
 ## Bun 完全迁移序列
 
-R25-R27 已完成工具链、SQLite 驱动与 HTTP 运行时迁移。后续按可独立回退的顺序推进：
+R25-R29 已完成工具链、SQLite 驱动、HTTP 运行时、单后端收口与生产交付链迁移：
 
 1. R27 已由 `Bun.serve` 接管 HTTP/HTTPS、路由适配、multipart、静态文件和流式背压，同时保持现有 API 与 NDJSON v2。
-2. R28 在 Bun 门禁稳定后删除 Node `server/`、Node 测试副本与 Node/Bun parity，仅保留一套业务实现。
-3. R29 最后迁移默认生产启动与 Docker，重新验证 TLS、非 root、健康检查、附件、Volume 备份恢复、SIGTERM 和镜像边界，并删除临时 pnpm 文件。
+2. R28 已删除 Node `server/`、Node 测试副本与 Node/Bun parity，仅保留一套 Bun 业务实现。
+3. R29 已迁移 Docker、TLS/健康检查和 Volume 工具，完成容器实机门禁并删除临时 pnpm 文件。
 
 ## 工程优化 Backlog
 
@@ -200,7 +223,7 @@ R25-R27 已完成工具链、SQLite 驱动与 HTTP 运行时迁移。后续按�
 
 | 优先级 | 优化项 | 状态 | 完成边界 |
 | --- | --- | --- | --- |
-| P1 | 健康检查拆分 | 已完成；Docker 运行未复验 | Docker 高频调用轻量 liveness；实际配置/存储写探针改为 readiness，且继续不泄漏路径和凭据 |
+| P1 | 健康检查拆分 | 已完成（含 R29 Docker） | Docker 高频调用轻量 liveness；实际配置/存储写探针改为 readiness，且继续不泄漏路径和凭据 |
 | P1 | Provider 错误诊断 | 已完成 | 限长、脱敏解析非 2xx 错误，增加内部 correlation id；不记录 API key、完整 Prompt、Cookie 或 Token |
 | P1 | 超时取消后的立即重试 | 已完成 | 取消未完成时保持当前会话发送互斥，避免短暂 409；客户端、网络和服务端占用释放断言已覆盖 |
 | P2 | NDJSON 背压 | 已完成（R27） | Web Stream writer 等待下游可写；Provider reader 逐级等待，且取消、连接关闭和后续请求恢复门禁通过 |
@@ -261,3 +284,5 @@ R21 已完成图片附件与多模态理解。以下功能继续保留为后续�
 - [R25 Bun 工具链迁移验收记录](r25-bun-toolchain-2026-09-04.md)
 - [R26 Bun 原生 SQLite 验收记录](r26-bun-sqlite-2026-09-05.md)
 - [R27 Bun 原生 HTTP 运行时验收记录](r27-bun-http-runtime-2026-09-05.md)
+- [R28 单一 Bun 后端收口验收记录](r28-single-bun-runtime-2026-09-06.md)
+- [R29 Bun 生产与 Docker 交付验收记录](r29-bun-production-docker-2026-09-07.md)

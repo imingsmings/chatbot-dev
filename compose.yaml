@@ -8,7 +8,7 @@ services:
     restart: unless-stopped
     stop_grace_period: 15s
     env_file:
-      - ${CHATBOT_ENV_FILE:-./server/.env}
+      - ${CHATBOT_ENV_FILE:-./bun-server/.env}
     environment:
       NODE_ENV: production
       HOST: 0.0.0.0
@@ -33,12 +33,7 @@ services:
         target: /run/tls/server-key.pem
         read_only: true
     healthcheck:
-      test:
-        - CMD
-        - node
-        - -e
-        - >-
-          require('node:https').get({hostname:'127.0.0.1',port:7001,path:'/api/health/live',rejectUnauthorized:false},response=>{response.resume();process.exit(response.statusCode===200?0:1)}).on('error',()=>process.exit(1))
+      test: ["CMD", "bun", "/app/docker/healthcheck.ts"]
       interval: 15s
       timeout: 5s
       retries: 3

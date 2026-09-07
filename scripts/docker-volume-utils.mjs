@@ -109,7 +109,7 @@ async function readVolumeManifest(imageName, volumeName) {
     'run',
     '--rm',
     '--entrypoint',
-    'node',
+    'bun',
     '--mount',
     `type=volume,source=${volumeName},target=/data,readonly`,
     imageName,

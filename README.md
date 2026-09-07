@@ -1,6 +1,6 @@
 # chatbot-dev
 
-面向个人学习和内部使用的 local-first AI 聊天项目。前端为 React 19 + TypeScript 7 + Vite 8，后端提供 Node.js Express 5 与 Bun 1.4 `Bun.serve` 两套独立的 TypeScript 7 实现；重点覆盖可靠流式输出、模型适配、Function Calling、上下文管理和本地持久化。
+面向个人学习和内部使用的 local-first AI 聊天项目。前端为 React 19 + TypeScript 7 + Vite 8，后端为 Bun 1.4 `Bun.serve` + TypeScript 7；重点覆盖可靠流式输出、模型适配、Function Calling、上下文管理和本地持久化。
 
 Vue 客户端已在 2026-08-09 完成下线，`client/` 现在是唯一的 React 客户端。迁移记录见 [React 迁移收口文档](docs/react-migration-plan.md)。
 
@@ -11,11 +11,11 @@ Vue 客户端已在 2026-08-09 完成下线，`client/` 现在是唯一的 React
 | 前端 | React 19、TypeScript 7、Vite 8 |
 | UI | Tailwind CSS 4、shadcn/ui Base UI、Lucide React |
 | 前端质量 | Oxlint/tsgolint、Vitest、Testing Library、jsdom |
-| 后端 | Node.js `>=22.18` + Express 5.2，或 Bun `>=1.4.0` + `Bun.serve`；TypeScript 7、jose、Argon2id |
+| 后端 | Bun `>=1.4.0`、`Bun.serve`、`bun:sqlite`、TypeScript 7、jose、Argon2id |
 | 工具链 | Bun 1.4 workspace/catalog、`bun.lock`、共享 `tsconfig.base.json` |
 | 存储 | 单会话 JSON 文件或 SQLite |
 | 模型 | DeepSeek Chat Completions、OpenAI Responses adapter |
-| 回归 | Node test、Bun test、Node/Bun 契约对照、Vitest、CDP 浏览器自动化 |
+| 回归 | `bun:test`、Vitest、Bun HTTP/HTTPS 运行时、CDP 浏览器自动化 |
 
 ## 当前能力
 
@@ -41,14 +41,14 @@ Vue 客户端已在 2026-08-09 完成下线，`client/` 现在是唯一的 React
 
 ## 快速开始
 
-本地安装、开发、构建和回归统一使用 Bun `>=1.4.0`。Node.js `>=22.18.0` 仅保留给过渡期 Node 后端和 Node 基线测试。
+本地安装、开发、构建和回归统一使用 Bun `>=1.4.0`。
 
 ```bash
 bun install --frozen-lockfile
-cp server/.env.example server/.env
+cp bun-server/.env.example bun-server/.env
 ```
 
-在 `server/.env` 填写本地配置，不要提交该文件。分别启动：
+在 `bun-server/.env` 填写本地配置，不要提交该文件。分别启动：
 
 ```bash
 bun run dev:server
@@ -60,21 +60,11 @@ bun run dev:client
 - Vite 将 `/api/*` 原样代理到后端；开发与生产使用同一 API 路径。
 - 开发环境默认不启用认证；要按生产语义联调，需显式设置 `AUTH_ENABLED=true` 和下列认证配置。
 
-也可以改用独立的 Bun 后端；它与 Node 后端使用相同 API、环境变量、存储格式和 NDJSON v2 协议，但源代码与默认数据目录互相独立：
-
-```bash
-cp bun-server/.env.example bun-server/.env
-bun run dev:bun-server
-bun run dev:client
-```
-
-Node 与 Bun 默认都监听 `7001`，同时运行时应为其中一个显式设置其他 `PORT`。不要让两个进程同时写入同一个 file/SQLite 数据目录。
-
 生成 Argon2id 密码哈希和两个独立随机 secret：
 
 ```bash
-bun run --cwd server auth:hash-password
-bun run --cwd server auth:generate-secrets
+bun run --cwd bun-server auth:hash-password
+bun run --cwd bun-server auth:generate-secrets
 ```
 
 把输出分别填入 `AUTH_PASSWORD_HASH`、`AUTH_ACCESS_TOKEN_SECRET` 和
@@ -128,27 +118,29 @@ DeepSeek thinking 模式下，上游会忽略 temperature；当前项目仍允�
 
 ## 生产构建与 HTTPS
 
-生产模式由所选后端同源托管 `client/dist`，API 固定使用 `/api/*`，未知 HTML GET 路径回退到 React `index.html`。Node 使用 Express/Node HTTPS，Bun 使用 `Bun.serve`/`Bun.file`；缺少构建、证书无效/过期或私钥不匹配时都会启动失败，而不是静默降级为不安全 HTTP。
+生产模式由 Bun 后端同源托管 `client/dist`，API 固定使用 `/api/*`，未知 HTML GET 路径回退到 React `index.html`。HTTPS、静态文件和 SPA 回退分别由 `Bun.serve` 与 `Bun.file` 承载；缺少构建、证书无效/过期或私钥不匹配时都会启动失败，而不是静默降级为不安全 HTTP。
 
 ```bash
 bun run build
 bun run start:production
 ```
 
-`start:production` 与现有 Docker 部署继续使用 Node 后端，统一切换保留到 R29。本机默认读取 `~/devhttps/dev-cert.pem` 和 `~/devhttps/dev-key.pem`。Bun 后端可通过 `bun run start:bun-server` 按相同环境变量使用原生 HTTP/HTTPS 独立运行，但当前未提供 Bun Docker 镜像。完整配置、证书适用范围、上线检查和回滚见 [生产部署说明](docs/production-deployment.md)。
+`start:production` 已直接启动 `bun-server/`。本机默认读取 `~/devhttps/dev-cert.pem` 和 `~/devhttps/dev-key.pem`。Docker 同样使用 Bun 1.4.0 运行时；完整配置、证书适用范围、上线检查和回滚见 [生产部署说明](docs/production-deployment.md)。
 
 ## Docker 局域网部署
 
-Docker 采用单容器拓扑：Node/Express 直接终止 HTTPS，同时提供 React 构建和 `/api/*`，不引入 Nginx。`server/.env` 只在启动时注入，TLS 文件以只读 bind mount 提供，会话数据保存在独立 Docker volume。R25 未迁移或验证镜像内部的旧 pnpm 构建链路，容器交付暂缓到 R29。
+R29 已把 Dockerfile、Compose、健康检查、TLS entrypoint、Volume 清单和容器回归全部切换到 Bun。镜像使用 `bun.lock` 冻结安装，运行层只保留 Bun 后端生产依赖、`bun-server/` 与 `client/dist`；pnpm 构建输入已删除。
 
 ```bash
 bun run docker:config
 bun run docker:build
 bun run docker:up
 bun run docker:status
+bun run docker:logs
+bun run test:docker
 ```
 
-默认从宿主机 `~/devhttps` 读取证书，映射 `7001:7001`。局域网设备通过 `https://<宿主机局域网 IP>:7001` 访问，并需要信任 mkcert 根 CA。镜像设计、环境变量、数据迁移、验证和回滚见 [Docker 部署说明](docs/docker-deployment.md)。R10 初始交付见 [Docker 历史验证记录（2026-08-10）](docs/docker-validation-2026-08-10.md)；包含认证、Session 恢复和当前镜像体积的最新完整门禁见 [R20 验证记录](docs/r20-jwt-authentication-plan.md#2026-08-19-验证记录)。
+默认从宿主机 `~/devhttps` 读取证书，映射 `7001:7001`。局域网设备通过 `https://<宿主机局域网 IP>:7001` 访问，并需要信任 mkcert 根 CA。镜像设计、环境变量、数据迁移、验证和回滚见 [Docker 部署说明](docs/docker-deployment.md)；当前 Bun 容器证据见 [R29 验收记录](docs/r29-bun-production-docker-2026-09-07.md)。
 
 ## 目录
 
@@ -162,7 +154,7 @@ client/                         React 业务客户端
   src/api/                      HTTP 与 NDJSON reader
   src/utils/                    Markdown、协议、runtime 模型目录消费、模板
 shared/                         前后端共用 NDJSON v2 事件与协议常量
-server/
+bun-server/
   config/                       产品限制、认证、构建托管和部署/TLS 配置
   middleware/                   Bearer 认证、Origin 校验和登录限速
   security/                     Argon2id、JWT、Origin 与稳定认证错误
@@ -174,16 +166,15 @@ server/
   utils/authSessionStore.ts     Refresh Session SQLite、轮换和撤销
   utils/conversationStore.ts    file/SQLite 稳定 facade
   utils/conversationStore/      契约、规范化/迁移和两种存储实现
-bun-server/                     独立 Bun 1.4 后端；Bun.serve、bun:sqlite 与相同对外契约
 tests/client/                   React unit/component/hook 测试及 setup
-tests/server/                   后端单元、存储和异常测试
-tests/bun-server/               Bun 后端的独立 bun:test 兼容测试副本
+tests/bun-server/               后端单元、存储和异常测试
 tests/cdp/                      浏览器/API 回归及拆分后的 UI 场景入口
-tests/runtime/                  Node/Bun 契约、SQLite 兼容、Bun HTTPS 与观测型基准
+tests/runtime/                  Bun 工具链守卫与 HTTP/HTTPS 运行时测试
 docs/                           架构、协议、功能、路线图和测试文档
 bun.lock                        本地安装、CI 与开发的权威依赖锁
 bunfig.toml                     Bun isolated linker 配置
-pnpm-workspace.yaml             延期 Node Docker 的临时兼容清单；R29 删除
+Dockerfile                      Bun 多阶段构建与精简 production runtime
+compose.yaml                    Bun HTTPS、TLS 只读挂载与 /app/data Volume
 tsconfig.base.json             前后端共用 TypeScript 严格规则
 ```
 
@@ -221,19 +212,17 @@ tsconfig.base.json             前后端共用 TypeScript 严格规则
 
 ```bash
 bun run test:toolchain         # Bun 权威清单、锁文件和 bun:test 迁移守卫
-bun run check                  # Node/Bun server 与 client 类型检查 + React lint
-bun run test:unit              # Node/Bun 后端测试 + React Vitest
-bun run test:backend-parity    # Node/Bun API、NDJSON 与重启持久化对照
-bun run benchmark:backends     # 冷启动、RSS、健康接口与首流块观测基准
+bun run check                  # Bun server 与 client 类型检查 + React lint
+bun run test:unit              # Bun 后端测试 + React Vitest
+bun run test:bun-http-runtime  # Bun HTTPS、安全头、SQLite 与 SIGTERM
 bun run build                  # 全部静态检查 + React 生产构建
 bun run audit:production       # Bun lockfile 的高等级依赖漏洞审计
-bun run test:cdp:all-mock      # Node 后端基线的全量 mock 浏览器回归
-bun run test:cdp:all-mock:bun  # 将真实后端场景切到 Bun 的全量 mock 回归
+bun run test:cdp:all-mock      # Bun 后端的全量 mock 浏览器回归
 bun run test:cdp:request-recovery # 丢失 done 后的持久化结果恢复专项
 bun run test:cdp:authentication # 登录门禁、内存 Token、401 单次刷新重放和退出
 bun run test:cdp:image-attachments # 图片上传、预览、分支、停止和移动端 Mock 专项
+bun run test:docker            # Bun 镜像、HTTPS、认证、重启、备份恢复与 Docker UI
 bun run test:cdp:all-real      # DeepSeek/OpenAI 全量真实链路、参数矩阵与 Vision 真实图片门禁
-bun run test:docker            # Docker HTTPS、认证、SQLite、附件、请求重放、Volume 恢复与 SIGTERM 冒烟
 ```
 
 专项入口仍保留在根 `package.json`。自动化默认使用 mock、fixture 和临时存储；真实模型只在明确确认后执行。
@@ -255,6 +244,8 @@ bun run test:docker            # Docker HTTPS、认证、SQLite、附件、请�
 
 ### 方案与验收记录
 
+- [R29 Bun 生产与 Docker 交付验收记录（2026-09-07）](docs/r29-bun-production-docker-2026-09-07.md)
+- [R28 单一 Bun 后端收口验收记录（2026-09-06）](docs/r28-single-bun-runtime-2026-09-06.md)
 - [R27 Bun 原生 HTTP 运行时验收记录（2026-09-05）](docs/r27-bun-http-runtime-2026-09-05.md)
 - [R26 Bun 原生 SQLite 验收记录（2026-09-05）](docs/r26-bun-sqlite-2026-09-05.md)
 - [R25 Bun 工具链迁移验收记录（2026-09-04）](docs/r25-bun-toolchain-2026-09-04.md)

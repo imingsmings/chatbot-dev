@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { readdir, readFile } from 'node:fs/promises'
+import { access, readdir, readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { test } from 'bun:test'
 
@@ -17,7 +17,7 @@ test('root manifest makes Bun the authoritative local package manager', async ()
   }
 
   assert.equal(manifest.packageManager, 'bun@1.4.0')
-  assert.deepEqual(workspaces.packages, ['client', 'server', 'bun-server'])
+  assert.deepEqual(workspaces.packages, ['client', 'bun-server'])
   assert.deepEqual(workspaces.catalog, {
     '@types/node': '22.20.1',
     'bun-types': '1.4.0',
@@ -33,7 +33,6 @@ test('local development and validation scripts no longer invoke pnpm', async () 
   for (const relativePath of [
     'package.json',
     'client/package.json',
-    'server/package.json',
     'bun-server/package.json',
   ]) {
     const manifest = await readJson(relativePath)
@@ -49,12 +48,29 @@ test('Bun backend tests use bun:test and no Node compatibility test module', asy
   const testDirectory = path.join(REPO_ROOT, 'tests', 'bun-server')
   const files = (await readdir(testDirectory)).filter((file) => file.endsWith('.test.ts'))
 
-  assert.equal(files.length, 45)
+  assert.equal(files.length, 46)
   for (const file of files) {
     const source = await readFile(path.join(testDirectory, file), 'utf8')
     assert.match(source, /from ['"]bun:test['"]/, file)
     assert.doesNotMatch(source, /from ['"]node:test['"]/, file)
   }
+})
+
+test('repository exposes one Bun backend and no Node comparison entrypoints', async () => {
+  const manifest = await readJson('package.json')
+  const scripts = manifest.scripts as Record<string, string>
+  const commands = Object.values(scripts).join('\n')
+
+  await assert.rejects(access(path.join(REPO_ROOT, 'server', 'package.json')))
+  await assert.rejects(access(path.join(REPO_ROOT, 'tests', 'server')))
+  assert.deepEqual(manifest.engines, { bun: '>=1.4.0' })
+  assert.equal(scripts['dev:server'], 'bun run --cwd bun-server dev')
+  assert.equal(scripts['start:server'], 'bun run --cwd bun-server start')
+  assert.equal(scripts['typecheck:server'], 'bun run --cwd bun-server typecheck')
+  assert.match(scripts['start:production'], /--cwd bun-server start$/)
+  assert.doesNotMatch(commands, /(?:--cwd server|node --test|tests\/server|backend-parity|sqlite-runtime-compatibility|backend-benchmark)/)
+  assert.equal(scripts['test:bun-server'], undefined)
+  assert.equal(scripts['test:cdp:all-mock:bun'], undefined)
 })
 
 test('Bun backend uses bun:sqlite without node:sqlite compatibility imports', async () => {
@@ -132,4 +148,31 @@ test('Bun backend owns HTTP through Bun.serve without Express compatibility depe
     await readFile(path.join(REPO_ROOT, 'bun-server', 'bin', 'www.ts'), 'utf8'),
     /Bun\.serve\(/,
   )
+})
+
+test('Docker production delivery uses Bun without Node or pnpm build inputs', async () => {
+  const manifest = await readJson('package.json')
+  const scripts = manifest.scripts as Record<string, string>
+  const dockerfile = await readFile(path.join(REPO_ROOT, 'Dockerfile'), 'utf8')
+  const compose = await readFile(path.join(REPO_ROOT, 'compose.yaml'), 'utf8')
+  const entrypoint = await readFile(path.join(REPO_ROOT, 'docker', 'entrypoint.sh'), 'utf8')
+  const volumeUtils = await readFile(path.join(REPO_ROOT, 'scripts', 'docker-volume-utils.mjs'), 'utf8')
+
+  await assert.rejects(access(path.join(REPO_ROOT, 'pnpm-lock.yaml')))
+  await assert.rejects(access(path.join(REPO_ROOT, 'pnpm-workspace.yaml')))
+  assert.match(dockerfile, /FROM oven\/bun:\$\{BUN_VERSION\}-slim/)
+  assert.match(dockerfile, /bun install --frozen-lockfile --production --filter bun-server/)
+  assert.match(dockerfile, /CMD \["bun", "bun-server\/bin\/www\.ts"\]/)
+  assert.doesNotMatch(dockerfile, /(?:FROM node:|\bpnpm\b|COPY server(?:\s|\/))/)
+  assert.match(compose, /\.\/bun-server\/\.env/)
+  assert.match(compose, /\["CMD", "bun", "\/app\/docker\/healthcheck\.ts"\]/)
+  assert.doesNotMatch(compose, /(?:\bnode\b|\.\/server\/\.env)/)
+  assert.match(entrypoint, /--reuid=bun --regid=bun/)
+  assert.doesNotMatch(entrypoint, /--reuid=node|--regid=node/)
+  assert.match(volumeUtils, /'--entrypoint',\s*\n\s*'bun'/)
+  assert.equal(scripts['docker:config'], 'docker compose config --quiet')
+  assert.equal(scripts['docker:build'], 'docker compose build --pull')
+  assert.equal(scripts['docker:up'], 'docker compose up -d')
+  assert.equal(scripts['test:docker'], 'bun tests/docker/container-smoke.mjs')
+  assert.equal(scripts['test:cdp:docker-ui'], 'bun tests/cdp/docker-ui.mjs')
 })

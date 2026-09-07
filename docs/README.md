@@ -11,8 +11,8 @@
 | [功能清单](features.md) | 已交付能力与明确不包含的产品边界 |
 | [流式协议 v2](streaming-protocol.md) | Provider SSE、应用 NDJSON、工具事件、取消与演进规则 |
 | [回归测试矩阵](regression-test-cases.md) | 当前测试入口、断言范围、真实接口授权与清理规则 |
-| [生产部署](production-deployment.md) | Node HTTPS 非容器部署 |
-| [Docker 局域网部署](docker-deployment.md) | 单容器、TLS、SQLite Volume、备份恢复与迁移 |
+| [生产部署](production-deployment.md) | Bun HTTPS 非容器部署 |
+| [Docker 局域网部署](docker-deployment.md) | Bun 镜像、Compose、TLS、Volume、备份恢复与回滚 |
 | [R23 Provider-aware 上下文预算](r23-provider-aware-context-budget-2026-08-29.md) | 模型上限、统一估算、裁剪顺序、上下文预览与验证证据 |
 | [R22 请求一致性与原子导入](r22-request-consistency-atomic-import-2026-08-29.md) | requestId 幂等、断线恢复、file/SQLite/附件批次事务与验证证据 |
 | [P1 工程可靠性优化](engineering-hardening-2026-08-31.md) | 取消完成协调、liveness/readiness、Provider 安全诊断与当前非 Docker 验收证据 |
@@ -21,6 +21,8 @@
 | [R25 Bun 工具链迁移](r25-bun-toolchain-2026-09-04.md) | Bun workspace、权威锁、脚本执行、原生 bun:test 与迁移边界 |
 | [R26 Bun 原生 SQLite](r26-bun-sqlite-2026-09-05.md) | Bun 会话/认证 SQLite 驱动、双向数据库兼容、契约对照与回滚边界 |
 | [R27 Bun 原生 HTTP 运行时](r27-bun-http-runtime-2026-09-05.md) | `Bun.serve`、路由/响应适配、multipart、静态托管、流背压与验收证据 |
+| [R28 单一 Bun 后端收口](r28-single-bun-runtime-2026-09-06.md) | Node 后端删除、单一脚本入口、Bun CDP 默认值与非 Docker 验收证据 |
+| [R29 Bun 生产与 Docker 交付](r29-bun-production-docker-2026-09-07.md) | Bun 镜像、非 root/TLS、健康检查、Volume 恢复、容器浏览器与验收证据 |
 | [Roadmap](roadmap.md) | 当前基线、候选范围、选择与实施授权规则 |
 | [实验记录](experiments.md) | 可重复模型、上下文、工具与渲染实验 |
 
@@ -50,6 +52,8 @@
 - [R25 Bun 工具链迁移](r25-bun-toolchain-2026-09-04.md)
 - [R26 Bun 原生 SQLite](r26-bun-sqlite-2026-09-05.md)
 - [R27 Bun 原生 HTTP 运行时](r27-bun-http-runtime-2026-09-05.md)
+- [R28 单一 Bun 后端收口](r28-single-bun-runtime-2026-09-06.md)
+- [R29 Bun 生产与 Docker 交付](r29-bun-production-docker-2026-09-07.md)
 - [会话级模型配置持久化方案](conversation-model-options-plan.md)
 - [流式渲染平滑度优化方案](streaming-rendering-optimization-plan.md)
 - [DeepSeek V4 Pro 0813 启用与验收](deepseek-v4-pro-0813-validation-2026-08-13.md)

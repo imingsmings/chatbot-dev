@@ -1,8 +1,6 @@
 # Docker 局域网部署
 
-本文定义个人使用场景的 Docker 交付：单个 Node/Express 容器直接终止 HTTPS，同时提供 React 构建和 `/api/*`。不使用 Nginx/Caddy，不面向公网或多实例部署。
-
-> R25 已将根 `packageManager` 切换为 Bun，但本文件描述的镜像内部仍使用 pnpm。该组合在 R25 未构建、未运行、未验证，容器交付状态暂缓到 R29；下列命令和契约保留用于迁移与回归设计，不能视为当前通过证据。
+本文定义个人使用场景的 Docker 交付：单个 Bun 1.4 容器直接终止 HTTPS，同时提供 React 构建和 `/api/*`。不使用 Nginx/Caddy，不面向公网或多实例部署。R29 的实际容器证据见 [Bun 生产与 Docker 交付验收记录](r29-bun-production-docker-2026-09-07.md)。
 
 ## 拓扑与边界
 
@@ -10,7 +8,7 @@
 局域网浏览器
     -> https://宿主机 IP:7001
     -> Docker 7001:7001
-    -> Node HTTPS / Express
+    -> Bun HTTPS / Bun.serve
        -> client/dist
        -> /api/*
        -> DeepSeek / OpenAI / Weather
@@ -21,8 +19,8 @@
 
 | 内容 | 位置 | 是否进入镜像 |
 | --- | --- | --- |
-| Node、server、生产依赖、`client/dist` | `chatbot:local` | 是 |
-| 模型 endpoint、API key、认证哈希/JWT secret、业务参数 | 宿主机 `server/.env` | 否 |
+| Bun、`bun-server/`、后端生产依赖、`client/dist` | `chatbot:local` | 是 |
+| 模型 endpoint、API key、认证哈希/JWT secret、业务参数 | 宿主机 `bun-server/.env` | 否 |
 | HTTPS 证书和私钥 | 宿主机 `~/devhttps` | 否，只读挂载 |
 | file/SQLite 会话数据、图片附件与认证 Session SQLite | Compose `chatbot-data` volume | 否 |
 | 备份 tar 与 manifest | 操作者指定的宿主机目录 | 否 |
@@ -31,15 +29,15 @@
 
 ## 镜像设计
 
-`Dockerfile` 使用 Node 22 Debian slim 多阶段构建：
+`Dockerfile` 使用固定的 `oven/bun:1.4.0-slim` 多阶段构建：
 
-1. `pnpm-base` 固定 pnpm 11.16，仅作为 R29 前的旧 Node Docker 构建输入，不代表当前本地 package manager。
-2. `build` 使用临时保留的 `pnpm-lock.yaml` 安装 workspace 依赖并构建 React；`bun.lock` 才是本地工具链权威锁。
-3. `production-dependencies` 解析 server 生产依赖，pnpm store 和 metadata 仅存在于 BuildKit cache mount。
-4. `runtime` 从原始 Node slim 重新开始，只复制生产 `node_modules`、server 源码和 `client/dist`，不包含 pnpm/Corepack 下载缓存。
-5. entrypoint 以 root 读取宿主机 `0600` 私钥并复制到容器临时目录，随后使用 `setpriv` 降权为官方 `node` 用户运行应用。
-6. `/app/data` 预设为 `node:node`，命名卷首次创建后可由非 root 应用进程写入。
-7. `.dockerignore` 阻止 `.env`、证书、`server/data`、备份 tar/manifest、无关测试和 Git 元数据进入 build context；`tests/client` 仅作为 TypeScript 构建输入，不进入运行镜像。
+1. `build-dependencies` 按 `bun.lock` 冻结安装完整 workspace，仅用于前端类型检查和构建。
+2. `build` 生成 React `client/dist`；源码、测试和构建依赖不进入最终镜像。
+3. `production-dependencies` 使用 `--production --filter bun-server`，只解析后端的生产依赖闭包。
+4. `runtime` 从干净 Bun slim 镜像重新开始，只复制 Bun 后端源码、共享协议、production `node_modules`、`client/dist` 和必要运维脚本。
+5. entrypoint 以 root 读取宿主机 `0600` 私钥并复制到容器临时目录，随后使用 `setpriv` 降权为官方 `bun` 用户运行应用。
+6. `/app/data` 预设为 `bun:bun`，命名卷首次创建后可由非 root 应用进程写入。
+7. `.dockerignore` 阻止 `.env`、证书、`bun-server/data`、备份 tar/manifest、无关测试和 Git 元数据进入 build context；`tests/client` 仅作为 TypeScript 构建输入，不进入运行镜像。
 
 运行镜像默认配置：
 
@@ -55,11 +53,11 @@ HTTPS_KEY_PATH=/tmp/chatbot-tls/server-key.pem
 CONVERSATION_DATA_DIR=/app/data
 ```
 
-Compose 的同名 `environment` 会覆盖 `server/.env` 中不适用于容器的宿主机路径。
+Compose 的同名 `environment` 会覆盖 `bun-server/.env` 中不适用于容器的宿主机路径。
 
 ## 环境变量
 
-Compose 默认读取 `server/.env`，该文件保持 Git ignore，只在容器创建时注入。不要把 API key 写入 `Dockerfile`、`compose.yaml` 或 build args。
+Compose 默认读取 `bun-server/.env`，该文件保持 Git ignore，只在容器创建时注入。不要把 API key 写入 `Dockerfile`、`compose.yaml` 或 build args。
 
 启动前至少保证默认 provider 配置完整。DeepSeek Flash 示例：
 
@@ -75,11 +73,11 @@ CONVERSATION_STORE=sqlite
 production 默认启用单用户认证。首次启动前生成密码哈希和两个不同的随机 secret：
 
 ```bash
-bun run --cwd server auth:hash-password
-bun run --cwd server auth:generate-secrets
+bun run --cwd bun-server auth:hash-password
+bun run --cwd bun-server auth:generate-secrets
 ```
 
-把输出手工写入同一个未提交的 `server/.env`：
+把输出手工写入同一个未提交的 `bun-server/.env`：
 
 ```dotenv
 AUTH_ENABLED=true
@@ -90,11 +88,11 @@ AUTH_REFRESH_TOKEN_SECRET=<second generated secret>
 AUTH_COOKIE_SECURE=true
 ```
 
-Argon2id 哈希包含 `$`，在 Compose 使用的 `.env` 中必须用单引号包住，避免被当成变量插值；dotenv 和 Compose 都会去掉引号并把原始哈希交给 Node。缺少任一值、Argon2id 参数低于 `m=19456,t=2,p=1`、salt 少于 16 bytes、摘要少于 32 bytes、两个 secret 相同/不足 32 字节、关闭 Secure Cookie 或 production 未启用 HTTPS，容器都会 fail-fast。CLI 不会写 `.env`；不要在 shell history 中输入明文密码或把输出提交到 Git。
+Argon2id 哈希包含 `$`，在 Compose 使用的 `.env` 中必须用单引号包住，避免被当成变量插值；dotenv 和 Compose 都会去掉引号并把原始哈希交给 Bun。缺少任一值、Argon2id 参数低于 `m=19456,t=2,p=1`、salt 少于 16 bytes、摘要少于 32 bytes、两个 secret 相同/不足 32 字节、关闭 Secure Cookie 或 production 未启用 HTTPS，容器都会 fail-fast。CLI 不会写 `.env`；不要在 shell history 中输入明文密码或把输出提交到 Git。
 
 如默认使用 OpenAI，应显式设置 `LLM_PROVIDER=openai` 及对应 OpenAI 配置。当前启动校验会拒绝默认 provider 缺少 endpoint 或 API key 的配置。
 
-测试可通过 `CHATBOT_ENV_FILE=/absolute/test.env` 使用隔离配置，不修改真实 `server/.env`。
+测试可通过 `CHATBOT_ENV_FILE=/absolute/test.env` 使用隔离配置，不修改真实 `bun-server/.env`。
 
 ## TLS 证书
 
@@ -113,11 +111,11 @@ CHATBOT_TLS_KEY_SOURCE=/absolute/path/lan-key.pem \
 bun run docker:up
 ```
 
-这两个变量只改变宿主机 bind source。容器内目标路径、entrypoint 的权限收敛和 Node 读取路径不变。
+这两个变量只改变宿主机 bind source。容器内目标路径、entrypoint 的权限收敛和 Bun 读取路径不变。
 
-私钥不会进入镜像，证书更新也不需要重新构建。Node 启动前仍会校验证书格式、有效期和密钥匹配。
+私钥不会进入镜像，证书更新也不需要重新构建。Bun 启动前仍会校验证书格式、有效期和密钥匹配。
 
-宿主机私钥通常是 `0600`。entrypoint 只在容器启动阶段以 root 读取只读挂载，将证书和私钥复制到 `/tmp/chatbot-tls`，再降权为 UID/GID 1000 的 `node` 用户；Node 进程不以 root 运行。
+宿主机私钥通常是 `0600`。entrypoint 只在容器启动阶段以 root 读取只读挂载，将证书和私钥复制到 `/tmp/chatbot-tls`，再降权为 UID/GID 1000 的 `bun` 用户；Bun 进程不以 root 运行。
 
 局域网通过 IP 访问时，证书 SAN 必须包含该 IP，客户端必须信任签发证书的 mkcert 根 CA。只分发根 CA 证书，不分发根 CA 私钥。主机 IP 超出证书 SAN 后需要重新签发证书或固定 DHCP 地址。
 
@@ -134,17 +132,17 @@ Docker 默认使用 `CONVERSATION_STORE=sqlite`：
 - SQLite 使用现有 migration 语义，首次访问时幂等导入 volume 内的旧 JSON；
 - 需要回退时可显式设置 `CONVERSATION_STORE=file`，保留单会话 JSON 语义。
 
-从当前 file store 首次迁移时，先停止宿主机 Node 和 Docker 服务，再只将当前活动的 JSON 目录复制到新 volume：
+从旧 `server/data/file` 或当前 Bun file store 首次迁移时，先停止所有宿主机和 Docker 写入进程，再只将当前活动的 JSON 目录复制到新 volume。以下示例展示旧 Node 数据目录；若源数据在 `bun-server/data/file`，替换 bind source 即可：
 
 ```bash
 docker compose create
 docker compose run --rm --no-deps \
   --entrypoint sh \
   --volume "$PWD/server/data/file:/source:ro" \
-  chatbot -c 'mkdir -p /app/data/file && cp -a /source/. /app/data/file/ && chown -R node:node /app/data'
+  chatbot -c 'mkdir -p /app/data/file && cp -a /source/. /app/data/file/ && chown -R bun:bun /app/data'
 ```
 
-首次访问会话 API 时会在 `/app/data/sqlite` 生成新 SQLite 并导入 JSON。不要把旧的、已标记 migration 完成的 SQLite 与更新 JSON 一起复制进新 volume，否则新 JSON 不会再次导入。迁移后先核对会话数量和内容，再停止使用宿主机 Node 直接写旧数据。
+首次访问会话 API 时会在 `/app/data/sqlite` 生成新 SQLite 并导入 JSON。不要把旧的、已标记 migration 完成的 SQLite 与更新 JSON 一起复制进新 volume，否则新 JSON 不会再次导入。迁移后先核对会话数量和内容，并确保旧进程不再写源数据。
 
 ## 构建与启动
 
@@ -181,18 +179,18 @@ bun run docker:down
 bun run test:docker
 ```
 
-2026-08-31 已扩展以下自动化范围，但按用户要求未执行 Docker Desktop、镜像、容器、页面或 Volume 验证。以下列表描述脚本应证明的契约，不是该日期的运行结果。
+2026-09-07 的 R29 已在 Docker Desktop 上执行该自动化，固定 Bun 1.4.0 运行镜像为 188,509,646 字节，完整结果见 [R29 验收记录](r29-bun-production-docker-2026-09-07.md)。它使用临时 env、随机宿主机端口、独立 Compose project、独立 SQLite volume 和本地 Mock Provider，不读取真实模型密钥、不调用真实 Provider、不截图。
 
-它使用临时 env、随机宿主机端口、独立 Compose project 和独立 SQLite volume，验证：
+该门禁验证：
 
 - 默认和覆盖后的证书源路径均可解析，镜像可构建，容器进入 healthy；
-- 应用主进程以非 root `node` 用户运行；
-- React 页面通过 Node HTTPS 返回；
+- 应用主进程以固定 Bun 1.4.0、非 root `bun` 用户运行；
+- React 页面通过 Bun HTTPS 返回；
 - 缺失认证 secret 时 fail-fast；未登录 API 返回 401，登录后 runtime config 正确，Refresh Cookie 属性安全；
 - `/api/health/live` 为轻量 200；`/api/health/ready` 与兼容 `/api/health` 正常为 200、数据目录不可写为 503，认证后未知 API 返回 JSON 404；
 - 带图片的测试会话跨容器 restart 持久化；相同 requestId 重放只恢复原结果，不发生第二次 Provider 调用；
 - Refresh Session 跨 restart 与新卷恢复可用，logout 后既有 Access Token 被拒绝；
-- Docker stop 触发 SIGTERM，Node 在宽限期内以 0 退出；
+- Docker stop 触发 SIGTERM，Bun 在宽限期内以 0 退出；
 - 停止后的完整 volume 可生成 tar 和带 SHA-256 的 manifest；
 - 损坏校验或已存在目标卷会在覆盖前失败；
 - 备份 manifest 包含附件二进制和 sidecar 的大小与 SHA-256；恢复到新 volume 后，会话、reasoning、summary、generation、tool trace、附件字节和校验和与恢复前完全一致；
@@ -305,15 +303,15 @@ docker compose up -d
 
 ### 1. 源电脑冻结并取证
 
-1. 记录当前 Git revision、Bun/Node/Docker 版本和实际数据 volume 名。
+1. 记录当前 Git revision、Bun/Docker 版本和实际数据 volume 名。
 2. 通过 `/api/conversations/export.json` 保存一份仅用于比对的导出，至少记录会话数量并抽查包含 reasoning、summary 和 generation 的会话。
 3. 执行 `bun run docker:stop` 和 `docker:backup`，把 tar 与 manifest 安全传到目标电脑。
 4. 不删除源 volume，不执行 `docker compose down -v`。
 
 ### 2. 目标电脑重建运行配置与 TLS
 
-1. 拉取同一代码 revision，安装仓库声明的 Bun 1.4 和 Node 22，启动 Docker Desktop。
-2. 手工创建 `server/.env`，填写目标机需要的 provider endpoint、API key、认证用户名/哈希和新生成的两组 JWT secret；不要把源 `.env` 放进备份 tar 或 Git。使用新 secret 会让恢复卷中的历史 Refresh Session 自动失效，目标机需重新登录。
+1. 拉取同一代码 revision，安装仓库声明的 Bun 1.4，并启动 Docker Desktop。
+2. 手工创建 `bun-server/.env`，填写目标机需要的 provider endpoint、API key、认证用户名/哈希和新生成的两组 JWT secret；不要把源 `.env` 放进备份 tar 或 Git。使用新 secret 会让恢复卷中的历史 Refresh Session 自动失效，目标机需重新登录。
 3. 为目标机局域网 IP/DNS 名重新签发服务器证书，或通过 `CHATBOT_TLS_CERT_SOURCE` / `CHATBOT_TLS_KEY_SOURCE` 指向安全传入的服务器证书与私钥。
 4. 客户端只安装并信任签发者的根 CA **证书**；绝不分发 mkcert 根 CA 私钥。证书 SAN 必须包含实际访问的 IP 或 DNS 名。
 5. 执行 `bun install --frozen-lockfile` 和 `bun run docker:build`，不复制旧机器的 Docker volume 内部目录。
@@ -322,7 +320,7 @@ docker compose up -d
 
 1. 使用 `docker:restore` 恢复到目标机的新 volume。
 2. 设置 `CHATBOT_DATA_VOLUME` 并运行 `docker:up:volume`。
-3. 确认容器 healthy、`/api/health` 为 200、Node 主进程为非 root。
+3. 确认容器 healthy、`/api/health` 为 200、Bun 主进程为非 root。
 4. 对比源/目标会话数量，并逐项抽查消息、reasoning、summary、stopped/completed、generation usage 和 tool trace。
 5. 从另一台局域网客户端通过证书覆盖的 IP/DNS 访问，验证未登录门禁、登录、页面、会话切换和一次不调用真实模型的读取流程。
 
