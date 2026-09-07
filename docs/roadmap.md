@@ -7,14 +7,14 @@
 - P0-P7、R8.0-R8.9、R9-R29 已完成；应用、工具链、非容器 production 与 Docker 均使用 Bun。
 - 最近完成的编号阶段是 R29：Dockerfile、Compose、TLS/健康检查、Volume 工具和容器回归已收口到 Bun 1.4.0，pnpm 输入已删除。
 - R21 静态、单元/API、构建、18/18 全量 Mock 与全量真实 Provider 已通过；R29 已补齐图片附件的新 Volume 恢复、校验和与浏览器读取门禁。
-- R23 静态检查、168 项服务端单测、114 项 React 单测、无重试 18/18 全量 Mock 和无重试全量真实 Provider 已通过；Docker 按用户要求不验证。
+- R23 静态检查、168 项服务端单测、114 项 React 单测、无重试 18/18 全量 Mock 和无重试全量真实 Provider 已通过；2026-09-07 补齐 Docker 80,000 token 环境覆盖、API 预算与浏览器上下文预览专项。
 - 2026-08-31 完成健康检查拆分、Provider 非 2xx 安全诊断和超时取消后立即重试协调；静态、172 项服务端单测、115 项 React 单测、18/18 全量 Mock 及全量真实 Provider 通过，Docker 运行验证按用户要求暂缓。
 - 2026-09-04 完成独立 Bun 后端；Node 177 项、Bun 45 个测试文件、React 119 项、契约对照、构建、无重试 Bun `all-mock` 及 DeepSeek/OpenAI 真实功能门禁通过，Docker 未执行；真实总入口的 Vite 清理问题随后完成聚焦修复验证。
 - 2026-09-04 完成 Bun 工具链迁移；冻结安装、静态检查、Node 177 项、Bun 174 项、React 119 项、契约对照、构建和无重试 Bun 全量 Mock 通过。真实 Provider 与 Docker 未执行。
 - 2026-09-05 完成 Bun 原生 SQLite 迁移；旧数据库双向兼容、file/SQLite parity、静态检查、Node 177 项、Bun 174 项、React 119 项、构建、依赖审计和无重试 18/18 Bun 全量 Mock 通过。真实 Provider 与 Docker 未执行。
 - 2026-09-05 完成 Bun 原生 HTTP 迁移；静态检查、Node 177 项、Bun 175 项、React 119 项、HTTP/HTTPS 运行时、file/SQLite parity、数据库双向兼容、构建、审计和无重试 18/18 Bun 全量 Mock 通过。真实 Provider 与 Docker 未执行。
 - 2026-09-06 完成单一 Bun 后端收口；工具链守卫、静态检查、Bun/React 单测、HTTPS/SIGTERM、构建、审计和无重试全量 Mock 验证见 R28 记录。真实 Provider 与 Docker 未执行。
-- 2026-09-07 完成 Bun 生产与 Docker 交付；Bun 1.4.0 精简镜像、非 root、TLS、认证、liveness/readiness、SQLite/附件/幂等重启、SIGTERM、备份恢复和无截图 Docker UI 门禁通过。Provider 请求形状未变化，未重复付费真实调用。
+- 2026-09-07 完成 Bun 生产与 Docker 交付；Bun 1.4.0 精简镜像、非 root、TLS、认证、liveness/readiness、SQLite/附件/幂等重启、SIGTERM、备份恢复和无截图 Docker UI 门禁通过。随后以真实个人 Volume 的隔离恢复副本完成 8 个会话、138 条消息和附件 fixture 灰度，并切换到校验一致的新 Volume；原卷保留。收尾阶段在生产 Bun 容器内补充一次不写会话的 DeepSeek V4 Flash 最小文本流门禁。
 - 详细范围和交付证据见 [P0-R21 历史阶段记录](roadmap-history.md)、[R22 验收记录](r22-request-consistency-atomic-import-2026-08-29.md)、[R23 验收记录](r23-provider-aware-context-budget-2026-08-29.md)、[P1 工程可靠性优化验收记录](engineering-hardening-2026-08-31.md)、[R24 验收记录](r24-bun-server-2026-09-04.md)、[R25 验收记录](r25-bun-toolchain-2026-09-04.md)、[R26 验收记录](r26-bun-sqlite-2026-09-05.md)、[R27 验收记录](r27-bun-http-runtime-2026-09-05.md)、[R28 验收记录](r28-single-bun-runtime-2026-09-06.md)与 [R29 验收记录](r29-bun-production-docker-2026-09-07.md)。
 
 ## 当前基线
@@ -69,7 +69,7 @@
 | R20 | JWT 单用户认证、Refresh 轮换、Session 撤销和登录 UI | 完成并验证 |
 | R21 | 图片附件、DeepSeek Vision 多模态输入、本地持久化和备份恢复 | 完成并验证（含 R29 Docker 新卷恢复） |
 | R22 | 请求幂等、断线结果恢复和批量导入原子性 | 完成并验证（含 R29 Docker 重启重放） |
-| R23 | Provider-aware 上下文预算 | 完成并验证（Docker 按要求未跑） |
+| R23 | Provider-aware 上下文预算 | 完成并验证（含 Docker API/CDP 环境覆盖专项） |
 | R24 | 独立 Bun 后端、运行时兼容、契约对照与 Bun Mock/真实 Provider 回归 | 完成并验证（Docker 未跑） |
 | R25 | Bun 包管理、workspace/catalog、脚本执行与原生 `bun:test` | 完成并验证（Docker/真实 Provider 未跑） |
 | R26 | Bun 原生 SQLite 替换 Bun 后端的 `node:sqlite` | 完成并验证（Docker/真实 Provider 未跑） |
@@ -138,7 +138,7 @@ R21 不新增功能，只补齐部署证据。R29 Docker smoke 已执行以下�
 
 ## R23 Provider-aware 上下文预算
 
-状态：功能与非 Docker 验收已完成；静态、单元、构建、全量 Mock 和全量真实 Provider 均已通过，Docker 按用户要求不在本阶段验证。实现与证据见 [R23 验收记录](r23-provider-aware-context-budget-2026-08-29.md)。
+状态：功能与验收已完成；静态、单元、构建、全量 Mock 和全量真实 Provider 均已通过，2026-09-07 又在 Bun Docker 中补齐 80,000 token 环境覆盖、API 预算和无截图浏览器上下文预览专项。实现与证据见 [R23 验收记录](r23-provider-aware-context-budget-2026-08-29.md)与 [R29 验收记录](r29-bun-production-docker-2026-09-07.md)。
 
 - 直接价值：让当前问题、历史消息、摘要、工具结果、图片和预留输出共享同一模型上下文预算，减少长中文、代码或未来文件内容触发 Provider 拒绝的概率。
 - 进入条件已满足：R22 完成；2,000 字符 ASCII/中文对照实验证明相同字符数无法稳定代表兼容链路输入规模，记录见 [实验记录](experiments.md#2026-08-29-字符数无法预测模型上下文边界)。
@@ -207,7 +207,8 @@ R21 不新增功能，只补齐部署证据。R29 Docker smoke 已执行以下�
 - 运行边界：entrypoint 以 root 复制只读 TLS 文件后降权到 UID/GID 1000 的 `bun` 用户；`Bun.serve` 同源承载 HTTPS、React 和 `/api/*`。
 - 数据边界：保留完整 `/app/data` Volume、SQLite WAL、附件、认证 Session、只读备份、archive/tree SHA-256、新卷恢复与显式 Volume 切换。
 - 验收：Bun 镜像构建、188,509,646 字节镜像边界、非 root、TLS、认证、liveness/readiness、存储故障恢复、SQLite/附件/requestId 跨重启、SIGTERM、备份拒绝/校验、新 Volume 恢复和 Docker UI 均通过。
-- Provider 边界：容器使用本地 Mock Provider 验证应用与网络路径；本阶段未改变 Provider 请求形状，因此未重复调用 DeepSeek/OpenAI/Vision 真实接口。
+- 个人数据灰度：源 Volume 先备份并恢复到隔离副本，8 个历史会话、138 条消息、上下文预览和临时附件 fixture 通过后，再恢复到干净目标卷并切换；原卷的文件数、字节数和 tree SHA-256 保持不变并继续作为回滚边界。
+- Provider 边界：完整 Docker 与个人数据 canary 使用本地 Mock Provider；切换后仅在生产 Bun 容器内补充一次不写会话的 DeepSeek V4 Flash 最小文本流，完整真实 UI、工具、Vision 与参数矩阵仍沿用既有证据。
 
 ## Bun 完全迁移序列
 

@@ -6,7 +6,7 @@
 
 R29 已完成并通过本地 Docker 实机验收。开发、非容器 production、容器构建、容器运行、健康检查和 Volume 运维现在都以 Bun 为唯一运行时；仓库不再保留 pnpm workspace 或 lockfile。至此 R25-R29 定义的 Bun 生态迁移已经闭环。
 
-本轮保持 API、认证、Provider 请求、file/SQLite schema、附件格式和 NDJSON v2 不变。容器测试使用本地 Mock Provider；没有重复调用 DeepSeek、OpenAI 或 Vision 真实接口。
+本轮保持 API、认证、Provider 请求、file/SQLite schema、附件格式和 NDJSON v2 不变。原始 R29 容器测试使用本地 Mock Provider，没有重复调用 DeepSeek、OpenAI 或 Vision 真实接口；个人数据切换完成后的收尾阶段另补一次生产 Bun 容器内的最小 DeepSeek 文本流门禁。
 
 ## 变更范围
 
@@ -41,6 +41,22 @@ R29 不迁移、删除或重写用户数据。生产数据仍完整位于 `/app/
 
 测试创建的容器、网络、Volume、临时证书和测试数据均由脚本清理；未删除或修改现有用户会话。
 
+## R23 Docker 专项与个人数据灰度
+
+2026-09-07 在 R29 门禁上补充了两类后续验收：
+
+- Docker smoke 显式注入 `DEEPSEEK_CONTEXT_WINDOW_TOKENS=80000`，API 上下文预览断言模型窗口、输出预留、图片预算和总预算不超过 80,000；预览前后本地 Mock Provider 调用数不变。
+- 同一上下文窗口通过无截图 CDP 打开“上下文”弹窗，断言浏览器显示的 `Context Window` 和 `Total Estimate` 分母均为 80,000。
+- `test:docker:personal-canary` 只接受显式源 Volume、已由恢复脚本创建的验证 Volume、预期会话数和 TLS 文件；它拒绝在源卷或运行中卷上执行。
+- 本次先把 `chatbot_chatbot-data` 备份到 `backups/personal-canary-2026-09-07/`，再恢复到隔离验证卷。验证卷中的 8 个历史会话、138 条消息、readiness、登录、上下文预览和浏览器加载全部通过。
+- 源数据没有附件目录，因此只在验证卷创建一个临时图片会话，通过本地 Mock Provider 持久化后验证原图和浏览器展示；测试会话随验证卷清理，没有写入源卷。
+- 验证卷清理后，同一备份恢复到干净目标卷 `chatbot_bun_personal_20260907`。恢复前 manifest 与源卷均为 10 个文件、638,273 字节，tree SHA-256 为 `fcf6271004ca4d18d5efcfdc0fbaa4d8e75a4c49ef1c19eb74bdd11560bbba9c`。
+- 生产 Compose 已切换到该干净目标卷；`chatbot:local` 以 `bun bun-server/bin/www.ts` 运行在 7001，容器健康、React HTTPS、liveness/readiness、认证启用与未登录 API 保护均通过。
+
+旧配置从停止的 Node 容器迁移到未提交的 `bun-server/.env`，Argon2 哈希等包含 `$` 的值使用单引号保持 Compose 字面量语义；18 个迁移项与新容器环境逐项一致。原卷 `chatbot_chatbot-data` 保留用于回滚，切换后再次只读计算的文件数、字节数和 tree SHA-256 均未变化。
+
+本次个人数据灰度调用本地 Mock Provider 1 次，只用于验证卷的附件 fixture；R23 预览和 canary 均未调用真实 Provider，也未生成截图。切换并重建到已验证镜像后，生产 Bun 容器通过正式 DeepSeek 配置完成一次 14-token 最小文本流：`deepseek-v4-flash` 返回 3 个内容 chunk、`finishReason=stop` 和 usage；该门禁直接调用 Provider adapter，不创建或修改个人会话。最终实例的真实密码登录没有自动化执行；认证登录已在同数据验证卷上用临时凭据通过。
+
 ## 完整验证证据
 
 | 命令 | 结果 |
@@ -50,6 +66,8 @@ R29 不迁移、删除或重写用户数据。生产数据仍完整位于 `/app/
 | `CHATBOT_ENV_FILE=./bun-server/.env.example CHATBOT_TLS_CERT_PATH=<test-cert> CHATBOT_TLS_KEY_PATH=<test-key> bun run docker:config` | Compose 配置校验通过 |
 | `DOCKER_CONFIG=<isolated-cli-config> bun run docker:build` | Bun 多阶段镜像构建通过；隔离配置仅绕过本机 Docker credential helper 卡住问题 |
 | `bun run test:docker` | Bun 容器、HTTPS、认证、健康检查、持久化、重启、备份恢复和 Docker UI 全部通过 |
+| `bun run test:docker:personal-canary -- --source-volume <source> --validation-volume <restored> --expected-conversations <count> --certificate <cert> --private-key <key>` | 恢复副本上的历史读取、临时登录、R23 上下文、附件 fixture、无截图浏览器和源卷不变门禁通过 |
+| 生产容器内 `callLLMStream` 最小门禁 | DeepSeek V4 Flash 流式完成、3 个内容 chunk、`finishReason=stop`、usage 14 tokens；不写会话 |
 | `bun run check` | Bun Server / Client TypeScript 7 与 React 两级 Oxlint 通过 |
 | `bun run test:unit` | Bun Server 46 个文件 179/179；React 27 个文件 119/119 |
 | `bun run test:bun-http-runtime` | Bun HTTPS、SQLite、安全头和 SIGTERM 通过 |
@@ -62,5 +80,5 @@ R29 不迁移、删除或重写用户数据。生产数据仍完整位于 `/app/
 ## 证据边界
 
 - 本轮 Docker 实机运行环境为本机 Docker Desktop 的 ARM64 Linux VM；没有在 AMD64 主机重复运行。
-- Provider 请求和解析逻辑未修改，真实 Provider 继续沿用此前功能门禁证据，R29 本身不新增真实接口证据。
+- Provider 请求和解析逻辑未修改；原始 R29 验收沿用此前功能证据，个人数据切换后的收尾阶段仅新增一次生产容器内最小 DeepSeek 文本流，不替代完整真实 UI、工具、Vision 或参数矩阵。
 - 未请求截图，因此 Docker UI 与全量 Mock 只保留自动化断言结果，没有生成交付截图。

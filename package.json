@@ -57,6 +57,7 @@
     "test:client": "bun run --cwd client test:unit",
     "test:unit": "bun run test:server && bun run test:client",
     "test:docker": "bun tests/docker/container-smoke.mjs",
+    "test:docker:personal-canary": "bun tests/docker/personal-data-canary.mjs",
     "test:cdp:docker-ui": "bun tests/cdp/docker-ui.mjs",
     "test:cdp:p0": "bun tests/cdp/run-cdp-regression.mjs p0",
     "test:cdp:p1": "bun tests/cdp/run-cdp-regression.mjs p1",

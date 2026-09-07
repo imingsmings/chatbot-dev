@@ -20,6 +20,7 @@
 | 真实接口套件 | `bun run test:cdp:all-real` | 隔离端口/临时 file store；DeepSeek V4 Pro UI/上下文/Markdown、OpenAI Responses、DeepSeek Flash/Pro 8 组参数，以及使用固定非隐私图片的 DeepSeek Vision 识图/刷新/分支/仅图片/停止/ZIP；需明确确认 |
 | 依赖审计 | `bun run audit:production` | `bun.lock` 中全部 workspace 依赖的 high/critical 漏洞，要求 0 |
 | Bun Docker 门禁 | `bun run test:docker` | Bun 1.4.0 精简镜像、非 root、TLS、认证、liveness/readiness、SQLite/附件/幂等重启、SIGTERM、整卷备份、新卷恢复、Docker UI 和清理 |
+| 个人数据恢复副本灰度 | `bun run test:docker:personal-canary -- --source-volume <source> --validation-volume <restored> --expected-conversations <count> --certificate <cert> --private-key <key>` | 只读源卷、校验恢复卷、全部历史详情、R23 上下文覆盖、临时附件 fixture、无截图浏览器、测试数据清理和源卷不变；仅使用本地 Mock Provider |
 
 2026-09-04 的 Bun 交付通过 `check`、Node 177 项、Bun 45 个测试文件、React 119 项、契约对照、生产构建、无重试 Bun `all-mock` 及 DeepSeek/OpenAI 真实功能门禁。Docker 未执行；真实总入口清理问题的修复采用 Node/Bun 进程组单测和聚焦 CDP 自动退出验证，详细证据边界见 [R24 验收记录](r24-bun-server-2026-09-04.md)。
 
@@ -31,7 +32,7 @@
 
 2026-09-06 的 R28 删除 Node 后端、Node 测试副本、parity、跨运行时 SQLite 对照和双后端基准；当前门禁只使用 Bun。完整命令、计数和证据边界见 [R28 验收记录](r28-single-bun-runtime-2026-09-06.md)。
 
-2026-09-07 的 R29 将 Dockerfile、Compose、healthcheck、TLS entrypoint、Volume 清单和容器自动化迁移到 Bun，删除 pnpm 输入；真实容器门禁包含 188,509,646 字节运行镜像、非 root Bun、HTTPS/认证、重启、requestId、附件、SIGTERM、校验备份、新卷恢复和无截图浏览器断言。完整证据见 [R29 验收记录](r29-bun-production-docker-2026-09-07.md)。
+2026-09-07 的 R29 将 Dockerfile、Compose、healthcheck、TLS entrypoint、Volume 清单和容器自动化迁移到 Bun，删除 pnpm 输入；真实容器门禁包含 188,509,646 字节运行镜像、非 root Bun、HTTPS/认证、重启、requestId、附件、SIGTERM、校验备份、新卷恢复和无截图浏览器断言。后续 Docker 专项又覆盖 R23 的 80,000 token API/CDP 预览，并在真实个人数据的隔离恢复副本读取 8 个会话、138 条消息和临时附件 fixture，确认源卷不变后切换到干净恢复卷。完整 Docker 与 canary 使用 Mock；切换后另在生产 Bun 容器内执行一次不写会话的 DeepSeek V4 Flash 最小文本流门禁。完整证据见 [R29 验收记录](r29-bun-production-docker-2026-09-07.md)。
 
 ## React 单元边界
 

@@ -14,6 +14,12 @@ const AUTH_USERNAME = process.env.DOCKER_UI_USERNAME || ''
 const AUTH_PASSWORD = process.env.DOCKER_UI_PASSWORD || ''
 const EXPECTED_CONVERSATION_TITLE = process.env.DOCKER_UI_EXPECT_CONVERSATION_TITLE || ''
 const EXPECTED_ATTACHMENT_FILENAME = process.env.DOCKER_UI_EXPECT_ATTACHMENT_FILENAME || ''
+const EXPECTED_CONTEXT_WINDOW = process.env.DOCKER_UI_EXPECT_CONTEXT_WINDOW
+  ? Number(process.env.DOCKER_UI_EXPECT_CONTEXT_WINDOW)
+  : null
+const EXPECTED_MIN_CONVERSATIONS = process.env.DOCKER_UI_EXPECT_MIN_CONVERSATIONS
+  ? Number(process.env.DOCKER_UI_EXPECT_MIN_CONVERSATIONS)
+  : null
 
 function probeLocalHttps(url) {
   return new Promise((resolve) => {
@@ -39,6 +45,18 @@ async function waitForLocalHttps(url, timeoutMs) {
 }
 
 async function main() {
+  if (
+    EXPECTED_CONTEXT_WINDOW !== null &&
+    (!Number.isSafeInteger(EXPECTED_CONTEXT_WINDOW) || EXPECTED_CONTEXT_WINDOW <= 0)
+  ) {
+    throw new Error('DOCKER_UI_EXPECT_CONTEXT_WINDOW must be a positive integer')
+  }
+  if (
+    EXPECTED_MIN_CONVERSATIONS !== null &&
+    (!Number.isSafeInteger(EXPECTED_MIN_CONVERSATIONS) || EXPECTED_MIN_CONVERSATIONS < 0)
+  ) {
+    throw new Error('DOCKER_UI_EXPECT_MIN_CONVERSATIONS must be a non-negative integer')
+  }
   if (!await waitForLocalHttps(APP_URL, 15_000)) {
     throw new Error(`Docker-hosted app is not reachable at ${APP_URL}`)
   }
@@ -134,12 +152,62 @@ async function main() {
       )
     }
 
+    let contextPreviewState = { contextWindow: null, totalEstimate: '' }
+    if (EXPECTED_CONTEXT_WINDOW !== null) {
+      if (EXPECTED_ATTACHMENT_FILENAME) {
+        await evaluate(client, `(() => {
+          const close = document.querySelector('[role="dialog"] [data-slot="dialog-close"]');
+          if (!(close instanceof HTMLButtonElement)) throw new Error('Attachment dialog close button not found');
+          close.click();
+        })()`)
+        await waitForEval(client, `!document.querySelector('[role="dialog"]')`)
+      }
+      await evaluate(client, `(() => {
+        const button = document.querySelector('button[aria-label="更多操作"]');
+        if (!(button instanceof HTMLButtonElement)) throw new Error('App actions button not found');
+        button.click();
+      })()`)
+      await waitForEval(
+        client,
+        `document.querySelector('button[aria-label="上下文"]') instanceof HTMLButtonElement &&
+          document.querySelector('button[aria-label="上下文"]')?.disabled === false`,
+      )
+      await evaluate(client, `document.querySelector('button[aria-label="上下文"]')?.click()`)
+      await waitForEval(client, `Boolean(document.querySelector('.context-debug-modal'))`)
+      contextPreviewState = await evaluate(client, `(() => {
+        const readDefinition = (label) => {
+          const term = [...document.querySelectorAll('.context-debug-modal dt')]
+            .find((node) => node.textContent === label);
+          return term?.nextElementSibling?.textContent?.trim() ?? '';
+        };
+        const total = [...document.querySelectorAll('.context-debug-modal .context-debug-stat span')]
+          .find((node) => node.textContent === 'Total Estimate');
+        return {
+          contextWindow: Number(readDefinition('Context Window')),
+          totalEstimate: total?.nextElementSibling?.textContent?.trim() ?? '',
+        };
+      })()`)
+      if (
+        contextPreviewState.contextWindow !== EXPECTED_CONTEXT_WINDOW ||
+        !contextPreviewState.totalEstimate.endsWith(`/${EXPECTED_CONTEXT_WINDOW}`)
+      ) {
+        throw new Error(`Docker context preview state invalid: ${JSON.stringify(contextPreviewState)}`)
+      }
+      await evaluate(client, `(() => {
+        const close = document.querySelector('.context-debug-modal button[aria-label="Close"]');
+        if (!(close instanceof HTMLButtonElement)) throw new Error('Context dialog close button not found');
+        close.click();
+      })()`)
+      await waitForEval(client, `!document.querySelector('.context-debug-modal')`)
+    }
+
     const state = await evaluate(client, `(() => ({
       protocol: location.protocol,
       hasComposer: Boolean(document.querySelector('textarea')),
       hasSidebar: Boolean(document.querySelector('.sidebar')),
       hasModelControl: Boolean(document.querySelector('.model-menu-trigger[aria-label^="Model and Effort:"]')),
       hasServiceError: document.body.innerText.includes('服务异常'),
+      conversationCount: document.querySelectorAll('.conversation-item-shell').length,
       viewportWidth: document.documentElement.clientWidth,
       scrollWidth: document.documentElement.scrollWidth,
       attachmentLoaded: ${EXPECTED_ATTACHMENT_FILENAME ? `[
@@ -153,6 +221,7 @@ async function main() {
       !state.hasModelControl ||
       state.scrollWidth > state.viewportWidth ||
       state.hasServiceError ||
+      (EXPECTED_MIN_CONVERSATIONS !== null && state.conversationCount < EXPECTED_MIN_CONVERSATIONS) ||
       (EXPECTED_ATTACHMENT_FILENAME && !state.attachmentLoaded)
     ) {
       throw new Error(`Docker UI state invalid: ${JSON.stringify(state)}`)
@@ -173,8 +242,10 @@ async function main() {
         composerVisible: state.hasComposer,
         sidebarVisible: state.hasSidebar,
         modelControlVisible: state.hasModelControl,
+        conversationCount: state.conversationCount,
         noHorizontalOverflow: state.scrollWidth <= state.viewportWidth,
         attachmentLoaded: state.attachmentLoaded,
+        contextWindow: contextPreviewState.contextWindow,
       },
     }, null, 2))
   } finally {

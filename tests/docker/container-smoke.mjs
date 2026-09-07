@@ -15,6 +15,7 @@ const TIMEOUT_MS = 120_000
 const COMMAND_TIMEOUT_MS = 300_000
 const CLEANUP_TIMEOUT_MS = 30_000
 const MAX_RUNTIME_IMAGE_SIZE_BYTES = 300_000_000
+const DOCKER_CONTEXT_WINDOW_TOKENS = 80_000
 let bearerToken = ''
 
 const PNG_1X1 = Buffer.from(
@@ -96,16 +97,14 @@ function request(port, pathname, options = {}) {
       rejectUnauthorized: false,
       headers: {
         Accept: options.accept ?? 'application/json',
-        ...(bearerToken && options.auth !== false
-          ? { Authorization: `Bearer ${bearerToken}` }
-          : {}),
-        ...(body !== undefined
-          ? {
-              ...(jsonBody ? { 'Content-Type': 'application/json' } : {}),
-              'Content-Length': body.byteLength,
-            }
-          : {}),
-        ...(options.headers ?? {}),
+        ...(bearerToken && options.auth !== false && {
+          Authorization: `Bearer ${bearerToken}`,
+        }),
+        ...(body !== undefined && {
+          ...(jsonBody && { 'Content-Type': 'application/json' }),
+          'Content-Length': body.byteLength,
+        }),
+        ...options.headers,
       },
     }, (response) => {
       const chunks = []
@@ -238,6 +237,7 @@ async function main() {
     `DEEPSEEK_ENDPOINT=http://host.docker.internal:${providerPort}/chat/completions`,
     'DEEPSEEK_MODEL=deepseek-v4-flash',
     'DEEPSEEK_API_KEY=docker-smoke-test-key',
+    `DEEPSEEK_CONTEXT_WINDOW_TOKENS=${DOCKER_CONTEXT_WINDOW_TOKENS}`,
     'LLM_DISABLED_MODELS=deepseek-v4-pro,gpt-5.6-sol',
     'CONVERSATION_STORE=sqlite',
     'APP_PROFILE_NAME=Docker Smoke Test',
@@ -548,6 +548,29 @@ async function main() {
     assert.equal(visionDetailBeforeRestart.messages[0].attachments[0].id, attachment.id)
     assert.equal(visionDetailBeforeRestart.messages[1].content, 'Docker 图片回答')
 
+    const providerCallsBeforeContextPreview = providerCallCount
+    const contextPreviewResponse = await request(
+      port,
+      `/api/conversations/${visionConversationId}/context-preview`,
+      {
+        method: 'POST',
+        body: {
+          question: '检查 Docker 上下文预算',
+          options: visionModelOptions,
+        },
+      },
+    )
+    assert.equal(contextPreviewResponse.status, 200, contextPreviewResponse.text)
+    const contextPreview = JSON.parse(contextPreviewResponse.text).context
+    assert.equal(contextPreview.stats.contextWindowTokens, DOCKER_CONTEXT_WINDOW_TOKENS)
+    assert.equal(contextPreview.model.contextWindowTokens, DOCKER_CONTEXT_WINDOW_TOKENS)
+    assert.equal(contextPreview.stats.outputReserveTokens, 65_536)
+    assert(contextPreview.stats.estimatedTotalTokens <= DOCKER_CONTEXT_WINDOW_TOKENS)
+    assert(contextPreview.stats.tokenBreakdown.currentQuestion > 0)
+    assert(contextPreview.stats.tokenBreakdown.tools > 0)
+    assert.equal(contextPreview.stats.selectedImages, 1)
+    assert.equal(providerCallCount, providerCallsBeforeContextPreview)
+
     const semanticConversationId = `conv_docker_backup_${Date.now()}`
     const semanticBackup = {
       schemaVersion: 1,
@@ -781,10 +804,12 @@ async function main() {
         DOCKER_UI_PASSWORD: authPassword,
         DOCKER_UI_EXPECT_CONVERSATION_TITLE: visionDetailBeforeRestart.title,
         DOCKER_UI_EXPECT_ATTACHMENT_FILENAME: attachment.filename,
+        DOCKER_UI_EXPECT_CONTEXT_WINDOW: String(DOCKER_CONTEXT_WINDOW_TOKENS),
       },
       timeoutMs: TIMEOUT_MS,
     })
     assert.match(dockerUi.stdout, /"attachmentLoaded": true/)
+    assert.match(dockerUi.stdout, /"contextWindow": 80000/)
 
     const providerCallsBeforeHistoricalContinuation = providerCallCount
     const historicalContinuation = await request(
@@ -859,6 +884,7 @@ async function main() {
         'checksum mismatch and existing restore target fail safely',
         'new-volume restore preserves conversations, model options, R12 metadata, and attachment SHA-256 exactly',
         'restored protected thumbnail and full preview load in a real browser',
+        'Docker context-window override reaches API and browser preview without Provider calls',
         'historical image continuation works from the restored volume',
         'source volume tree hash remains unchanged after restored-volume switch',
       ],
