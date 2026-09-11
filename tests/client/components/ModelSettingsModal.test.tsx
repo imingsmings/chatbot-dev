@@ -79,8 +79,8 @@ describe('ModelSettingsModal', () => {
       />,
     )
 
-    expect(screen.getByRole('alert')).toHaveTextContent('Model catalog is unavailable')
-    expect(screen.getByRole('button', { name: 'Apply' })).toBeDisabled()
+    expect(screen.getByRole('alert')).toHaveTextContent('模型目录不可用')
+    expect(screen.getByRole('button', { name: '应用' })).toBeDisabled()
     expect(onSave).not.toHaveBeenCalled()
   })
 
@@ -102,7 +102,7 @@ describe('ModelSettingsModal', () => {
     )
 
     expect(screen.getByRole('dialog')).toHaveAttribute('aria-busy', 'true')
-    expect(screen.getByRole('button', { name: 'Saving...' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '保存中...' })).toBeDisabled()
   })
 
   it('renders controls from OpenAI model capabilities and enforces its output limit', () => {
@@ -122,18 +122,18 @@ describe('ModelSettingsModal', () => {
       />,
     )
 
-    expect(screen.getByRole('heading', { name: 'Model Parameters' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '模型参数' })).toBeInTheDocument()
     expect(screen.getByText('OpenAI')).toBeInTheDocument()
     expect(screen.getByText('GPT-5.6 Luna')).toBeInTheDocument()
     expect(screen.getByText('File')).toBeInTheDocument()
-    expect(screen.queryByLabelText('Temperature')).not.toBeInTheDocument()
-    const maxTokens = screen.getByLabelText('Max Tokens')
+    expect(screen.queryByLabelText('温度')).not.toBeInTheDocument()
+    const maxTokens = screen.getByLabelText('最大输出 Token')
     expect(maxTokens).toHaveAttribute('max', '128000')
-    expect(screen.getByLabelText('OpenAI Effort')).toHaveValue('xhigh')
-    expect(screen.getByRole('option', { name: 'Extra High' })).toBeInTheDocument()
+    expect(screen.getByLabelText('OpenAI 思考强度')).toHaveValue('xhigh')
+    expect(screen.getByRole('option', { name: '极高' })).toBeInTheDocument()
 
     fireEvent.change(maxTokens, { target: { value: '128001' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Apply' }))
+    fireEvent.click(screen.getByRole('button', { name: '应用' }))
 
     expect(screen.getByRole('alert')).toHaveTextContent('128000')
     expect(onSave).not.toHaveBeenCalled()
@@ -158,16 +158,16 @@ describe('ModelSettingsModal', () => {
     expect(screen.getByText('DeepSeek V4 Flash')).toBeInTheDocument()
     expect(screen.queryByText('deepseek-v4-flash')).not.toBeInTheDocument()
     expect(screen.getByText('File')).toBeInTheDocument()
-    expect(screen.getByLabelText('Temperature')).toHaveAttribute(
+    expect(screen.getByLabelText('温度')).toHaveAttribute(
       'placeholder',
-      'Provider Default',
+      '模型默认',
     )
-    expect(screen.getByLabelText('Max Tokens')).toHaveAttribute(
+    expect(screen.getByLabelText('最大输出 Token')).toHaveAttribute(
       'placeholder',
-      'Provider Default',
+      '模型默认',
     )
-    expect(screen.getByLabelText('Enable Reasoning')).toBeChecked()
-    expect(screen.getByLabelText('DeepSeek Effort')).toHaveValue('max')
-    expect(screen.getByRole('option', { name: 'Max' })).toBeInTheDocument()
+    expect(screen.getByLabelText('启用思考')).toBeChecked()
+    expect(screen.getByLabelText('DeepSeek 思考强度')).toHaveValue('max')
+    expect(screen.getByRole('option', { name: '最高' })).toBeInTheDocument()
   })
 })

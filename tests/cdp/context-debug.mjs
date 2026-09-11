@@ -243,7 +243,7 @@ async function clickAppAction(client, text) {
     client,
     `(() => {
       const button = [...document.querySelectorAll('button')]
-        .find((item) => item.textContent.trim() === ${JSON.stringify(text)});
+        .find((item) => item.textContent.trim() === ${JSON.stringify(text)} || item.getAttribute('aria-label') === ${JSON.stringify(text)});
       if (!button) return false;
       button.click();
       return true;
@@ -274,16 +274,26 @@ async function typeQuestion(client, question) {
 }
 
 async function readModalState(client) {
+  const overview = await evaluate(client, `(() => {
+    const panel = document.querySelector('.context-debug-modal');
+    for (const summary of panel.querySelectorAll('.context-disclosure > summary')) summary.click();
+    return {text: panel.innerText, stats: [...panel.querySelectorAll('.context-debug-stat')].map(item => [item.querySelector('dt')?.textContent.trim(), item.querySelector('dd')?.textContent.trim()])};
+  })()`)
+  await clickButtonByText(client, '原始请求')
+  await waitForEval(client, `Boolean(document.querySelector('.context-message-list'))`)
+  await waitForEval(client, `!document.querySelector('.context-debug-body section[aria-label="本次请求"]')`)
+  const rawCollapsed = await evaluate(client, `[...document.querySelectorAll('.context-debug-body:not([hidden]) .context-disclosure')].every(el=>!el.open)`)
+  assert(rawCollapsed, 'raw request details must start collapsed')
+  await evaluate(client, `document.querySelectorAll('.context-debug-body:not([hidden]) .context-disclosure > summary').forEach(el => el.click())`)
   return evaluate(
     client,
     `(() => {
       const modal = document.querySelector('.context-debug-modal');
-      const text = modal?.innerText || '';
+      const overview = ${JSON.stringify(overview)};
+      const text = overview.text + (modal?.innerText || '');
       const state = window.__contextDebugState();
       const readStat = (label) => {
-        const card = [...(modal?.querySelectorAll('.context-debug-stat') || [])]
-          .find((item) => item.querySelector('span')?.textContent.trim() === label);
-        return card?.querySelector('strong')?.textContent.trim() || '';
+        return overview.stats.find(([key])=>key === label)?.[1] || '';
       };
       return {
         hasModal: Boolean(modal),
@@ -294,26 +304,23 @@ async function readModalState(client) {
         hasSecretToken: text.includes('context-debug-secret') || text.includes('DEEPSEEK_API_KEY'),
         hasToolDefinition: text.includes('getWeather'),
         hasStandardLabels:
-          Boolean(modal?.querySelector('section[aria-label="Context Statistics"]')) &&
-          Boolean(modal?.querySelector('section[aria-label="Token Budget Breakdown"]')) &&
           [
-            'Model Context', 'Model Parameters', 'Provider', 'Model', 'Streaming',
-            'Tool Choice', 'Reasoning', 'API Key', 'Storage', 'Temperature', 'Max Tokens',
-            'Summary Covered', 'After Summary', 'Stopped Excluded', 'Selected Range',
-            'Input Estimate', 'Output Reserve', 'Total Estimate', 'Input Remaining',
-            'Token Budget', 'Estimator', 'Context Window', 'Messages', 'Tool Definitions'
+            '上下文', '模型参数', '提供方', '模型', '流式输出', '工具选择', '思考强度',
+            'API Key', '存储', '温度', '最大输出 Token', '摘要已覆盖', '摘要之后',
+            '已排除的停止消息', '选中范围', '输入', '输出预留', '总量', '输入剩余',
+            '预算明细', '上下文窗口', '发送给模型的消息', '工具定义'
           ].every((label) => text.includes(label)),
         hasCoverageStats:
-          readStat('Summary Covered') === '0' &&
-          readStat('After Summary') === '3' &&
-          readStat('Stopped Excluded') === '0' &&
-          readStat('Selected Range') === '2-3' &&
-          readStat('Input Estimate') === '2048/126976' &&
-          readStat('Output Reserve') === '4096' &&
-          readStat('Total Estimate') === '6144/131072' &&
-          readStat('Input Remaining') === '124928',
+          readStat('摘要已覆盖') === '0' &&
+          readStat('摘要之后') === '3' &&
+          readStat('已排除的停止消息') === '0' &&
+          readStat('选中范围') === '2-3' &&
+          readStat('输入') === '2048/126976' &&
+          readStat('输出预留') === '4096' &&
+          readStat('总量') === '6144/131072' &&
+          readStat('输入剩余') === '124928',
         hasStandardValues: [
-          'DeepSeek', 'Enabled', 'Auto', 'Max', 'Configured', 'File', 'Provider Default'
+          'DeepSeek', '开启', '自动', '最高', '已配置', 'File', '模型默认'
         ].every((value) => text.includes(value)),
         requestCount: state.contextPreviewRequests.length,
         requestQuestion: state.contextPreviewRequests.at(-1)?.question,
@@ -376,7 +383,7 @@ async function main() {
     )
     assert(desktopState.storedMessageCount === 3, 'context preview should not mutate stored conversation messages')
 
-    await clickButtonByText(client, 'Close')
+    await evaluate(client, `document.querySelector('button[aria-label="关闭上下文"]').click()`)
     await waitForEval(client, `!document.querySelector('.context-debug-modal')`)
     await client.send('Emulation.setDeviceMetricsOverride', {
       width: 390,

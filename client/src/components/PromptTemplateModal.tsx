@@ -213,7 +213,7 @@ export function PromptTemplateModal({ open, onApply, onClose }: PromptTemplateMo
       <DialogContent className="template-modal w-[min(100%,900px)]">
         <header className="modal-header flex shrink-0 items-center justify-between border-b border-[var(--border-soft)] px-[17px] py-[15px]">
           <DialogTitle>Prompt 模板</DialogTitle>
-          <DialogClose aria-label="关闭" onClick={onClose} render={<Button className="close-btn size-[34px] rounded-[7px] text-[var(--text-secondary)] hover:bg-[var(--surface-hover)] hover:text-[var(--text-primary)]" size="icon" variant="ghost" />}>
+          <DialogClose aria-label="关闭" onClick={onClose} render={<Button tooltip="关闭" className="close-btn size-[34px] rounded-[7px] text-[var(--text-secondary)] hover:bg-[var(--surface-hover)] hover:text-[var(--text-primary)]" size="icon" variant="ghost" />}>
             <XIcon aria-hidden="true" size={18} />
           </DialogClose>
         </header>
@@ -241,7 +241,7 @@ export function PromptTemplateModal({ open, onApply, onClose }: PromptTemplateMo
             </div>
 
             <nav aria-label="Prompt 模板列表" className="template-list flex min-h-0 flex-col gap-1 overflow-y-auto max-[820px]:max-h-48">
-              <p className="m-0 px-2.5 pt-1 text-[11px] font-semibold tracking-wide text-[var(--text-tertiary)]">内置模板</p>
+              <p className="m-0 px-2.5 pt-1 text-[11px] font-semibold text-[var(--text-tertiary)]">内置模板</p>
               {promptTemplates.map((template) => (
                 <TemplateListButton
                   key={template.id}
@@ -250,7 +250,7 @@ export function PromptTemplateModal({ open, onApply, onClose }: PromptTemplateMo
                   template={template}
                 />
               ))}
-              <p className="m-0 mt-2 px-2.5 pt-1 text-[11px] font-semibold tracking-wide text-[var(--text-tertiary)]">自定义模板</p>
+              <p className="m-0 mt-2 px-2.5 pt-1 text-[11px] font-semibold text-[var(--text-tertiary)]">自定义模板</p>
               {customTemplates.length === 0 ? (
                 <p className="m-0 px-2.5 py-2 text-xs leading-5 text-[var(--text-tertiary)]">还没有自定义模板</p>
               ) : customTemplates.map((template) => {

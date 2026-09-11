@@ -1,10 +1,12 @@
 import {
-  BracesIcon,
   EllipsisIcon,
   FileTextIcon,
   SlidersHorizontalIcon,
-  TextCursorInputIcon,
+  Trash2Icon,
+  LoaderCircleIcon,
+  PanelRightIcon,
 } from 'lucide-react'
+import type { RefObject } from 'react'
 
 import {
   DropdownMenu,
@@ -12,42 +14,61 @@ import {
   DropdownMenuItem,
   DropdownMenuPortal,
   DropdownMenuPositioner,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '#components/ui/dropdown-menu'
 import { Button } from '#components/ui/button'
 
 type AppActionsMenuProps = {
   canGenerateSummary: boolean
-  canPreviewContext: boolean
+  canClearConversation: boolean
   disabled: boolean
-  isContextPreviewLoading: boolean
+  clearing?: boolean
   open: boolean
   onOpenChange: (open: boolean) => void
   onOpenSettings: () => void
   onOpenSummary: () => void
-  onOpenTemplates: () => void
-  onPreviewContext: () => void
+  onClearConversation: () => void
+  onOpenContext?: () => void
+  canPreviewContext?: boolean
+  contextLoading?: boolean
+  triggerRef?: RefObject<HTMLButtonElement | null>
 }
 
 export function AppActionsMenu(props: AppActionsMenuProps) {
   return (
     <DropdownMenu onOpenChange={props.onOpenChange} open={props.open}>
       <DropdownMenuTrigger
-        aria-label="更多操作"
-        disabled={props.disabled}
+        aria-label={props.clearing ? '正在清空会话' : '更多操作'}
+        aria-busy={props.clearing || undefined}
+        disabled={props.disabled || props.clearing}
         render={
           <Button
+            ref={props.triggerRef}
             className="header-icon-btn size-[34px] rounded-[7px] text-[var(--text-secondary)] hover:bg-[var(--surface-hover)] hover:text-[var(--text-primary)]"
             size="icon"
+            tooltip="会话操作"
             variant="ghost"
           />
         }
       >
-        <EllipsisIcon aria-hidden="true" size={19} />
+        {props.clearing ? <LoaderCircleIcon aria-hidden="true" className="animate-spin" size={18} /> : <EllipsisIcon aria-hidden="true" size={19} />}
       </DropdownMenuTrigger>
       <DropdownMenuPortal>
         <DropdownMenuPositioner align="end" className="menu-positioner" sideOffset={6}>
           <DropdownMenuContent className="dropdown-menu app-actions-menu">
+            {props.onOpenContext ? (
+              <DropdownMenuItem
+                className="dropdown-menu-item context-menu-item"
+                disabled={!props.canPreviewContext || props.contextLoading}
+                nativeButton
+                onClick={props.onOpenContext}
+                render={<button aria-label="上下文" type="button" />}
+              >
+                <PanelRightIcon aria-hidden="true" size={15} />
+                <span>{props.contextLoading ? '读取上下文...' : '上下文'}</span>
+              </DropdownMenuItem>
+            ) : null}
             <DropdownMenuItem
               className="dropdown-menu-item"
               nativeButton
@@ -59,15 +80,6 @@ export function AppActionsMenu(props: AppActionsMenuProps) {
             </DropdownMenuItem>
             <DropdownMenuItem
               className="dropdown-menu-item"
-              nativeButton
-              onClick={props.onOpenTemplates}
-              render={<button aria-label="模板" type="button" />}
-            >
-              <TextCursorInputIcon aria-hidden="true" size={15} />
-              <span>模板</span>
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              className="dropdown-menu-item"
               disabled={!props.canGenerateSummary}
               nativeButton
               onClick={props.onOpenSummary}
@@ -76,15 +88,16 @@ export function AppActionsMenu(props: AppActionsMenuProps) {
               <FileTextIcon aria-hidden="true" size={15} />
               <span>摘要</span>
             </DropdownMenuItem>
+            <DropdownMenuSeparator />
             <DropdownMenuItem
-              className="dropdown-menu-item"
-              disabled={!props.canPreviewContext || props.isContextPreviewLoading}
+              className="dropdown-menu-item text-[var(--danger)] data-[highlighted]:bg-[var(--danger-muted)]"
+              disabled={!props.canClearConversation}
               nativeButton
-              onClick={props.onPreviewContext}
-              render={<button aria-label="上下文" type="button" />}
+              onClick={props.onClearConversation}
+              render={<button aria-label="清空当前会话" type="button" />}
             >
-              <BracesIcon aria-hidden="true" size={15} />
-              <span>{props.isContextPreviewLoading ? '加载中' : '上下文'}</span>
+              <Trash2Icon aria-hidden="true" size={15} />
+              <span>清空当前会话</span>
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenuPositioner>

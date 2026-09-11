@@ -31,7 +31,7 @@ export function ConversationSummaryModal({
       <DialogContent className="summary-modal">
         <header className="modal-header flex shrink-0 items-center justify-between border-b border-[var(--border-soft)] px-[17px] py-[15px]">
           <DialogTitle>会话摘要</DialogTitle>
-          <DialogClose aria-label="关闭" onClick={onClose} render={<Button className="close-btn size-[34px] rounded-[7px] text-[var(--text-secondary)] hover:bg-[var(--surface-hover)] hover:text-[var(--text-primary)]" size="icon" variant="ghost" />}>
+          <DialogClose aria-label="关闭" onClick={onClose} render={<Button tooltip="关闭" className="close-btn size-[34px] rounded-[7px] text-[var(--text-secondary)] hover:bg-[var(--surface-hover)] hover:text-[var(--text-primary)]" size="icon" variant="ghost" />}>
             <XIcon aria-hidden="true" size={18} />
           </DialogClose>
         </header>

@@ -114,16 +114,16 @@ describe('React chat app shell', () => {
       '/assets/jw.svg',
     )
     await waitFor(() => {
-      expect(screen.getByPlaceholderText('Ask AI')).toBeEnabled()
+      expect(screen.getByRole('textbox', { name: '消息' })).toBeEnabled()
     })
     expect(
       screen.getByRole('button', {
-        name: 'Model and Effort: DeepSeek V4 Pro, High',
+        name: '选择模型：DeepSeek V4 Pro',
       }),
     ).toBeEnabled()
     expect(screen.getByRole('button', { name: '发送消息' })).toBeDisabled()
 
-    fireEvent.click(screen.getByRole('button', { name: '添加和工具' }))
+    fireEvent.click(screen.getByRole('button', { name: '更多操作' }))
     expect(await screen.findByRole('menuitem', { name: '摘要' })).toHaveAttribute(
       'aria-disabled',
       'true',
@@ -194,9 +194,9 @@ describe('React chat app shell', () => {
     await waitFor(() => {
       expect(screen.getByRole('heading', { name: '新的聊天' })).toBeInTheDocument()
     })
-    expect(screen.getByRole('button', { name: 'Model catalog unavailable' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '模型目录不可用' })).toBeDisabled()
     expect(screen.queryByText('DeepSeek V4 Flash')).not.toBeInTheDocument()
-    await waitFor(() => expect(screen.getByPlaceholderText('Ask AI')).toBeEnabled())
+    await waitFor(() => expect(screen.getByRole('textbox', { name: '消息' })).toBeEnabled())
     expect(screen.getByRole('button', { name: '发送消息' })).toBeDisabled()
     const newChatButton = screen.getByRole('button', { name: '新建会话' })
     await waitFor(() => expect(newChatButton).toBeEnabled())

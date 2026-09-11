@@ -184,14 +184,14 @@ async function clickButtonRepeated(client, text, clickCount = 3) {
     const usesUserMenu = await evaluate(
       client,
       `(() => {
-        const trigger = document.querySelector('.user-menu-trigger');
+        const trigger = document.querySelector('.chat-header button[aria-label="更多操作"]');
         if (!trigger) return false;
         trigger.click();
         return true;
       })()`,
     )
     if (usesUserMenu) {
-      await waitForEval(client, `Boolean(document.querySelector('.sidebar-user-menu'))`)
+      await waitForEval(client, `Boolean(document.querySelector('.app-actions-menu'))`)
     }
   }
   await evaluate(
@@ -390,8 +390,8 @@ async function main() {
     await waitForEval(
       client,
       `(() => {
-        const userTriggerBusy = document.querySelector('.user-menu-trigger')?.getAttribute('aria-label') === '清空中...' &&
-          document.querySelector('.user-menu-trigger')?.getAttribute('aria-busy') === 'true';
+        const userTriggerBusy = document.querySelector('.chat-header button[aria-label="正在清空会话"]')?.disabled === true &&
+          document.querySelector('.chat-header button[aria-label="正在清空会话"]')?.getAttribute('aria-busy') === 'true';
         const clearButtonBusy = document.querySelector('.clear-history-btn')?.textContent.trim() === '清空中...' &&
           document.querySelector('.clear-history-btn')?.disabled === true;
         return (userTriggerBusy || clearButtonBusy) &&
@@ -402,10 +402,9 @@ async function main() {
     assert(clearDuring - clearBefore === 1, 'rapid clear clicks created duplicate requests')
     await waitForEval(
       client,
-      `document.querySelector('.conversation-item-shell.active .conversation-meta')
-        ?.textContent.includes('0 条消息') &&
-        (document.querySelector('.user-menu-trigger')?.getAttribute('aria-label') === '用户设置' ||
-          document.querySelector('.clear-history-btn')?.textContent.trim() === '清空当前会话')`,
+      `document.querySelector('.conversation-item-shell.active .conversation-item')
+        ?.getAttribute('aria-description') === '0 条消息' &&
+        document.querySelector('button[aria-label="更多操作"]')?.disabled === false`,
     )
     assertions.clear = { requestCount: clearDuring - clearBefore, recovered: true }
 

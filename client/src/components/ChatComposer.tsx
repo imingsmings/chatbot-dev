@@ -1,9 +1,6 @@
 import {
   ArrowUpIcon,
-  BracesIcon,
-  FileTextIcon,
   ImagePlusIcon,
-  MicIcon,
   PlusIcon,
   SquareIcon,
   TextCursorInputIcon,
@@ -45,15 +42,14 @@ export type ChatComposerHandle = {
 }
 
 type ChatComposerProps = {
-  canGenerateSummary: boolean
-  canPreviewContext: boolean
+  mobile?: boolean
   canSubmit: boolean
   attachments: ComposerImageAttachment[]
   disabled: boolean
-  isContextPreviewLoading: boolean
   isResponding: boolean
   isStopping: boolean
   modelMenuOpen: boolean
+  effortMenuOpen: boolean
   modelOptions: ModelRequestOptions
   runtime: RuntimeInfo | null
   modelSupportsImages: boolean
@@ -63,11 +59,9 @@ type ChatComposerProps = {
   onChange: (value: string) => void
   onAddFiles: (files: File[]) => void
   onModelMenuOpenChange: (open: boolean) => void
+  onEffortMenuOpenChange: (open: boolean) => void
   onModelOptionsChange: (options: ModelRequestOptions) => void
-  onOpenSettings: () => void
-  onOpenSummary: () => void
   onOpenTemplates: () => void
-  onPreviewContext: () => void
   onRemoveAttachment: (clientId: string) => void
   onRetryAttachment: (clientId: string) => void
   onStop: () => void
@@ -84,7 +78,8 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
       const element = inputRef.current
       if (!element) return
       element.style.height = 'auto'
-      element.style.height = `${Math.min(element.scrollHeight, 180)}px`
+      const maxHeight = Number.parseFloat(getComputedStyle(element).maxHeight) || 180
+      element.style.height = `${Math.min(element.scrollHeight, maxHeight)}px`
     }
 
     useImperativeHandle(ref, () => ({
@@ -94,7 +89,20 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
 
     useLayoutEffect(() => {
       resizeComposer()
-    }, [props.value])
+    }, [props.value, props.mobile])
+
+    useLayoutEffect(() => {
+      const input = inputRef.current
+      if (!input || typeof ResizeObserver === 'undefined') return
+      let previousWidth = input.clientWidth
+      const observer = new ResizeObserver(() => {
+        if (input.clientWidth === previousWidth) return
+        previousWidth = input.clientWidth
+        resizeComposer()
+      })
+      observer.observe(input)
+      return () => observer.disconnect()
+    }, [])
 
     function submit(event?: FormEvent) {
       event?.preventDefault()
@@ -133,17 +141,17 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
 
     return (
       <form
-        className="composer shrink-0 px-7 pt-1 pb-[41px] dark:pb-[27px] max-[820px]:px-3.5 max-[820px]:pt-0.5 max-[820px]:pb-2.5"
+        className="composer"
         onSubmit={submit}
       >
         <div
           className={cn(
-            'composer-inner flex min-h-[104px] flex-col justify-between rounded-2xl border border-[var(--border-strong)] bg-[var(--surface-raised)] py-3 pr-5 pl-4 shadow-[var(--shadow-composer)] focus-within:border-[color-mix(in_srgb,var(--border-strong)_50%,var(--text-secondary))] dark:min-h-[104px] max-[820px]:min-h-[92px] max-[820px]:rounded-[18px] max-[820px]:py-2 max-[820px]:pr-[9px] max-[820px]:pl-[13px]',
+            'composer-inner',
             CHAT_CONTENT_COLUMN_CLASS,
           )}
         >
           {props.attachments.length ? (
-            <div aria-label="待发送图片" className="mb-2 flex flex-wrap gap-2">
+            <div aria-label="待发送图片" className="composer-attachments mb-2 flex flex-wrap gap-2">
               {props.attachments.map((item) => (
                 <div
                   className="relative w-[108px] overflow-hidden rounded-xl border border-[var(--border-soft)] bg-[var(--surface-muted)]"
@@ -168,7 +176,7 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
                     {item.status === 'error' ? (
                       <button
                         aria-label={`重试上传 ${item.file.name}`}
-                        className="shrink-0"
+                        className="attachment-retry shrink-0"
                         onClick={() => props.onRetryAttachment(item.clientId)}
                         type="button"
                       >
@@ -177,7 +185,7 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
                     ) : null}
                     <button
                       aria-label={`移除图片 ${item.file.name}`}
-                      className="shrink-0"
+                      className="attachment-remove shrink-0"
                       disabled={item.status === 'deleting'}
                       onClick={() => props.onRemoveAttachment(item.clientId)}
                       type="button"
@@ -195,7 +203,8 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
             </div>
           ) : null}
           <Textarea
-            className="max-h-[180px] min-h-6 w-full resize-none overflow-y-auto border-0 bg-transparent p-0 text-sm leading-[1.55] text-[var(--text-primary)] shadow-none placeholder:text-[var(--text-tertiary)] focus-visible:border-0 focus-visible:ring-0 disabled:bg-transparent dark:bg-transparent dark:disabled:bg-transparent"
+            aria-label="消息"
+            className="composer-input"
             disabled={props.disabled}
             onChange={handleInput}
             onDragOver={(event) => event.preventDefault()}
@@ -207,15 +216,16 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
             rows={1}
             value={props.value}
           />
-          <div className="composer-bottom-row flex min-h-10 items-center justify-between gap-3">
-            <div className="composer-tools flex items-center">
+          <div className="composer-bottom-row">
+            <div className="composer-tools">
               <DropdownMenu onOpenChange={props.onToolsMenuOpenChange} open={props.toolsMenuOpen}>
                 <DropdownMenuTrigger
-                  aria-label="添加和工具"
+                  aria-label="添加图片"
                   disabled={props.disabled}
                   render={
                     <Button
-                      className="composer-plus-btn size-10 rounded-lg text-[var(--text-secondary)] hover:bg-[var(--surface-muted)] hover:text-[var(--text-primary)] data-[popup-open]:bg-[var(--surface-muted)] data-[popup-open]:text-[var(--text-primary)] max-[820px]:size-9"
+                      className="composer-plus-btn composer-tool-icon"
+                      tooltip="添加图片"
                       size="icon-lg"
                       variant="ghost"
                     />
@@ -235,61 +245,29 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
                         <ImagePlusIcon aria-hidden="true" size={15} />
                         <span>图片</span>
                       </DropdownMenuItem>
-                      <DropdownMenuItem
-                        className="dropdown-menu-item composer-tool-btn"
-                        nativeButton
-                        onClick={props.onOpenTemplates}
-                        render={<button aria-label="模板" type="button" />}
-                      >
-                        <TextCursorInputIcon aria-hidden="true" size={15} />
-                        <span>模板</span>
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        className="dropdown-menu-item composer-tool-btn"
-                        disabled={!props.canGenerateSummary}
-                        nativeButton
-                        onClick={props.onOpenSummary}
-                        render={<button aria-label="摘要" type="button" />}
-                      >
-                        <FileTextIcon aria-hidden="true" size={15} />
-                        <span>摘要</span>
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        className="dropdown-menu-item composer-tool-btn"
-                        disabled={!props.canPreviewContext || props.isContextPreviewLoading}
-                        nativeButton
-                        onClick={props.onPreviewContext}
-                        render={<button aria-label="上下文" type="button" />}
-                      >
-                        <BracesIcon aria-hidden="true" size={15} />
-                        <span>{props.isContextPreviewLoading ? '加载中' : '上下文'}</span>
+                      <DropdownMenuItem className="dropdown-menu-item mobile-template-item" nativeButton onClick={props.onOpenTemplates} render={<button aria-label="模板" type="button" />}>
+                        <TextCursorInputIcon aria-hidden="true" size={16} /><span>模板</span>
                       </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenuPositioner>
                 </DropdownMenuPortal>
               </DropdownMenu>
+              <Button aria-label="模板" tooltip="提示词模板" className="composer-tool-icon template-trigger" disabled={props.disabled} onClick={props.onOpenTemplates} size="icon" type="button" variant="ghost">
+                <TextCursorInputIcon aria-hidden="true" size={18} />
+              </Button>
             </div>
 
-            <div className="composer-primary-actions flex items-center gap-4 max-[820px]:gap-[5px]">
-              <ModelOptionsMenu
+            <div className="composer-primary-actions">
+              {!props.mobile ? <ModelOptionsMenu
                 disabled={props.disabled}
                 onChange={props.onModelOptionsChange}
                 onOpenChange={props.onModelMenuOpenChange}
-                onOpenSettings={props.onOpenSettings}
+                effortOpen={props.effortMenuOpen}
+                onEffortOpenChange={props.onEffortMenuOpenChange}
                 open={props.modelMenuOpen}
                 options={props.modelOptions}
                 runtime={props.runtime}
-              />
-              <Button
-                aria-label="语音输入（暂不可用）"
-                className="composer-icon-btn microphone-btn size-[34px] text-[var(--text-secondary)] hover:bg-[var(--surface-hover)] hover:text-[var(--text-primary)] max-[820px]:hidden"
-                disabled
-                size="icon"
-                type="button"
-                variant="ghost"
-              >
-                <MicIcon aria-hidden="true" size={18} />
-              </Button>
+              /> : null}
               {props.isResponding || props.isStopping ? (
                 <Button
                   aria-busy={props.isStopping || undefined}

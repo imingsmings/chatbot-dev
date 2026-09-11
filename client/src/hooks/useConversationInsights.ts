@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 import {
   generateConversationSummary,
@@ -41,6 +41,15 @@ export function useConversationInsights(options: ConversationInsightOptions) {
   const isRespondingRef = useRef(options.isResponding)
   currentConversationIdRef.current = options.currentConversationId
   isRespondingRef.current = options.isResponding
+  const previewKey = JSON.stringify([
+    options.currentConversationId, options.input, options.modelOptions,
+    options.currentAttachments.map(({ id }) => id), options.messageCount, options.isResponding,
+  ])
+  const previewKeyRef = useRef(previewKey)
+  previewKeyRef.current = previewKey
+  useEffect(() => {
+    setIsContextPreviewOpen(false)
+  }, [previewKey])
 
   const canPreviewContext =
     Boolean(options.currentConversationId) &&
@@ -60,11 +69,13 @@ export function useConversationInsights(options: ConversationInsightOptions) {
       options.isResponding ||
       options.isStopping ||
       options.isModelOptionsSaving ||
+      options.hasBlockingUpload ||
       !options.modelOptionsAvailable ||
       options.isConversationTransitioning ||
       contextPreviewLoadingRef.current
     ) return
     options.closeTopMenu()
+    const requestedKey = previewKeyRef.current
     contextPreviewLoadingRef.current = true
     setIsContextPreviewLoading(true)
     try {
@@ -75,6 +86,7 @@ export function useConversationInsights(options: ConversationInsightOptions) {
         options.currentAttachments.map(({ id }) => id),
       )
       if (
+        requestedKey !== previewKeyRef.current ||
         conversationId !== currentConversationIdRef.current ||
         isRespondingRef.current
       ) {
@@ -83,6 +95,7 @@ export function useConversationInsights(options: ConversationInsightOptions) {
       setContextPreview(context)
       setIsContextPreviewOpen(true)
     } catch (error) {
+      if (requestedKey !== previewKeyRef.current) return
       console.error('Failed to preview context:', error)
       await options.showError('上下文预览失败，请稍候再试')
     } finally {

@@ -240,7 +240,9 @@ async function main() {
     await client.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape' })
     await client.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape' })
 
+    const documentId = await evaluate(client, `window.__visionReloadMarker=crypto.randomUUID()`)
     await client.send('Page.reload')
+    await waitForEval(client, `window.__visionReloadMarker!==${JSON.stringify(documentId)} && Boolean(document.querySelector('textarea')||document.querySelector('#auth-username'))`)
     await authenticateBrowser(client)
     await waitForEval(client, `Boolean(document.querySelector('img[alt="books.jpeg"]'))`, 30_000)
     await waitForEval(client, `document.body.innerText.includes('BOOKS')`)

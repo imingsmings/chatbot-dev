@@ -42,24 +42,20 @@ function composerItem(status: ComposerImageAttachment['status']): ComposerImageA
 function renderComposer(overrides: Partial<React.ComponentProps<typeof ChatComposer>> = {}) {
   const props: React.ComponentProps<typeof ChatComposer> = {
     attachments: [],
-    canGenerateSummary: false,
-    canPreviewContext: false,
     canSubmit: false,
     disabled: false,
-    isContextPreviewLoading: false,
     isResponding: false,
     isStopping: false,
     modelMenuOpen: false,
+    effortMenuOpen: false,
     modelOptions: { provider: 'deepseek', model: 'deepseek-v4-flash-vision-exp' },
     modelSupportsImages: true,
     onAddFiles: vi.fn(),
     onChange: vi.fn(),
     onModelMenuOpenChange: vi.fn(),
+    onEffortMenuOpenChange: vi.fn(),
     onModelOptionsChange: vi.fn(),
-    onOpenSettings: vi.fn(),
-    onOpenSummary: vi.fn(),
     onOpenTemplates: vi.fn(),
-    onPreviewContext: vi.fn(),
     onRemoveAttachment: vi.fn(),
     onRetryAttachment: vi.fn(),
     onStop: vi.fn(),
@@ -91,6 +87,19 @@ afterEach(() => {
 })
 
 describe('image attachment components', () => {
+  it('keeps the mobile composer free of model controls and exposes the stop state', () => {
+    const view = renderComposer({ mobile: true })
+    expect(screen.queryByRole('button', { name: /模型/ })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '添加图片' })).toBeVisible()
+    expect(screen.getByRole('button', { name: '发送消息' })).toBeDisabled()
+    view.rerender(<ChatComposer {...view.props} mobile isResponding disabled />)
+    fireEvent.click(screen.getByRole('button', { name: '停止生成' }))
+    expect(view.props.onStop).toHaveBeenCalledOnce()
+    view.rerender(<ChatComposer {...view.props} mobile isStopping disabled />)
+    expect(screen.getByRole('button', { name: '正在停止生成' })).toBeDisabled()
+    expect(screen.queryByRole('button', { name: '发送消息' })).not.toBeInTheDocument()
+  })
+
   it('accepts selection, paste and drop while exposing upload retry/remove states', () => {
     const { container, props } = renderComposer({
       attachments: [composerItem('error')],

@@ -168,6 +168,7 @@ export const MessageRow = memo(function MessageRow({
           <div className="message-actions flex items-center justify-end gap-0.5 opacity-100 transition-opacity">
             <Button
               aria-label="编辑消息"
+              tooltip="编辑消息"
               className="message-action-btn min-h-7 gap-[5px] rounded-md px-[7px] text-[11px] text-[var(--text-tertiary)] hover:bg-[var(--surface-muted)] hover:text-[var(--text-primary)]"
               disabled={isResponding}
               onClick={() => onEditMessage(index)}
@@ -186,6 +187,7 @@ export const MessageRow = memo(function MessageRow({
             {message.text && message.status !== 'pending' && message.status !== 'streaming' ? (
               <Button
                 aria-label={copied ? '已复制' : '复制回答'}
+                tooltip={copied ? '已复制' : '复制回答'}
                 className="message-action-btn min-h-7 gap-[5px] rounded-md px-[7px] text-[11px] text-[var(--text-tertiary)] hover:bg-[var(--surface-muted)] hover:text-[var(--text-primary)]"
                 onClick={() => onCopyMessage(message)}
                 size="xs"
@@ -202,6 +204,7 @@ export const MessageRow = memo(function MessageRow({
             ['done', 'stopped'].includes(message.status) ? (
               <Button
                 aria-label="重新生成回答"
+                tooltip="重新生成回答"
                 className="message-action-btn min-h-7 gap-[5px] rounded-md px-[7px] text-[11px] text-[var(--text-tertiary)] hover:bg-[var(--surface-muted)] hover:text-[var(--text-primary)]"
                 disabled={isResponding}
                 onClick={() => onRegenerateMessage(index)}
@@ -215,6 +218,8 @@ export const MessageRow = memo(function MessageRow({
             ) : null}
             {message.status === 'error' ? (
               <Button
+                aria-label="重试"
+                tooltip="重试"
                 className="message-action-btn min-h-7 gap-[5px] rounded-md px-[7px] text-[11px] text-[var(--text-tertiary)] hover:bg-[var(--surface-muted)] hover:text-[var(--text-primary)]"
                 disabled={isResponding}
                 onClick={() => onRetryMessage(index)}

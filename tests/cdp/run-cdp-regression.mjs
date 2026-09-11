@@ -39,6 +39,16 @@ const UI_SCENARIOS = [
     needsVite: true,
   },
   {
+    name: 'UI workspace layout and responsive navigation',
+    script: 'tests/cdp/scenarios/ui/workspace-layout.mjs',
+    needsVite: true,
+  },
+  {
+    name: 'UI mobile chat and model sheet',
+    script: 'tests/cdp/scenarios/ui/mobile-chat-layout.mjs',
+    needsVite: true,
+  },
+  {
     name: 'UI conversation model option persistence',
     script: 'tests/cdp/scenarios/ui/model-options-persistence.mjs',
     needsVite: true,
@@ -176,6 +186,9 @@ const SUITES = {
   'real-vision': [
     { name: 'Real DeepSeek Vision scenarios', script: 'tests/cdp/vision-real.mjs', needsVite: true, needsBackend: true },
   ],
+  'real-mobile': [
+    { name: 'Real mobile chat and model sheet', script: 'tests/cdp/mobile-real.mjs', needsVite: true, needsBackend: true },
+  ],
 }
 
 SUITES['all-mock'] = [
@@ -197,6 +210,7 @@ SUITES['all-mock'] = [
 SUITES['all-real'] = [
   ...SUITES.real,
   ...SUITES['real-openai'],
+  ...SUITES['real-mobile'],
 ]
 
 async function ensureVite() {

@@ -1,4 +1,5 @@
 import { Button as ButtonPrimitive } from "@base-ui/react/button"
+import { Tooltip } from "@base-ui/react/tooltip"
 import { cva, type VariantProps } from "class-variance-authority"
 
 import { cn } from "#lib/utils"
@@ -44,14 +45,28 @@ function Button({
   className,
   variant = "default",
   size = "default",
+  tooltip,
   ...props
-}: ButtonPrimitive.Props & VariantProps<typeof buttonVariants>) {
-  return (
+}: ButtonPrimitive.Props & VariantProps<typeof buttonVariants> & { tooltip?: string }) {
+  const button = (
     <ButtonPrimitive
       data-slot="button"
       className={cn(buttonVariants({ variant, size, className }))}
       {...props}
     />
+  )
+  if (!tooltip) return button
+  return (
+    <Tooltip.Root>
+      <Tooltip.Trigger delay={500} disabled={props.disabled} render={button} />
+      <Tooltip.Portal>
+        <Tooltip.Positioner className="z-[1600]" sideOffset={8} collisionPadding={12}>
+          <Tooltip.Popup className="icon-tooltip" data-slot="tooltip-content">
+            <span data-slot="tooltip-label">{tooltip}</span>
+          </Tooltip.Popup>
+        </Tooltip.Positioner>
+      </Tooltip.Portal>
+    </Tooltip.Root>
   )
 }
 

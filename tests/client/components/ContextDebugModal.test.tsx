@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
 import { ContextDebugModal } from '../../../client/src/components/ContextDebugModal'
@@ -73,9 +73,22 @@ describe('ContextDebugModal', () => {
 
     expect(screen.getByRole('dialog')).toHaveTextContent('5200/126976')
     expect(screen.getByRole('dialog')).toHaveTextContent('9296/131072')
-    expect(screen.getByRole('dialog')).toHaveTextContent('Budget Dropped')
-    expect(screen.getByRole('region', { name: 'Token Budget Breakdown' })).toHaveTextContent('Images')
+    expect(screen.getByRole('dialog')).toHaveTextContent('预算不足，已排除')
+    fireEvent.click(screen.getByText('预算明细'))
+    expect(screen.getByRole('region', { name: 'Token Budget Breakdown' })).toHaveTextContent('图片')
     expect(screen.getByRole('region', { name: 'Token Budget Breakdown' })).toHaveTextContent('896')
     expect(screen.getByRole('dialog')).toHaveTextContent('deepseek-utf8-conservative-v1')
+  })
+
+  it('renders an inline inspector without a modal and keeps raw requests collapsed', () => {
+    const { container } = render(<ContextDebugModal context={context} onClose={vi.fn()} open modal={false} />)
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(screen.getByRole('region', { name: '上下文' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('tab', { name: '原始请求' }))
+    const messages = screen.getByText('发送给模型的消息 · 2').closest('details')
+    expect(messages).not.toHaveAttribute('open')
+    fireEvent.click(screen.getByText('发送给模型的消息 · 2'))
+    expect(container.querySelectorAll('.context-message-item')).toHaveLength(2)
+    expect(screen.getByText('工具定义 · 3').closest('details')).not.toHaveAttribute('open')
   })
 })

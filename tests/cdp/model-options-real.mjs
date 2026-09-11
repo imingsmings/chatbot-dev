@@ -1,3 +1,4 @@
+import assert from 'node:assert/strict'
 import { getPageTarget, launchChrome } from './helpers/browser.mjs'
 import { ask, waitForEval } from './helpers/appActions.mjs'
 import { CdpClient, evaluate } from './helpers/cdpClient.mjs'
@@ -123,18 +124,19 @@ async function selectConversation(client, title) {
 }
 
 async function selectModelAndEffort(client, model, effort) {
+  const effortLabel = { Off: '关闭', Minimal: '极低', Low: '低', Medium: '中', High: '高', 'Extra High': '极高', Max: '最高', Ultra: '超高' }[effort.label]
+  assert.ok(effortLabel, `Missing localized effort label: ${effort.label}`)
   await waitForEval(client, `document.querySelector('.model-menu-trigger')?.disabled === false`)
   await clickSelector(client, '.model-menu-trigger')
   await waitForEval(client, `[...document.querySelectorAll('.model-options-menu')]
     .some((menu) => menu.getBoundingClientRect().height > 0)`)
-  await clickAria(client, 'Select Model')
   await waitForEval(client, `[...document.querySelectorAll('.model-submenu')]
     .some((menu) => menu.getBoundingClientRect().height > 0)`)
   const modelPatchCount = await evaluate(
     client,
     `(window.__realModelOptionRequests || []).length`,
   )
-  await clickAria(client, `Select ${model.label}`)
+  await clickAria(client, `选择 ${model.label}`)
   await waitForEval(
     client,
     `(() => {
@@ -149,18 +151,14 @@ async function selectModelAndEffort(client, model, effort) {
   await waitForEval(client, `![...document.querySelectorAll('.model-options-menu')]
     .some((menu) => menu.getBoundingClientRect().height > 0)`)
 
-  await clickSelector(client, '.model-menu-trigger')
-  await waitForEval(client, `document.querySelector('.model-menu-trigger[data-popup-open]') &&
-    [...document.querySelectorAll('.model-options-menu')]
-      .some((menu) => menu.getBoundingClientRect().height > 0)`)
-  await clickAria(client, 'Select Effort')
+  await clickSelector(client, '.effort-menu-trigger')
   await waitForEval(client, `[...document.querySelectorAll('.effort-submenu')]
     .some((menu) => menu.getBoundingClientRect().height > 0)`)
   const effortPatchCount = await evaluate(
     client,
     `(window.__realModelOptionRequests || []).length`,
   )
-  await clickAria(client, `Select Effort ${effort.label}`)
+  await clickAria(client, `思考强度 ${effortLabel}`)
 
   await waitForEval(
     client,
@@ -170,7 +168,7 @@ async function selectModelAndEffort(client, model, effort) {
       const label = document.querySelector('.model-menu-trigger')?.getAttribute('aria-label') || '';
       return requests.length > ${effortPatchCount} && latest?.done === true && latest.status === 200 &&
         label.includes(${JSON.stringify(model.label)}) &&
-        label.endsWith(${JSON.stringify(`, ${effort.label}`)});
+        document.querySelector('.effort-menu-trigger')?.getAttribute('aria-label') === ${JSON.stringify(`思考强度：${effortLabel}`)};
     })()`,
   )
 }

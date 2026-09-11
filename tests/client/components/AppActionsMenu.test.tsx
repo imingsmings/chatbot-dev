@@ -8,14 +8,12 @@ describe('AppActionsMenu', () => {
     render(
       <AppActionsMenu
         canGenerateSummary={false}
-        canPreviewContext={false}
+        canClearConversation={false}
         disabled={false}
-        isContextPreviewLoading={false}
         onOpenChange={vi.fn<(open: boolean) => void>()}
         onOpenSettings={vi.fn<() => void>()}
         onOpenSummary={vi.fn<() => void>()}
-        onOpenTemplates={vi.fn<() => void>()}
-        onPreviewContext={vi.fn<() => void>()}
+        onClearConversation={vi.fn<() => void>()}
         open
       />,
     )

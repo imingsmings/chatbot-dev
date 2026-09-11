@@ -79,6 +79,7 @@
     "test:cdp:all-real": "bun tests/cdp/run-all-real.mjs",
     "test:cdp:real-openai": "CDP_REAL_SUITE=real-openai bun tests/cdp/run-all-real.mjs",
     "test:cdp:real-vision": "CDP_REAL_SUITE=real-vision bun tests/cdp/run-all-real.mjs",
+    "test:cdp:real-mobile": "CDP_REAL_SUITE=real-mobile bun tests/cdp/run-all-real.mjs",
     "test:cdp:real-model-options": "CDP_REAL_SUITE=real-model-options bun tests/cdp/run-all-real.mjs",
     "test:cdp:real": "CDP_REAL_SUITE=real bun tests/cdp/run-all-real.mjs"
   },

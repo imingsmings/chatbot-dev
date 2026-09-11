@@ -1,4 +1,5 @@
-import { ArrowDownIcon, ChevronDownIcon, LogOutIcon, MoonIcon, SunIcon } from 'lucide-react'
+import { ArrowDownIcon, MenuIcon, SquarePenIcon, PanelRightIcon, MoonIcon, SunIcon } from 'lucide-react'
+import { useRef, useState } from 'react'
 
 import { AppActionsMenu } from '#components/AppActionsMenu'
 import { AppDialog } from '#components/AppDialog'
@@ -9,14 +10,31 @@ import { ConversationSummaryModal } from '#components/ConversationSummaryModal'
 import { EmptyState } from '#components/EmptyState'
 import { MessageList } from '#components/MessageList'
 import { ModelSettingsModal } from '#components/ModelSettingsModal'
+import { MobileModelSheet } from '#components/MobileModelSheet'
 import { PromptTemplateModal } from '#components/PromptTemplateModal'
 import { Button } from '#components/ui/button'
 import { useChatAppController } from '#hooks/useChatAppController'
 import { useAuth } from '#hooks/useAuth'
+import { useMediaQuery } from '#hooks/useMediaQuery'
+import { useMobileViewport } from '#hooks/useMobileViewport'
+import { SidePanel } from '#components/SidePanel'
+import '../styles/chat-workspace.css'
+import '../styles/chat-mobile.css'
 
 export function App() {
   const controller = useChatAppController()
   const auth = useAuth()
+  const mobile = useMediaQuery('(max-width: 820px)')
+  useMobileViewport(mobile)
+  const contextOverlay = useMediaQuery('(max-width: 1100px)')
+  const contextTriggerRef = useRef<HTMLButtonElement>(null)
+  const sidebarTriggerRef = useRef<HTMLButtonElement>(null)
+  const [sidebarExpanded, setSidebarExpanded] = useState(true)
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
+  const sidebarOpen = mobile ? mobileSidebarOpen : sidebarExpanded
+  const closeSidebar = () => setMobileSidebarOpen(false)
+  const contextOpen = controller.isContextPreviewOpen
+  const isEmpty = controller.messages.length === 0 && controller.sidebarOperation?.type !== 'initialize'
 
   const openAppMenu = controller.activeTopMenu?.kind === 'app'
   const openConversationMenuId =
@@ -33,9 +51,12 @@ export function App() {
 
   return (
     <div
-      className="app-shell grid h-dvh w-screen grid-cols-[clamp(302px,calc(100vw-1284px),318px)_minmax(0,1fr)] overflow-hidden bg-[var(--app-bg)] text-sm text-[var(--text-primary)] max-[820px]:grid-cols-[minmax(0,1fr)] max-[820px]:grid-rows-[178px_minmax(0,1fr)]"
+      className="app-shell"
       data-theme={controller.theme}
+      data-sidebar={sidebarOpen && !mobile}
+      data-context={contextOpen && !contextOverlay}
     >
+      <SidePanel label="会话列表" modal={mobile} open={sidebarOpen} onClose={closeSidebar} side="left" returnFocusRef={sidebarTriggerRef}>
       <ChatSidebar
         conversations={controller.visibleConversations}
         currentConversationId={controller.currentConversationId}
@@ -43,21 +64,23 @@ export function App() {
         isSearching={controller.isConversationSearching}
         isStopping={controller.isStopping}
         isLoggingOut={auth.loggingOut}
-        onClearConversation={() => void controller.handleClearCurrentConversation()}
+        onClose={closeSidebar}
         onDeleteConversation={(id) => void controller.handleDeleteConversation(id)}
         onExportAllConversations={() => void controller.handleExportAllConversations()}
         onExportConversation={(conversation) => void controller.handleExportConversation(conversation)}
         onImportConversations={controller.openImportPicker}
         onLogout={() => void auth.logout()}
-        onNewChat={() => void controller.startNewChat()}
+        onNewChat={() => { closeSidebar(); void controller.startNewChat() }}
         onOpenConversationMenu={(id) =>
           controller.setActiveTopMenu(id ? { kind: 'conversation', id } : null)
         }
         onRenameConversation={(conversation) => void controller.handleRenameConversation(conversation)}
-        onSelectConversation={(id) => void controller.selectConversation(id)}
+        onSelectConversation={(id) => { closeSidebar(); void controller.selectConversation(id) }}
         onUpdateSearchQuery={(query) => void controller.searchConversations(query)}
         onUserMenuOpenChange={(open) => controller.setMenuOpen({ kind: 'user' }, open)}
         showLogout={auth.status === 'authenticated'}
+        themeToggleLabel={controller.themeToggleLabel}
+        onToggleTheme={controller.toggleTheme}
         openConversationMenuId={openConversationMenuId}
         operation={controller.sidebarOperation}
         profile={controller.runtimeInfo?.profile}
@@ -65,30 +88,31 @@ export function App() {
         searchQuery={controller.conversationSearchQuery}
         userMenuOpen={userMenuOpen}
       />
+      </SidePanel>
 
-      <main className="chat-main grid min-h-0 min-w-0 grid-rows-[70px_minmax(0,1fr)_auto] bg-[var(--app-bg)] max-[820px]:grid-rows-[48px_minmax(0,1fr)_auto]">
-        <header className="chat-header flex w-full min-w-0 items-center justify-between pr-[22px] pl-[30px] max-[820px]:pr-[10px] max-[820px]:pl-4">
-          <h2 className="m-0 flex max-w-[70%] min-w-0 items-center gap-[5px] overflow-hidden text-base leading-[1.2] font-semibold text-ellipsis whitespace-nowrap text-[var(--text-heading)] max-[820px]:text-sm">
+      <main className="chat-main" data-empty={isEmpty}>
+        <header className="chat-header">
+          <Button ref={sidebarTriggerRef} aria-label={sidebarOpen ? '收起会话列表' : '打开会话列表'} aria-expanded={sidebarOpen} tooltip={sidebarOpen ? '收起会话列表' : '打开会话列表'} className="sidebar-toggle header-icon-btn" onClick={() => mobile ? setMobileSidebarOpen(!mobileSidebarOpen) : setSidebarExpanded(!sidebarExpanded)} size="icon" variant="ghost"><MenuIcon aria-hidden="true" size={18} /></Button>
+          <h2 className={mobile ? 'sr-only' : undefined}>
             <span>{controller.currentConversationTitle}</span>
-            <ChevronDownIcon aria-hidden="true" size={14} />
           </h2>
+          {mobile ? (
+            <MobileModelSheet
+              disabled={composerDisabled}
+              saving={controller.isModelOptionsSaving}
+              open={modelMenuOpen}
+              options={controller.modelOptions}
+              runtime={controller.runtimeInfo}
+              onChange={controller.setModelOptions}
+              onOpenChange={(open) => controller.setMenuOpen({ kind: 'model' }, open)}
+            />
+          ) : null}
           <div className="chat-header-actions flex items-center gap-0.5">
-            {auth.status === 'authenticated' ? (
-              <Button
-                aria-label="退出登录"
-                className="header-icon-btn hidden size-[34px] rounded-[7px] text-[var(--text-secondary)] hover:bg-[var(--surface-hover)] hover:text-[var(--text-primary)] max-[820px]:inline-flex"
-                disabled={controller.isResponding || controller.isStopping || auth.loggingOut}
-                onClick={() => void auth.logout()}
-                size="icon"
-                type="button"
-                variant="ghost"
-              >
-                <LogOutIcon aria-hidden="true" size={18} />
-                <span className="sr-only">退出登录</span>
-              </Button>
-            ) : null}
+            {mobile || !sidebarExpanded ? <Button aria-label="新建会话" tooltip="新建会话" className="header-new-chat header-icon-btn" disabled={Boolean(controller.sidebarOperation) || controller.isStopping} onClick={() => void controller.startNewChat()} size="icon" variant="ghost"><SquarePenIcon aria-hidden="true" size={18} /></Button> : null}
+            {!mobile ? <Button ref={contextTriggerRef} aria-label="上下文" aria-expanded={contextOpen} aria-busy={controller.isContextPreviewLoading || undefined} tooltip="上下文" className="context-toggle header-icon-btn" disabled={!contextOpen && (!controller.canPreviewContext || controller.isContextPreviewLoading)} onClick={() => contextOpen ? controller.setIsContextPreviewOpen(false) : void controller.openContextPreview()} size="icon" variant="ghost"><PanelRightIcon aria-hidden="true" size={18} /></Button> : null}
             <Button
               aria-label={controller.themeToggleLabel}
+              tooltip={controller.themeToggleLabel}
               className="header-icon-btn theme-toggle-btn size-[34px] rounded-[7px] text-[var(--text-secondary)] hover:bg-[var(--surface-hover)] hover:text-[var(--text-primary)]"
               onClick={controller.toggleTheme}
               size="icon"
@@ -103,21 +127,24 @@ export function App() {
               <span className="sr-only">{controller.themeToggleLabel}</span>
             </Button>
             <AppActionsMenu
-              canGenerateSummary={controller.canGenerateSummary}
+              triggerRef={mobile ? contextTriggerRef : undefined}
+              onOpenContext={mobile ? () => void controller.openContextPreview() : undefined}
               canPreviewContext={controller.canPreviewContext}
+              contextLoading={controller.isContextPreviewLoading}
+              clearing={controller.sidebarOperation?.type === 'clear'}
+              canGenerateSummary={controller.canGenerateSummary}
+              canClearConversation={Boolean(controller.currentConversationId) && !controller.sidebarOperation && !controller.isResponding && !controller.isStopping}
               disabled={
                 controller.isStopping ||
                 controller.isModelOptionsSaving ||
                 controller.isConversationTransitioning
               }
-              isContextPreviewLoading={controller.isContextPreviewLoading}
               onOpenChange={(open) => controller.setMenuOpen({ kind: 'app' }, open)}
               onOpenSettings={() => controller.setIsModelSettingsOpen(true)}
               onOpenSummary={() => {
                 if (controller.canGenerateSummary) controller.setIsSummaryOpen(true)
               }}
-              onOpenTemplates={() => controller.setIsTemplateModalOpen(true)}
-              onPreviewContext={() => void controller.openContextPreview()}
+              onClearConversation={() => void controller.handleClearCurrentConversation()}
               open={openAppMenu}
             />
           </div>
@@ -125,7 +152,7 @@ export function App() {
 
         <div className="chat-scroll-shell relative min-h-0">
           <section
-            className="chat-scroll h-full min-h-0 overflow-y-auto overscroll-contain px-7 pt-5 pb-[34px] max-[820px]:px-3.5 max-[820px]:pt-3.5 max-[820px]:pb-5"
+            className="chat-scroll"
             ref={controller.chatBoxRef}
           >
             <div className="chat-scroll-content min-h-full" ref={controller.chatContentRef}>
@@ -178,50 +205,47 @@ export function App() {
         </div>
 
         <ChatComposer
+          mobile={mobile}
           attachments={controller.imageAttachments}
-          canGenerateSummary={controller.canGenerateSummary}
-          canPreviewContext={controller.canPreviewContext}
           canSubmit={controller.canSubmit}
           disabled={composerDisabled}
-          isContextPreviewLoading={controller.isContextPreviewLoading}
           isResponding={controller.isResponding}
           isStopping={controller.isStopping}
           modelMenuOpen={modelMenuOpen}
+          effortMenuOpen={controller.activeTopMenu?.kind === 'effort'}
           modelOptions={controller.modelOptions}
           modelSupportsImages={controller.modelSupportsImages}
           runtime={controller.runtimeInfo}
           onChange={controller.setInput}
           onAddFiles={controller.addImageFiles}
           onModelMenuOpenChange={(open) => controller.setMenuOpen({ kind: 'model' }, open)}
+          onEffortMenuOpenChange={(open) => controller.setMenuOpen({ kind: 'effort' }, open)}
           onModelOptionsChange={controller.setModelOptions}
-          onOpenSettings={() => controller.setIsModelSettingsOpen(true)}
-          onOpenSummary={() => {
-            if (controller.canGenerateSummary) controller.setIsSummaryOpen(true)
-          }}
           onOpenTemplates={() => controller.setIsTemplateModalOpen(true)}
-          onPreviewContext={() => void controller.openContextPreview()}
           onRemoveAttachment={(clientId) => void controller.removeImageAttachment(clientId)}
           onRetryAttachment={controller.retryImageAttachment}
           onStop={() => void controller.stopGenerating()}
           onSubmit={() => void controller.handleSubmit()}
           onToolsMenuOpenChange={(open) => controller.setMenuOpen({ kind: 'tools' }, open)}
-          placeholder="Ask AI"
+          placeholder={isEmpty ? '询问任何问题' : '继续追问'}
           ref={controller.composerRef}
           toolsMenuOpen={toolsMenuOpen}
           value={controller.input}
         />
       </main>
+      <ContextDebugModal
+        context={controller.contextPreview}
+        modal={contextOverlay}
+        returnFocusRef={contextTriggerRef}
+        onClose={() => controller.setIsContextPreviewOpen(false)}
+        open={contextOpen}
+      />
 
       <AppDialog
         dialog={controller.dialog}
         key={`${controller.dialog.open}-${controller.dialog.title}`}
         onCancel={() => controller.closeDialog(null)}
         onConfirm={(value) => controller.closeDialog(value)}
-      />
-      <ContextDebugModal
-        context={controller.contextPreview}
-        onClose={() => controller.setIsContextPreviewOpen(false)}
-        open={controller.isContextPreviewOpen}
       />
       <PromptTemplateModal
         onApply={controller.applyPromptTemplate}

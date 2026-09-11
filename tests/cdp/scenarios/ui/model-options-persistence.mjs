@@ -50,24 +50,18 @@ async function clickSelector(client, selector) {
 }
 
 async function selectEffort(client, effort) {
-  await waitFor(client, `document.querySelector('.model-menu-trigger')?.disabled === false`)
-  await clickSelector(client, '.model-menu-trigger')
-  await waitFor(client, `(() => {
-    const menu = [...document.querySelectorAll('.model-options-menu')]
-      .find((candidate) => candidate.getBoundingClientRect().height > 0);
-    return Boolean(document.querySelector('.model-menu-trigger[data-popup-open]') && menu);
-  })()`, 10_000)
-  await clickSelector(client, 'button[aria-label="Select Effort"]')
+  await waitFor(client, `document.querySelector('.effort-menu-trigger')?.disabled === false`)
+  await clickSelector(client, '.effort-menu-trigger')
   await waitFor(client, `[...document.querySelectorAll('.effort-submenu')]
     .some((candidate) => candidate.getBoundingClientRect().height > 0)`, 10_000)
-  await clickSelector(client, `button[aria-label="Select Effort ${effort}"]`)
+  await clickSelector(client, `button[aria-label="思考强度 ${effort}"]`)
 }
 
 function triggerIncludes(model, effort) {
   return `(() => {
     const trigger = document.querySelector('.model-menu-trigger');
     const label = trigger?.getAttribute('aria-label') || '';
-    return label.includes(${JSON.stringify(model)}) && label.endsWith(${JSON.stringify(`, ${effort}`)});
+    return label.includes(${JSON.stringify(model)}) && document.querySelector('.effort-menu-trigger')?.getAttribute('aria-label') === ${JSON.stringify(`思考强度：${effort}`)};
   })()`
 }
 
@@ -109,26 +103,26 @@ export async function runModelOptionsPersistence(client) {
     },
   ])
   await client.send('Page.reload')
-  await waitFor(client, triggerIncludes('DeepSeek V4 Pro', 'High'))
+  await waitFor(client, triggerIncludes('DeepSeek V4 Pro', '高'))
 
   await clickConversationAt(client, 1)
-  await waitFor(client, triggerIncludes('DeepSeek V4 Flash', 'Low'))
+  await waitFor(client, triggerIncludes('DeepSeek V4 Flash', '低'))
   await clickConversationAt(client, 0)
-  await waitFor(client, triggerIncludes('DeepSeek V4 Pro', 'High'))
+  await waitFor(client, triggerIncludes('DeepSeek V4 Pro', '高'))
 
   await client.send('Page.reload')
-  await waitFor(client, triggerIncludes('DeepSeek V4 Pro', 'High'))
+  await waitFor(client, triggerIncludes('DeepSeek V4 Pro', '高'))
 
   await typeText(client, '保存期间发送应被禁用')
   await setMockFlags(client, { modelOptionsDelayMs: 300 })
-  await selectEffort(client, 'Low')
+  await selectEffort(client, '低')
   await waitFor(client, `document.querySelector('.model-menu-trigger')?.disabled === true`)
   const savingState = await evaluate(client, `(() => ({
     textareaDisabled: document.querySelector('textarea')?.disabled,
     modelDisabled: document.querySelector('.model-menu-trigger')?.disabled,
     sendDisabled: document.querySelector('button[aria-label="发送消息"]')?.disabled,
     appActionsDisabled: document.querySelector('button[aria-label="更多操作"]')?.disabled,
-    composerToolsDisabled: document.querySelector('button[aria-label="添加和工具"]')?.disabled,
+    composerToolsDisabled: document.querySelector('button[aria-label="添加图片"]')?.disabled,
     patchCount: window.__mockSnapshot().requests.filter(
       (request) => request.pathname.endsWith('/model-options') && request.method === 'PATCH'
     ).length,
@@ -145,7 +139,7 @@ export async function runModelOptionsPersistence(client) {
   }
   await waitFor(
     client,
-    `${triggerIncludes('DeepSeek V4 Pro', 'Low')} && document.querySelector('.model-menu-trigger')?.disabled === false`,
+    `${triggerIncludes('DeepSeek V4 Pro', '低')} && document.querySelector('.model-menu-trigger')?.disabled === false`,
   )
   await setMockFlags(client, { modelOptionsDelayMs: 0 })
 
@@ -158,26 +152,26 @@ export async function runModelOptionsPersistence(client) {
   }
 
   await client.send('Page.reload')
-  await waitFor(client, triggerIncludes('DeepSeek V4 Pro', 'Low'))
+  await waitFor(client, triggerIncludes('DeepSeek V4 Pro', '低'))
 
   await setMockFlags(client, { failNextModelOptions: true })
-  await selectEffort(client, 'High')
+  await selectEffort(client, '高')
   await waitFor(client, `document.body.innerText.includes('model options failed')`)
   const rollbackState = await evaluate(client, `(() => ({
-    label: document.querySelector('.model-menu-trigger')?.getAttribute('aria-label'),
+    label: document.querySelector('.effort-menu-trigger')?.getAttribute('aria-label'),
     storedEffort: window.__mockSnapshot().conversations
       .find((item) => item.id === 'ui-model-a')?.modelOptions?.reasoningEffort,
   }))()`)
-  if (!rollbackState.label?.endsWith(', Low') || rollbackState.storedEffort !== 'low') {
+  if (rollbackState.label !== '思考强度：低' || rollbackState.storedEffort !== 'low') {
     throw new Error(`Model option rollback failed: ${JSON.stringify(rollbackState)}`)
   }
   await confirmDialog(client, '知道了')
   await waitFor(client, `document.querySelector('.model-menu-trigger')?.disabled === false`)
 
-  await selectEffort(client, 'High')
+  await selectEffort(client, '高')
   await waitFor(
     client,
-    `${triggerIncludes('DeepSeek V4 Pro', 'High')} && document.querySelector('.model-menu-trigger')?.disabled === false`,
+    `${triggerIncludes('DeepSeek V4 Pro', '高')} && document.querySelector('.model-menu-trigger')?.disabled === false`,
   )
 
   await setPlan(client, [{ kind: 'success', chunks: ['配置请求已匹配。'], interval: 20 }])
@@ -206,7 +200,7 @@ export async function runModelOptionsPersistence(client) {
     },
   }])
   await client.send('Page.reload')
-  await waitFor(client, triggerIncludes('DeepSeek V4 Flash', 'Medium'))
+  await waitFor(client, triggerIncludes('DeepSeek V4 Flash', '中'))
   const fallbackState = await evaluate(client, `(() => ({
     askCount: window.__mockSnapshot().askCount,
     patchCount: window.__mockSnapshot().requests.filter(
@@ -282,28 +276,27 @@ export async function runModelOptionsPersistence(client) {
     },
   }])
   await client.send('Page.reload')
-  await waitFor(client, triggerIncludes('Server Catalog Only', 'High'))
+  await waitFor(client, triggerIncludes('Server Catalog Only', '高'))
 
   await clickSelector(client, '.model-menu-trigger')
   await waitFor(client, `Boolean(document.querySelector('.model-menu-trigger[data-popup-open]'))`)
-  await clickSelector(client, 'button[aria-label="Select Model"]')
   await waitFor(client, `document.querySelector('.model-submenu')?.getBoundingClientRect().height > 0`)
   const serverCatalogMenu = await evaluate(client, `(() => {
     const labels = [...document.querySelectorAll('.model-submenu button')]
       .map((button) => button.getAttribute('aria-label'))
       .filter(Boolean);
     const disabledEntry = document.querySelector(
-      '.model-submenu button[aria-label="Select Disabled by Server Catalog"]'
+      '.model-submenu button[aria-label="选择 Disabled by Server Catalog"]'
     );
     return {
       labels,
       disabledEntry: disabledEntry?.disabled || disabledEntry?.getAttribute('aria-disabled') === 'true',
-      hasStaticPro: labels.includes('Select DeepSeek V4 Pro'),
-      hasStaticVision: labels.includes('Select DeepSeek V4 Flash Vision Exp'),
+      hasStaticPro: labels.includes('选择 DeepSeek V4 Pro'),
+      hasStaticVision: labels.includes('选择 DeepSeek V4 Flash Vision Exp'),
     };
   })()`)
   if (
-    !serverCatalogMenu.labels.includes('Select Server Catalog Only') ||
+    !serverCatalogMenu.labels.includes('选择 Server Catalog Only') ||
     serverCatalogMenu.disabledEntry !== true ||
     serverCatalogMenu.hasStaticPro ||
     serverCatalogMenu.hasStaticVision
@@ -333,11 +326,11 @@ export async function runModelOptionsPersistence(client) {
   ) {
     throw new Error(`Runtime catalog capabilities drifted: ${JSON.stringify(serverCatalogSettings)}`)
   }
-  await clickSelector(client, '.settings-modal button[aria-label="Close"]')
+  await clickSelector(client, '.settings-modal button[aria-label="关闭"]')
 
   await setRuntimeConfiguration(client, { ...serverOnlyRuntime, providers: [] })
   await client.send('Page.reload')
-  await waitFor(client, `document.querySelector('button[aria-label="Model catalog unavailable"]')?.disabled === true`)
+  await waitFor(client, `document.querySelector('button[aria-label="模型目录不可用"]')?.disabled === true`)
   await typeText(client, '目录缺失时不得发送')
   await evaluate(client, `document.querySelector('form')
     ?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))`)
@@ -345,7 +338,7 @@ export async function runModelOptionsPersistence(client) {
   const unavailableCatalogState = await evaluate(client, `(() => ({
     askCount: window.__mockSnapshot().askCount,
     triggerDisabled: document.querySelector(
-      'button[aria-label="Model catalog unavailable"]'
+      'button[aria-label="模型目录不可用"]'
     )?.disabled,
     sendDisabled: document.querySelector('button[aria-label="发送消息"]')?.disabled,
     textareaDisabled: document.querySelector('textarea')?.disabled,

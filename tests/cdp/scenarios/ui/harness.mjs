@@ -47,6 +47,12 @@ async function navigateAndWait(client, url) {
   await loaded
 }
 
+async function reloadPage(client) {
+  const loaded = waitForEvent(client, 'Page.loadEventFired')
+  await client.send('Page.reload')
+  await loaded
+}
+
 async function screenshot(client, name) {
   if (!CAPTURE_SCREENSHOTS) return null
   const result = await client.send('Page.captureScreenshot', {
@@ -104,7 +110,7 @@ async function clickText(client, selector, text) {
     client,
     `(() => {
       const el = [...document.querySelectorAll(${JSON.stringify(selector)})]
-        .find((node) => node.textContent.trim() === ${JSON.stringify(text)});
+        .find((node) => node.getBoundingClientRect().width > 0 && (node.textContent.trim() === ${JSON.stringify(text)} || node.getAttribute('aria-label') === ${JSON.stringify(text === '新建' ? '新建会话' : text)}));
       if (!el) return false;
       el.click();
       return true;
@@ -112,11 +118,11 @@ async function clickText(client, selector, text) {
   )
   if (clicked) return
 
-  const triggerSelector = ['导入 JSON/ZIP', '导出全部 ZIP', '清空当前会话'].includes(text)
+  const triggerSelector = ['导入 JSON/ZIP', '导出全部 ZIP'].includes(text)
     ? '.user-menu-trigger'
-    : ['参数', '模板', '摘要', '上下文'].includes(text)
+    : ['参数', '摘要', '清空当前会话'].includes(text)
       ? '.chat-header .header-icon-btn[aria-label="更多操作"]'
-      : null
+      : text === '模板' ? '.composer-plus-btn' : null
   if (!triggerSelector) throw new Error(`Cannot find clickable text: ${text}`)
 
   await evaluate(
@@ -200,6 +206,10 @@ async function ensureClipboard(client) {
 }
 
 async function clickConversationAt(client, index) {
+  if (!await evaluate(client, `Boolean(document.querySelector('.sidebar'))`)) {
+    await evaluate(client, `document.querySelector('.sidebar-toggle')?.click()`)
+    await waitFor(client, `Boolean(document.querySelector('.sidebar'))`)
+  }
   await evaluate(
     client,
     `(() => {
@@ -1112,6 +1122,7 @@ export {
   invokeConversationActionAt,
   makeCodeBlockChunks,
   makeLongChunks,
+  reloadPage,
   resetPage,
   runScenarioModule,
   screenshot,

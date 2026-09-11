@@ -9,12 +9,14 @@ import { hashPassword } from '../../bun-server/security/password.ts'
 
 const REAL_SUITES = new Set([
   'all-real',
+  'real',
   'real-ui',
   'real-context',
   'real-markdown',
   'real-model-options',
   'real-openai',
   'real-vision',
+  'real-mobile',
 ])
 
 function allocatePort() {
@@ -70,7 +72,7 @@ async function main() {
       ]
     : [{
         suite: requestedSuite,
-        provider: ['real-model-options', 'real-vision'].includes(requestedSuite) ? 'deepseek' : 'openai',
+        provider: ['real-model-options', 'real-vision', 'real-mobile'].includes(requestedSuite) ? 'deepseek' : 'openai',
         ...(requestedSuite === 'real-vision' ? { model: 'deepseek-v4-flash-vision-exp' } : {}),
       }]
   const realModelWaitTimeoutMs = await resolveRealModelWaitTimeoutMs()
@@ -127,6 +129,10 @@ async function main() {
             SERVE_CLIENT_BUILD: 'false',
             CONVERSATION_STORE: 'file',
             CONVERSATION_DATA_DIR: dataDir,
+            CONVERSATION_FILE_DATA_DIR: path.join(dataDir, 'file'),
+            CONVERSATION_DB_PATH: path.join(dataDir, 'sqlite', 'conversations.sqlite3'),
+            ATTACHMENT_DATA_DIR: path.join(dataDir, 'attachments'),
+            AUTH_SESSION_DB_PATH: path.join(dataDir, 'auth-sessions.sqlite3'),
             AUTH_ENABLED: 'true',
             AUTH_USERNAME: authUsername,
             AUTH_PASSWORD_HASH: authPasswordHash,

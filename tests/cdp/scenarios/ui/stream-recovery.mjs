@@ -13,6 +13,7 @@ import {
   invokeConversationActionAt,
   makeCodeBlockChunks,
   makeLongChunks,
+  reloadPage,
   resetPage,
   runScenarioModule,
   screenshot,
@@ -115,7 +116,7 @@ export async function runStreamRecovery(client) {
     const initialTheme = await evaluate(client, `document.querySelector('.app-shell')?.dataset.theme`)
     await clickText(client, 'button', initialTheme === 'dark' ? '浅色' : '深色')
     const toggledTheme = await evaluate(client, `document.querySelector('.app-shell')?.dataset.theme`)
-    await client.send('Page.reload')
+    await reloadPage(client)
     await waitFor(client, `document.querySelector('.app-shell')?.dataset.theme === ${JSON.stringify(toggledTheme)}`)
     await waitFor(client, `Boolean(document.querySelector('textarea') && document.querySelector('form'))`)
     const themePersistenceState = await evaluate(
@@ -161,7 +162,7 @@ export async function runStreamRecovery(client) {
     await waitFor(client, `document.body.innerText.includes('刷新恢复当前会话内容。')`)
     await waitIdle(client)
     await typeText(client, '刷新前草稿会清空')
-    await client.send('Page.reload')
+    await reloadPage(client)
     await waitFor(
       client,
       `document.body.innerText.includes('刷新恢复当前会话内容。') &&

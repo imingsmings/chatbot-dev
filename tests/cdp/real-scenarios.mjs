@@ -1,3 +1,4 @@
+import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -303,6 +304,7 @@ async function main() {
     await waitIdle(client)
     await clickText(client, 'button', '复制')
     await waitFor(client, `document.body.innerText.includes('已复制')`)
+    assert.ok((await evaluate(client, `navigator.clipboard.readText()`)).includes('真实接口复制测试通过'))
     await evaluate(
       client,
       `(() => {
@@ -364,30 +366,27 @@ async function main() {
         text: document.querySelector('.message-list')?.innerText,
       }))()`,
     )
+    assert.equal(retryState.userRows, 2)
+    assert.equal(retryState.assistantRows, 2)
+    assert.ok(retryState.text.includes('停止后继续发送成功'))
     await screenshot(client, '03-real-continue-after-stop')
 
     await newChat(client)
     await ask(client, '真实接口测试四：请输出 80 条很短的编号句子，每条一句，用于制造可滚动的聊天历史。')
     await waitIdle(client)
-    await evaluate(
-      client,
-      `(() => {
-        const scroll = document.querySelector('.chat-scroll');
-        let fixture = document.querySelector('#real-scroll-fixture');
-        if (!fixture) {
-          fixture = document.createElement('div');
-          fixture.id = 'real-scroll-fixture';
-          fixture.setAttribute('aria-hidden', 'true');
-          scroll.appendChild(fixture);
-        }
-        fixture.style.cssText = 'height:900px;min-height:900px;pointer-events:none;';
-        return scroll.scrollHeight > scroll.clientHeight + 300;
-      })()`,
-    )
-    await evaluate(client, `document.querySelector('.chat-scroll').scrollTop = 120`)
+    await waitFor(client, `(() => {const el=document.querySelector('.chat-scroll');return el.scrollHeight>el.clientHeight+300})()`)
+    const scrollPoint = await evaluate(client, `(() => {
+      const r=document.querySelector('.chat-scroll').getBoundingClientRect();
+      return {x:r.x+r.width/2,y:r.y+r.height/2};
+    })()`)
+    // Auto-follow changes only after user scroll intent, not a DOM scrollTop assignment.
+    await client.send('Input.dispatchMouseEvent', { type: 'mouseWheel', ...scrollPoint, deltaX: 0, deltaY: -100000 })
+    await waitFor(client, `Boolean(document.querySelector('button[aria-label="滚动到底部"]')) && document.querySelector('.chat-scroll').scrollTop===0`)
     const scrollBefore = await evaluate(client, `Math.round(document.querySelector('.chat-scroll').scrollTop)`)
+    const heightBefore = await evaluate(client, `document.querySelector('.chat-scroll').scrollHeight`)
     await ask(client, '真实接口测试四续：请继续输出 60 条编号短句，测试我停在历史位置时不会被拉到底。')
     await waitStop(client)
+    await waitFor(client, `document.querySelector('.message-row.assistant:last-child .markdown-message')?.textContent.length>200 && document.querySelector('.chat-scroll').scrollHeight>${heightBefore}`)
     await delay(2500)
     const scrollDuring = await evaluate(client, `Math.round(document.querySelector('.chat-scroll').scrollTop)`)
     const bottomGap = await evaluate(
@@ -397,20 +396,23 @@ async function main() {
         return Math.round(el.scrollHeight - el.scrollTop - el.clientHeight);
       })()`,
     )
+    assert.ok(Math.abs(scrollDuring - scrollBefore) < 8, `real streaming moved the historical reading position: before=${scrollBefore}, during=${scrollDuring}, gap=${bottomGap}`)
+    assert.ok(bottomGap > 200, 'real scroll scenario was not reading away from the bottom')
     await screenshot(client, '04-real-scroll-does-not-force-bottom')
     await clickText(client, 'button', '停止').catch(() => {})
     await waitIdle(client).catch(() => {})
-    await evaluate(client, `document.querySelector('#real-scroll-fixture')?.remove()`)
 
     await newChat(client)
     await ask(client, '真实接口测试五：请写一段至少 800 字内容，我会在生成中点击新建聊天。')
     await waitStop(client)
+    const abortsBeforeNewChat = await evaluate(client, `window.__realAbortCount`)
     await clickText(client, 'button', '新建')
     await waitFor(client, `Boolean(document.querySelector('.empty-state') && document.querySelector('textarea'))`)
-    const newChatAbortCount = await waitFor(client, `window.__realAbortCount > 0 && window.__realAbortCount`)
+    const newChatAbortCount = await waitFor(client, `window.__realAbortCount > ${abortsBeforeNewChat} && window.__realAbortCount`)
     await screenshot(client, '05-real-new-chat-aborts-generation')
 
     console.log(JSON.stringify({
+      allPassed: true,
       retryState,
       scrollBefore,
       scrollDuring,

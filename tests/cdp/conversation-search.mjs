@@ -322,10 +322,14 @@ async function main() {
       deviceScaleFactor: 1,
       mobile: true
     })
+    await waitForEval(client, `!document.querySelector('.sidebar')`)
+    await evaluate(client, `document.querySelector('.sidebar-toggle').click()`)
+    await waitForEval(client, `Boolean(document.querySelector('.workspace-sheet .conversation-search-input'))`)
     await setSearchQuery(client, 'needle-message-snippet')
     await waitForEval(client, `document.body.innerText.includes('Beta Notes')`)
     state = await readSidebarState(client)
     assert(state.noPageOverflow, 'mobile search UI caused page-level horizontal overflow')
+    assert(await evaluate(client, `document.querySelector('.workspace-sheet').contains(document.activeElement)`), 'mobile search focus escaped the conversation drawer')
     screenshots.push(await screenshot(client, OUT_DIR, '09-mobile-message-search', CAPTURE_SCREENSHOTS))
 
     console.log(JSON.stringify({

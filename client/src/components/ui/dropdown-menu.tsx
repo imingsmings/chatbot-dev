@@ -18,7 +18,7 @@ function DropdownMenuPortal(props: Menu.Portal.Props) {
 function DropdownMenuPositioner({ className, ...props }: Menu.Positioner.Props) {
   return (
     <Menu.Positioner
-      className={cn('isolate z-[1200] outline-none', className)}
+      className={cn('isolate z-[1400] outline-none', className)}
       data-slot="dropdown-menu-positioner"
       {...props}
     />
@@ -29,7 +29,7 @@ function DropdownMenuContent({ className, ...props }: Menu.Popup.Props) {
   return (
     <Menu.Popup
       className={cn(
-        'z-[1200] min-w-[168px] origin-[var(--transform-origin)] overflow-hidden rounded-lg border border-[var(--border-strong)] bg-[var(--surface-raised)] p-[5px] text-[var(--text-primary)] shadow-[var(--shadow-menu)] outline-none transition-[opacity,transform] duration-[120ms] data-[starting-style]:scale-[.97] data-[starting-style]:opacity-0 data-[ending-style]:scale-[.97] data-[ending-style]:opacity-0 max-[820px]:max-w-[calc(100vw-20px)]',
+        'z-[1400] max-h-[var(--available-height)] min-w-[168px] max-w-[calc(100vw-24px)] origin-[var(--transform-origin)] overflow-y-auto rounded-lg border border-[var(--border-strong)] bg-[var(--surface-raised)] p-[5px] text-[var(--text-primary)] shadow-[var(--shadow-menu)] outline-none transition-[opacity,transform] duration-[150ms] data-[starting-style]:scale-[.97] data-[starting-style]:opacity-0 data-[ending-style]:scale-[.97] data-[ending-style]:opacity-0',
         className,
       )}
       data-slot="dropdown-menu-content"
@@ -42,7 +42,7 @@ function DropdownMenuItem({ className, ...props }: Menu.Item.Props) {
   return (
     <Menu.Item
       className={cn(
-        'relative flex min-h-8 w-full cursor-default items-center gap-[9px] rounded-md border-0 bg-transparent px-[9px] py-1.5 text-left text-xs text-[var(--text-primary)] outline-none select-none data-[highlighted]:bg-[var(--surface-hover)] data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0',
+        'relative flex min-h-9 w-full cursor-default items-center gap-[9px] rounded-md border-0 bg-transparent px-[9px] py-1.5 text-left text-sm text-[var(--text-primary)] outline-none select-none data-[highlighted]:bg-[var(--surface-hover)] data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0',
         className,
       )}
       data-slot="dropdown-menu-item"

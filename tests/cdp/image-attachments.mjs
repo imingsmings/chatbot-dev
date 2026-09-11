@@ -217,7 +217,7 @@ const mockScript = String.raw`
         if (!(file instanceof File)) return json({ message: '请选择要上传的图片' }, 400);
         const attempts = (uploadAttempts.get(file.name) || 0) + 1;
         uploadAttempts.set(file.name, attempts);
-        if (file.name === 'retry.png' && attempts === 1) {
+        if (['retry.png', 'mobile-retry.png'].includes(file.name) && attempts === 1) {
           return json({ message: 'Mock 图片上传失败' }, 500);
         }
         const id = 'att_00000000-0000-4000-8000-' + String(++attachmentSequence).padStart(12, '0');
@@ -358,9 +358,8 @@ async function submit(client, text = '') {
 async function switchModel(client, label) {
   await evaluate(client, `document.querySelector('.model-menu-trigger')?.click()`)
   await waitForEval(client, `Boolean(document.querySelector('.model-options-menu'))`)
-  await evaluate(client, `document.querySelector('button[aria-label="Select Model"]')?.click()`)
   await waitForEval(client, `Boolean(document.querySelector('.model-submenu'))`)
-  await evaluate(client, `document.querySelector(${JSON.stringify(`button[aria-label="Select ${label}"]`)})?.click()`)
+  await evaluate(client, `document.querySelector(${JSON.stringify(`button[aria-label="选择 ${label}"]`)})?.click()`)
   await waitForEval(
     client,
     `document.querySelector('.model-menu-trigger')?.getAttribute('aria-label')?.includes(${JSON.stringify(label)})`,
@@ -510,6 +509,7 @@ async function main() {
       deviceScaleFactor: 1,
       mobile: true,
     })
+    await waitForEval(client, `document.querySelector('.app-shell')?.getAttribute('data-sidebar') === 'false' && !document.querySelector('.sidebar')`)
     screenshots.push(await screenshot(client, OUT_DIR, '08-mobile-image-message', CAPTURE_SCREENSHOTS))
     assertions.mobile = await evaluate(client, `(() => {
       const grid = document.querySelector('.message-attachment-grid');
@@ -541,6 +541,35 @@ async function main() {
     }
     assert(assertions.mobile.main?.left === 0, 'mobile chat main does not start at the viewport edge')
     assert(assertions.mobile.main?.right <= assertions.mobile.viewportWidth, 'mobile chat main exceeds the viewport')
+
+    await uploadImage(client, 'mobile-retry.png')
+    await waitForEval(client, `Boolean(document.querySelector('.composer-attachments [data-upload-status="error"]'))`)
+    assertions.mobileUpload = await evaluate(client, `(() => {
+      const region=document.querySelector('.composer-attachments').getBoundingClientRect();
+      const input=document.querySelector('.composer-input').getBoundingClientRect();
+      const composer=document.querySelector('.composer-inner').getBoundingClientRect();
+      return {aboveInput:region.bottom<=input.top,inside:composer.left>=0&&composer.right<=innerWidth&&composer.bottom<=innerHeight,
+        touchTargets:[...document.querySelectorAll('.attachment-retry,.attachment-remove')].map(el=>{const r=el.getBoundingClientRect();return {width:r.width,height:r.height}}),
+        disabled:document.querySelector('.send-btn').disabled, overflow:document.documentElement.scrollWidth>innerWidth};
+    })()`)
+    assert(assertions.mobileUpload.aboveInput && assertions.mobileUpload.inside, 'mobile upload error overlaps or clips the composer')
+    assert(assertions.mobileUpload.disabled && !assertions.mobileUpload.overflow, 'mobile upload failure must block sending without page overflow')
+    assert(assertions.mobileUpload.touchTargets.every(r => r.width >= 44 && r.height >= 44), 'mobile upload controls must retain 44px touch targets')
+    screenshots.push(await screenshot(client, OUT_DIR, '09-mobile-upload-error', CAPTURE_SCREENSHOTS))
+    await evaluate(client, `document.querySelector('button[aria-label="重试上传 mobile-retry.png"]').click()`)
+    await waitForEval(client, `document.querySelector('.composer-attachments [data-upload-status="ready"]')?.innerText.includes('mobile-retry.png')`)
+    assert(await evaluate(client, `window.__visionState().uploadAttempts['mobile-retry.png']`) === 2, 'mobile upload retry count differs from expected')
+    await uploadImage(client, 'mobile-second.png')
+    await uploadImage(client, 'mobile-third.png')
+    await waitForEval(client, `document.querySelectorAll('.composer-attachments [data-upload-status="ready"]').length===3`)
+    assertions.mobileUpload.internalScroll = await evaluate(client, `(() => {const el=document.querySelector('.composer-attachments');return el.scrollWidth>el.clientWidth&&document.documentElement.scrollWidth===innerWidth})()`)
+    assert(assertions.mobileUpload.internalScroll, 'multiple mobile attachments should scroll inside the composer')
+    screenshots.push(await screenshot(client, OUT_DIR, '10-mobile-attachments', CAPTURE_SCREENSHOTS))
+    for (const filename of ['mobile-retry.png', 'mobile-second.png', 'mobile-third.png']) {
+      await evaluate(client, `document.querySelector(${JSON.stringify(`button[aria-label="移除图片 ${filename}"]`)}).click()`)
+      await waitForEval(client, `!document.querySelector(${JSON.stringify(`button[aria-label="移除图片 ${filename}"]`)})`)
+    }
+    assert(await evaluate(client, `document.querySelector('.composer-inner').getBoundingClientRect().height`) === 52, 'composer did not return to 52px after removing attachments')
 
     console.log(JSON.stringify({
       allPassed: true,

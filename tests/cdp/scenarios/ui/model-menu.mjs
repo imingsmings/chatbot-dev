@@ -82,7 +82,6 @@ export async function runModelMenu(client) {
         const messageRect = messageList.getBoundingClientRect();
         const composerRect = composer.getBoundingClientRect();
         const triggerRect = modelTrigger.getBoundingClientRect();
-        const microphoneRect = microphoneButton.getBoundingClientRect();
         const sendRect = sendButton.getBoundingClientRect();
         const reasoningRect = reasoningPanel.getBoundingClientRect();
         const answerRect = assistantText.getBoundingClientRect();
@@ -97,7 +96,7 @@ export async function runModelMenu(client) {
           triggerFontSize: fontSize(modelTrigger),
           triggerHeight: triggerRect.height,
           triggerBorderWidth: Number.parseFloat(triggerStyle.borderLeftWidth),
-          microphoneSize: { width: microphoneRect.width, height: microphoneRect.height },
+          unavailableMicrophone: Boolean(microphoneButton),
           sendSize: { width: sendRect.width, height: sendRect.height },
           placeholder: textarea.getAttribute('placeholder'),
           reasoningAnswerGap: answerRect.top - reasoningRect.bottom,
@@ -113,9 +112,8 @@ export async function runModelMenu(client) {
         .every((size) => size >= 13 && size <= 15) ||
       densityAlignmentState.triggerHeight > 32.5 ||
       densityAlignmentState.triggerBorderWidth !== 0 ||
-      densityAlignmentState.placeholder !== 'Ask AI' ||
-      Math.abs(densityAlignmentState.sendSize.width - densityAlignmentState.microphoneSize.width) > 0.5 ||
-      Math.abs(densityAlignmentState.sendSize.height - densityAlignmentState.microphoneSize.height) > 0.5 ||
+      densityAlignmentState.placeholder !== '继续追问' ||
+      densityAlignmentState.unavailableMicrophone ||
       densityAlignmentState.sendSize.width < 33 ||
       densityAlignmentState.sendSize.width > 35 ||
       densityAlignmentState.reasoningAnswerGap < 8 ||
@@ -127,7 +125,6 @@ export async function runModelMenu(client) {
 
     await evaluate(client, `document.querySelector('.model-menu-trigger')?.click()`)
     await waitFor(client, `Boolean(document.querySelector('.model-options-menu'))`)
-    await evaluate(client, `document.querySelector('button[aria-label="Select Model"]')?.click()`)
     await waitFor(client, `Boolean(document.querySelector('.model-submenu'))`)
     const modelMenuState = await evaluate(
       client,
@@ -140,11 +137,8 @@ export async function runModelMenu(client) {
         return {
           menuWidth: menuRect.width,
           submenuWidth: submenuRect.width,
-          edgeGap: Math.min(
-            Math.abs(submenuRect.left - menuRect.right),
-            Math.abs(menuRect.left - submenuRect.right),
-          ),
-          labels: items.map((item) => item.textContent.trim()),
+          singleLayer: menu === submenu,
+          labels: items.map((item) => item.querySelector('.option-label').textContent.trim()),
           selectedCount: items.filter((item) => item.classList.contains('selected')).length,
           maxItemHeight: Math.max(...items.map((item) => item.getBoundingClientRect().height)),
           enabledColor: getComputedStyle(items.find((item) => !item.matches(':disabled, [data-disabled], [aria-disabled="true"]'))).color,
@@ -152,9 +146,9 @@ export async function runModelMenu(client) {
       })()`,
     )
     if (
-      modelMenuState.menuWidth > 286 ||
-      modelMenuState.submenuWidth > 242 ||
-      modelMenuState.edgeGap > 1 ||
+      modelMenuState.menuWidth > 302 ||
+      modelMenuState.submenuWidth > 302 ||
+      !modelMenuState.singleLayer ||
       JSON.stringify(modelMenuState.labels) !== JSON.stringify([
         'DeepSeek V4 Flash',
         'DeepSeek V4 Pro',
@@ -163,16 +157,14 @@ export async function runModelMenu(client) {
         'GPT-5.6 Sol',
       ]) ||
       modelMenuState.selectedCount !== 1 ||
-      modelMenuState.maxItemHeight > 36.5
+      modelMenuState.maxItemHeight > 44
     ) {
       throw new Error(`Model submenu density failed: ${JSON.stringify(modelMenuState)}`)
     }
-    await evaluate(client, `document.querySelector('button[aria-label="Select DeepSeek V4 Pro"]')?.click()`)
+    await evaluate(client, `document.querySelector('button[aria-label="选择 DeepSeek V4 Pro"]')?.click()`)
     await waitFor(client, `document.querySelector('.model-menu-trigger')?.getAttribute('aria-label')?.includes('DeepSeek V4 Pro')`)
 
-    await evaluate(client, `document.querySelector('.model-menu-trigger')?.click()`)
-    await waitFor(client, `Boolean(document.querySelector('.model-options-menu'))`)
-    await evaluate(client, `document.querySelector('button[aria-label="Select Effort"]')?.click()`)
+    await evaluate(client, `document.querySelector('.effort-menu-trigger')?.click()`)
     await waitFor(client, `Boolean(document.querySelector('.effort-submenu'))`)
     const effortMenuState = await evaluate(
       client,
@@ -186,14 +178,14 @@ export async function runModelMenu(client) {
       })()`,
     )
     if (
-      JSON.stringify(effortMenuState.labels) !== JSON.stringify(['Off', 'Low', 'Medium', 'High', 'Max']) ||
+      JSON.stringify(effortMenuState.labels) !== JSON.stringify(['关闭', '低', '中', '高', '最高']) ||
       effortMenuState.selectedCount !== 1 ||
       effortMenuState.enabledColor !== modelMenuState.enabledColor
     ) {
       throw new Error(`Effort submenu structure failed: ${JSON.stringify(effortMenuState)}`)
     }
-    await evaluate(client, `document.querySelector('button[aria-label="Select Effort High"]')?.click()`)
-    await waitFor(client, `document.querySelector('.model-menu-trigger')?.getAttribute('aria-label')?.endsWith(', High')`)
+    await evaluate(client, `document.querySelector('button[aria-label="思考强度 高"]')?.click()`)
+    await waitFor(client, `document.querySelector('.effort-menu-trigger')?.getAttribute('aria-label') === '思考强度：高'`)
 
     await ensureClipboard(client)
     await clickText(client, 'button', '复制')

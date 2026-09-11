@@ -274,12 +274,13 @@ export async function runLayoutScroll(client) {
     await resetPage(client)
     await setPlan(client, [{
       kind: 'success',
-      chunks: ['移动端长消息 '.repeat(80)],
+      chunks: ['移动端长消息 '.repeat(200)],
       interval: 20,
     }])
     await ask(client, '移动端布局')
     await waitFor(client, `document.body.innerText.includes('移动端长消息')`)
     await waitIdle(client)
+    await waitFor(client, `(() => {const el=document.querySelector('.chat-scroll');return el.scrollHeight-el.clientHeight>192})()`)
     await evaluate(
       client,
       `(() => {

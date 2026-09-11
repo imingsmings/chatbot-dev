@@ -1,3 +1,4 @@
+import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -116,7 +117,7 @@ async function evaluate(client, expression) {
   })
 
   if (result.exceptionDetails) {
-    throw new Error(result.exceptionDetails.text || 'Runtime evaluation failed')
+    throw new Error(result.exceptionDetails.exception?.description || result.exceptionDetails.text || 'Runtime evaluation failed')
   }
 
   return result.result?.value
@@ -355,9 +356,9 @@ async function clearCurrentConversation(client) {
     })()`,
   )
   if (!clicked) {
-    await clickSelector(client, '.user-menu-trigger')
+    await clickSelector(client, 'button[aria-label="更多操作"]')
     await waitFor(client, `[...document.querySelectorAll('button')].some((node) => node.textContent.trim() === '清空当前会话')`)
-    await clickSelector(client, '.sidebar-user-menu button[aria-label="清空当前会话"]')
+    await clickSelector(client, '.app-actions-menu button[aria-label="清空当前会话"]')
   }
   await waitForDialog(client, '清空当前会话')
   await confirmDialog(client, '清空')
@@ -389,8 +390,9 @@ async function waitIdle(client) {
 }
 
 async function askAndWait(client, question, expectedText) {
+  const before = await evaluate(client, `document.querySelectorAll('.message-row.assistant').length`)
   await ask(client, question)
-  await waitFor(client, `document.body.innerText.includes(${JSON.stringify(expectedText)})`)
+  await waitFor(client, `document.querySelectorAll('.message-row.assistant').length===${before + 1} && document.querySelector('.message-row.assistant:last-child .markdown-message')?.textContent.includes(${JSON.stringify(expectedText)})`)
   await waitIdle(client)
 }
 
@@ -518,12 +520,17 @@ async function main() {
         };
       })()`,
     )
+    assert.equal(isolationState.containsA, true, 'active conversation lost its own context')
+    assert.equal(isolationState.containsB, false, 'another conversation leaked into the active history')
     await screenshot(client, '06-context-isolation-a-only')
 
     await renameActiveConversation(client, TITLE_A_RENAMED)
     await screenshot(client, '07-renamed-conversation-a')
 
+    const documentId = await evaluate(client, `window.__contextReloadMarker=crypto.randomUUID()`)
     await client.send('Page.reload', { ignoreCache: true })
+    await waitFor(client, `window.__contextReloadMarker!==${JSON.stringify(documentId)} && Boolean(document.querySelector('textarea')||document.querySelector('#auth-username'))`)
+    await authenticateBrowser(client)
     await waitFor(client, `document.body.innerText.includes(${JSON.stringify(TITLE_A_RENAMED)})`)
     await clickConversationTitle(client, TITLE_A_RENAMED)
     await waitFor(client, `document.body.innerText.includes(${JSON.stringify(SECRET_A)})`)
@@ -534,7 +541,7 @@ async function main() {
       client,
       `document.querySelector('.empty-state') &&
         document.querySelector('.conversation-item-shell.active .conversation-title')?.textContent.trim() === ${JSON.stringify(TITLE_A_RENAMED)} &&
-        document.querySelector('.conversation-item-shell.active .conversation-meta')?.textContent.includes('0 条消息')`,
+        document.querySelector('.conversation-item-shell.active .conversation-item')?.getAttribute('aria-description') === '0 条消息'`,
     )
     await screenshot(client, '09-clear-current-conversation')
 
@@ -561,6 +568,7 @@ async function main() {
     )
 
     console.log(JSON.stringify({
+      allPassed: true,
       stamp: STAMP,
       titleA: TITLE_A,
       titleARenamed: TITLE_A_RENAMED,

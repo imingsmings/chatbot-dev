@@ -25,6 +25,7 @@ export type ActiveTopMenu =
   | { kind: 'app' }
   | { kind: 'conversation'; id: string }
   | { kind: 'model' }
+  | { kind: 'effort' }
   | { kind: 'tools' }
   | { kind: 'user' }
   | null
@@ -370,7 +371,12 @@ export function useChatAppController() {
 
   const setMenuOpen = useCallback(
     (menu: Exclude<ActiveTopMenu, null>, open: boolean) => {
-      setActiveTopMenu(open ? menu : null)
+      setActiveTopMenu((current) => {
+        if (open) return menu
+        if (current?.kind !== menu.kind) return current
+        if (current.kind === 'conversation' && menu.kind === 'conversation' && current.id !== menu.id) return current
+        return null
+      })
     },
     [],
   )

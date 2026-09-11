@@ -1,3 +1,4 @@
+import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -569,7 +570,10 @@ async function main() {
     )
     await screenshot(client, '09-real-streaming-done-render')
 
+    const documentId = await evaluate(client, `window.__markdownReloadMarker=crypto.randomUUID()`)
     await client.send('Page.reload', { ignoreCache: true })
+    await waitFor(client, `window.__markdownReloadMarker!==${JSON.stringify(documentId)} && Boolean(document.querySelector('textarea')||document.querySelector('#auth-username'))`)
+    await authenticateBrowser(client)
     await waitFor(
       client,
       `document.body.innerText.includes(${JSON.stringify(TITLE)}) &&
@@ -642,8 +646,8 @@ async function main() {
         return {
           viewportWidth: window.innerWidth,
           pageOverflowX: document.documentElement.scrollWidth > window.innerWidth,
-          tableOverflowContained: table ? table.scrollWidth >= table.clientWidth : false,
-          preOverflowContained: pre ? pre.scrollWidth >= pre.clientWidth : false,
+          tableOverflowContained: table ? getComputedStyle(table).overflowX==='auto' && table.getBoundingClientRect().left>=0 && table.getBoundingClientRect().right<=innerWidth : false,
+          preOverflowContained: pre ? getComputedStyle(pre).overflowX==='auto' && pre.getBoundingClientRect().left>=0 && pre.getBoundingClientRect().right<=innerWidth : false,
           shellWidth: shell.getBoundingClientRect().width,
         };
       })()`,
@@ -651,7 +655,27 @@ async function main() {
     await screenshot(client, '12-real-mobile-table-overflow')
 
     assertions.requestLog = await evaluate(client, `window.__realMarkdownRequests`)
-    console.log(JSON.stringify(assertions, null, 2))
+    for (const section of ['basic', 'code', 'streamingDone']) {
+      for (const [name, value] of Object.entries(assertions[section])) {
+        assert.equal(value, true, `${section}.${name}`)
+      }
+    }
+    assert.ok(assertions.lists.ul>=2 && assertions.lists.ol>=1 && assertions.lists.li>=4 && assertions.lists.nested, 'nested and ordered lists')
+    assert.ok(assertions.table.table && assertions.table.th>=3 && assertions.table.td>=9, 'table structure')
+    assert.ok(assertions.quoteLinks.blockquote && assertions.quoteLinks.hr, 'quote and rule')
+    assert.ok(assertions.quoteLinks.links.includes('https://example.com/docs') && assertions.quoteLinks.links.includes('https://openai.com/'), 'safe external links')
+    for (const name of ['scriptTags', 'imgTags', 'javascriptLinks']) assert.equal(assertions.safety[name], 0, `safety.${name}`)
+    for (const name of ['xssScript', 'xssImg', 'xssAnchor']) assert.equal(assertions.safety[name], false, `safety.${name}`)
+    assert.deepEqual(assertions.userPlain, { hasRenderedHeading:false, hasRenderedPre:false, textIncludesHashes:true, textIncludesFence:true })
+    assert.equal(assertions.persistence.stillRenderedAsMarkdown, true)
+    assert.equal(assertions.persistence.title, TITLE)
+    assert.equal(assertions.copy.containsRawMarkdown, true)
+    assert.equal(assertions.copy.containsHtml, false)
+    assert.equal(assertions.mobile.pageOverflowX, false)
+    assert.equal(assertions.mobile.tableOverflowContained, true)
+    assert.equal(assertions.mobile.preOverflowContained, true)
+    assert.equal(assertions.mobile.shellWidth, 390)
+    console.log(JSON.stringify({ allPassed: true, ...assertions }, null, 2))
     client.close()
   } finally {
     await stopProcess(chrome)

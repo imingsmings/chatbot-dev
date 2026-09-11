@@ -30,6 +30,7 @@ type DialogContentProps = ComponentProps<typeof BaseDialog.Popup> & {
   children: ReactNode
   showCloseButton?: boolean
   onClose?: () => void
+  side?: 'left' | 'right' | 'bottom'
 }
 
 export function DialogContent({
@@ -37,12 +38,13 @@ export function DialogContent({
   className,
   showCloseButton = false,
   onClose,
+  side,
   ...props
 }: DialogContentProps) {
   return (
     <BaseDialog.Portal>
       <BaseDialog.Backdrop className="modal-backdrop fixed inset-0 z-[1290] bg-[var(--overlay)] transition-opacity duration-150 data-[starting-style]:opacity-0 data-[ending-style]:opacity-0" />
-      <BaseDialog.Viewport className="modal-overlay fixed inset-0 z-[1300] flex items-center justify-center overflow-y-auto p-6 max-[820px]:p-3">
+      <BaseDialog.Viewport className={cn('modal-overlay fixed inset-0 z-[1300] flex items-center justify-center overflow-y-auto p-6 max-[820px]:p-3', side && `sheet-viewport sheet-viewport-${side}`)}>
         <BaseDialog.Popup
           className={cn(
             'modal-content relative flex max-h-[min(760px,86vh)] w-[min(100%,680px)] flex-col overflow-hidden rounded-[9px] border border-[var(--border-strong)] bg-[var(--surface-raised)] text-[var(--text-primary)] shadow-[0_24px_80px_rgb(0_0_0/30%)] outline-none transition-[opacity,transform] duration-[120ms] data-[starting-style]:scale-[.98] data-[starting-style]:opacity-0 data-[ending-style]:scale-[.98] data-[ending-style]:opacity-0 max-[820px]:max-h-[92vh]',

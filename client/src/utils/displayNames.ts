@@ -4,13 +4,14 @@ const providerNames: Record<string, string> = {
 }
 
 const reasoningEffortNames: Record<string, string> = {
-  none: 'Off',
-  minimal: 'Minimal',
-  low: 'Low',
-  medium: 'Medium',
-  high: 'High',
-  xhigh: 'Extra High',
-  max: 'Max',
+  none: '关闭',
+  minimal: '极低',
+  low: '低',
+  medium: '中',
+  high: '高',
+  xhigh: '极高',
+  max: '最高',
+  ultra: '超高',
 }
 
 function capitalize(value: string) {

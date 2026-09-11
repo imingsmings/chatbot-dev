@@ -47,7 +47,7 @@ export async function runConversationOperations(client) {
           userAvatarSize: userAvatar?.getBoundingClientRect().width,
           userAvatarSource: userAvatar?.getAttribute('src'),
           userAvatarLoaded: userAvatar instanceof HTMLImageElement && userAvatar.complete && userAvatar.naturalWidth > 0,
-          userName: userMenuTrigger?.querySelector('.user-name')?.textContent?.trim(),
+          userName: document.querySelector('.user-profile-row .user-name')?.textContent?.trim(),
           userMenuIconCount: userMenuTrigger?.querySelectorAll('svg').length,
         };
       })()`,
@@ -55,12 +55,12 @@ export async function runConversationOperations(client) {
     if (
       !initialState.hasSidebar ||
       !initialState.hasEmptyState ||
-      initialState.suggestionCount !== 4 ||
+      initialState.suggestionCount !== 3 ||
       initialState.activeCount !== 1 ||
       !initialState.sendDisabled ||
       !initialState.textareaDisabled ||
       initialState.pageOverflowX ||
-      initialState.userMenuHeight !== 44 ||
+      initialState.userMenuHeight !== 32 ||
       initialState.userAvatarSize !== 32 ||
       initialState.userAvatarSource !== '/assets/jw.svg' ||
       !initialState.userAvatarLoaded ||
@@ -312,7 +312,7 @@ export async function runConversationOperations(client) {
       client,
       `document.querySelector('.empty-state') &&
         document.querySelectorAll('.conversation-item-shell').length === 1 &&
-        document.querySelector('.conversation-item-shell.active .conversation-meta')?.textContent.includes('0 条消息') &&
+        document.querySelector('.conversation-item-shell.active .conversation-item')?.getAttribute('aria-description') === '0 条消息' &&
         document.activeElement === document.querySelector('textarea')`,
     )
     const deleteLastState = await evaluate(
@@ -540,7 +540,7 @@ export async function runConversationOperations(client) {
     await waitFor(
       client,
       `document.querySelector('.empty-state') &&
-        document.querySelector('.conversation-item-shell.active .conversation-meta')?.textContent.includes('0 条消息')`,
+        document.querySelector('.conversation-item-shell.active .conversation-item')?.getAttribute('aria-description') === '0 条消息'`,
     )
     const newChatAbortCount = await waitFor(client, `window.__abortCount > 0 && window.__abortCount`)
     await screenshot(client, '05-new-chat-aborts-generation')
@@ -598,7 +598,7 @@ export async function runConversationOperations(client) {
       client,
       `document.querySelector('.empty-state') &&
         document.querySelector('textarea')?.value === '' &&
-        document.querySelector('.conversation-item-shell.active .conversation-meta')?.textContent.includes('0 条消息')`,
+        document.querySelector('.conversation-item-shell.active .conversation-item')?.getAttribute('aria-description') === '0 条消息'`,
     )
     const deleteDraftState = await evaluate(
       client,
@@ -630,7 +630,7 @@ export async function runConversationOperations(client) {
       client,
       `document.querySelector('.empty-state') &&
         document.querySelector('textarea')?.value === '' &&
-        document.querySelector('.conversation-item-shell.active .conversation-meta')?.textContent.includes('0 条消息')`,
+        document.querySelector('.conversation-item-shell.active .conversation-item')?.getAttribute('aria-description') === '0 条消息'`,
     )
     const clearDraftState = await evaluate(
       client,
@@ -672,8 +672,6 @@ export async function runConversationOperations(client) {
     const userOperationState = await evaluate(
       client,
       `(() => ({
-        clearDisabled: [...(document.querySelector('.sidebar-user-menu') || document.querySelector('.sidebar-footer')).querySelectorAll('button')]
-          .find((button) => button.textContent.trim() === '清空当前会话')?.matches(':disabled, [data-disabled], [aria-disabled="true"]') === true,
         importDisabled: [...(document.querySelector('.sidebar-user-menu') || document.querySelector('.sidebar-footer')).querySelectorAll('button')]
           .find((button) => button.textContent.trim() === '导入 JSON/ZIP')?.matches(':disabled, [data-disabled], [aria-disabled="true"]') === true,
         exportAllDisabled: [...(document.querySelector('.sidebar-user-menu') || document.querySelector('.sidebar-footer')).querySelectorAll('button')]
@@ -684,6 +682,12 @@ export async function runConversationOperations(client) {
       await client.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape' })
       await client.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape' })
     }
+
+    await evaluate(client, `document.querySelector('.chat-header button[aria-label="更多操作"]').click()`)
+    await waitFor(client, `Boolean(document.querySelector('.app-actions-menu'))`)
+    userOperationState.clearDisabled = await evaluate(client, `document.querySelector('.app-actions-menu button[aria-label="清空当前会话"]')?.matches(':disabled, [data-disabled], [aria-disabled="true"]') === true`)
+    await client.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape' })
+    await client.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape' })
 
     const generatingActiveIndex = await evaluate(
       client,

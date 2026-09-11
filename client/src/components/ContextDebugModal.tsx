@@ -1,148 +1,118 @@
-import { XIcon } from 'lucide-react'
-import { useMemo } from 'react'
+import { Tabs } from '@base-ui/react/tabs'
+import { ChevronDownIcon, XIcon } from 'lucide-react'
+import type { ReactNode, RefObject } from 'react'
 
 import { Button } from '#components/ui/button'
-import {
-  DialogClose,
-  DialogContent,
-  DialogRoot,
-  DialogTitle,
-} from '#components/ui/dialog'
+import { SidePanel } from '#components/SidePanel'
 import type { ContextPreview } from '#types/chat'
-import {
-  formatModelName,
-  formatProviderName,
-  formatReasoningEffort,
-  formatStorageBackend,
-} from '#utils/displayNames'
+import { formatModelName, formatProviderName, formatReasoningEffort, formatStorageBackend } from '#utils/displayNames'
 
 type ContextDebugModalProps = {
   context: ContextPreview | null
   open: boolean
+  modal?: boolean
   onClose: () => void
+  returnFocusRef?: RefObject<HTMLElement | null>
 }
 
-export function ContextDebugModal({ context, open, onClose }: ContextDebugModalProps) {
-  const formattedTools = useMemo(
-    () => JSON.stringify(context?.tools.definitions ?? [], null, 2),
-    [context],
-  )
-  const selectedHistoryRange = context?.stats.selectedHistoryRange
-    ? `${context.stats.selectedHistoryRange.start}-${context.stats.selectedHistoryRange.end}`
-    : 'None'
+function Values({ rows }: { rows: [string, ReactNode][] }) {
+  return <dl className="context-values">{rows.map(([label, value]) => (
+    <div className="context-debug-stat" key={label}><dt>{label}</dt><dd>{value}</dd></div>
+  ))}</dl>
+}
 
+function Disclosure({ title, children }: { title: string; children: ReactNode }) {
+  return <details className="context-disclosure"><summary>{title}<ChevronDownIcon aria-hidden="true" size={16} /></summary>{children}</details>
+}
+
+export function ContextDebugModal({ context, open, modal = true, onClose, returnFocusRef }: ContextDebugModalProps) {
+  const stats = context?.stats
+  const model = context?.model
   return (
-    <DialogRoot onOpenChange={(nextOpen) => !nextOpen && onClose()} open={open}>
-      <DialogContent className="context-debug-modal w-[min(100%,920px)]">
-        <header className="modal-header flex shrink-0 items-center justify-between border-b border-[var(--border-soft)] px-[17px] py-[15px]">
-          <DialogTitle>Model Context</DialogTitle>
-          <DialogClose aria-label="Close" onClick={onClose} render={<Button className="close-btn size-[34px] rounded-[7px] text-[var(--text-secondary)] hover:bg-[var(--surface-hover)] hover:text-[var(--text-primary)]" size="icon" variant="ghost" />}>
-            <XIcon aria-hidden="true" size={18} />
-          </DialogClose>
+    <SidePanel label="上下文" modal={modal} open={open} onClose={onClose} side="right" returnFocusRef={returnFocusRef}>
+      <div className="context-debug-modal">
+        <header className="context-header">
+          <h2>上下文</h2>
+          <Button aria-label="关闭上下文" tooltip="关闭上下文" className="close-btn" onClick={onClose} size="icon" variant="ghost"><XIcon aria-hidden="true" size={18} /></Button>
         </header>
-        <div className="modal-body context-debug-body min-h-0 flex-1 overflow-y-auto p-0">
-          {context ? (
-            <div className="context-debug-content flex flex-col gap-4 p-[18px]">
-              <section aria-label="Context Statistics" className="context-debug-section">
-                <div className="context-debug-stats grid grid-cols-4 gap-[7px] max-[820px]:grid-cols-2">
-                  {[
-                    ['History', `${context.stats.selectedHistoryMessages}/${context.stats.totalHistoryMessages}`],
-                    ['Summary Covered', context.stats.summaryCoveredMessages],
-                    ['After Summary', context.stats.postSummaryMessages],
-                    ['Stopped Excluded', context.stats.excludedStoppedMessages],
-                    ['Selected Range', selectedHistoryRange],
-                    ['Dropped', context.stats.droppedHistoryMessages],
-                    ['Characters', `${context.stats.selectedHistoryChars}/${context.stats.maxHistoryChars}`],
-                    ['Input Estimate', `${context.stats.estimatedInputTokens}/${context.stats.contextWindowTokens - context.stats.outputReserveTokens}`],
-                    ['Output Reserve', context.stats.outputReserveTokens],
-                    ['Total Estimate', `${context.stats.estimatedTotalTokens}/${context.stats.contextWindowTokens}`],
-                    ['Input Remaining', context.stats.remainingInputTokens],
-                    ['Token Trimmed', context.stats.tokenDroppedHistoryMessages],
-                    ['Tools', context.tools.count],
-                    ['Summary', context.stats.summaryIncluded
-                      ? 'Included'
-                      : context.stats.summaryDroppedByTokenBudget ? 'Budget Dropped' : 'None'],
-                  ].map(([label, value]) => (
-                    <div className="context-debug-stat min-w-0 rounded-[7px] border border-[var(--border-soft)] bg-[var(--surface)] px-2.5 py-[9px]" key={label}>
-                      <span className="block text-[11px] text-[var(--text-secondary)]">{label}</span>
-                      <strong className="mt-[5px] block text-sm [overflow-wrap:anywhere]">{value}</strong>
-                    </div>
-                  ))}
-                </div>
+        {context && stats && model ? (
+          <Tabs.Root className="context-tabs" defaultValue="overview" key={context.conversationId}>
+            <Tabs.List aria-label="上下文视图" className="context-tab-list">
+              <Tabs.Tab value="overview">概览</Tabs.Tab>
+              <Tabs.Tab value="request">原始请求</Tabs.Tab>
+            </Tabs.List>
+            <Tabs.Panel className="context-debug-body" value="overview">
+              <section aria-label="本次请求" className="context-section">
+                <h3>本次请求</h3>
+                <Values rows={[
+                  ['模型', model.model ? formatModelName(model.model) : '未配置'],
+                  ['思考强度', model.reasoningEnabled ? formatReasoningEffort(model.reasoningEffort) : '关闭'],
+                  ['历史消息', `${stats.selectedHistoryMessages}/${stats.totalHistoryMessages}`],
+                  ['摘要', stats.summaryIncluded ? '已包含' : stats.summaryDroppedByTokenBudget ? '预算不足，已排除' : '未包含'],
+                ]} />
               </section>
-
-              <section aria-label="Model Parameters" className="context-debug-section">
-                <h4 className="mt-0 mb-[9px] text-[13px] font-semibold">Model Parameters</h4>
-                <dl className="context-debug-meta grid grid-cols-3 gap-[7px] max-[820px]:grid-cols-2">
-                  {[
-                    ['Provider', formatProviderName(context.model.provider)],
-                    ['Model', context.model.model ? formatModelName(context.model.model) : 'Not Configured'],
-                    ['Streaming', context.model.stream ? 'Enabled' : 'Disabled'],
-                    ['Tool Choice', context.model.toolChoice === 'auto' ? 'Auto' : context.model.toolChoice],
-                    ['Reasoning', context.model.reasoningEnabled ? formatReasoningEffort(context.model.reasoningEffort) : 'Disabled'],
-                    ['API Key', context.model.apiKeyConfigured ? 'Configured' : 'Not Configured'],
-                    ['Storage', formatStorageBackend(context.model.storageBackend)],
-                    ['Temperature', context.model.temperature ?? 'Provider Default'],
-                    ['Max Tokens', context.model.maxTokens ?? 'Provider Default'],
-                    ['Context Window', context.model.contextWindowTokens],
-                  ].map(([label, value]) => (
-                    <div className="min-w-0 rounded-[7px] border border-[var(--border-soft)] bg-[var(--surface)] px-2.5 py-[9px]" key={label}>
-                      <dt className="block text-[11px] text-[var(--text-secondary)]">{label}</dt>
-                      <dd className="mt-1 mb-0 text-xs font-semibold [overflow-wrap:anywhere]">{value}</dd>
-                    </div>
-                  ))}
-                </dl>
+              <section aria-label="上下文预算" className="context-section">
+                <h3>上下文预算 <span>（估算）</span></h3>
+                <meter aria-label="上下文预算使用量" min={0} max={stats.contextWindowTokens} value={Math.min(stats.estimatedTotalTokens, stats.contextWindowTokens)} />
+                <Values rows={[
+                  ['总量', `${stats.estimatedTotalTokens}/${stats.contextWindowTokens}`],
+                  ['输入', `${stats.estimatedInputTokens}/${stats.contextWindowTokens - stats.outputReserveTokens}`],
+                  ['输出预留', stats.outputReserveTokens],
+                  ['输入剩余', stats.remainingInputTokens],
+                ]} />
+                <Disclosure title="预算明细">
+                  <section aria-label="Token Budget Breakdown">
+                    <Values rows={[
+                      ['系统', stats.tokenBreakdown.system], ['摘要', stats.tokenBreakdown.summary],
+                      ['历史', stats.tokenBreakdown.history], ['当前问题', stats.tokenBreakdown.currentQuestion],
+                      ['图片', stats.tokenBreakdown.images], ['工具', stats.tokenBreakdown.tools],
+                      ['协议开销', stats.tokenBreakdown.framing], ['工具续调预留', stats.tokenBreakdown.toolContinuationReserve],
+                    ]} />
+                    <p className="context-estimator">{stats.estimator} · 保守估算，实际用量以服务端返回为准。</p>
+                  </section>
+                </Disclosure>
               </section>
-
-              <section aria-label="Token Budget Breakdown" className="context-debug-section">
-                <h4 className="mt-0 mb-[9px] text-[13px] font-semibold">Token Budget</h4>
-                <dl className="context-debug-meta grid grid-cols-4 gap-[7px] max-[820px]:grid-cols-2">
-                  {[
-                    ['System', context.stats.tokenBreakdown.system],
-                    ['Summary', context.stats.tokenBreakdown.summary],
-                    ['History', context.stats.tokenBreakdown.history],
-                    ['Question', context.stats.tokenBreakdown.currentQuestion],
-                    ['Images', context.stats.tokenBreakdown.images],
-                    ['Tools', context.stats.tokenBreakdown.tools],
-                    ['Framing', context.stats.tokenBreakdown.framing],
-                    ['Tool Reserve', context.stats.tokenBreakdown.toolContinuationReserve],
-                  ].map(([label, value]) => (
-                    <div className="min-w-0 rounded-[7px] border border-[var(--border-soft)] bg-[var(--surface)] px-2.5 py-[9px]" key={label}>
-                      <dt className="block text-[11px] text-[var(--text-secondary)]">{label}</dt>
-                      <dd className="mt-1 mb-0 text-xs font-semibold [overflow-wrap:anywhere]">{value}</dd>
-                    </div>
-                  ))}
-                </dl>
-                <p className="mt-2 mb-0 text-[11px] text-[var(--text-secondary)]">
-                  Estimator: {context.stats.estimator}. UTF-8 conservative estimate; actual Provider usage may be lower.
-                </p>
-              </section>
-
-              <section aria-label="Messages Sent to Model" className="context-debug-section">
-                <h4 className="mt-0 mb-[9px] text-[13px] font-semibold">Messages</h4>
-                <ol className="context-message-list m-0 flex list-none flex-col gap-[7px] p-0">
+              <Disclosure title="历史筛选详情">
+                <Values rows={[
+                  ['摘要已覆盖', stats.summaryCoveredMessages], ['摘要之后', stats.postSummaryMessages],
+                  ['已排除的停止消息', stats.excludedStoppedMessages],
+                  ['选中范围', stats.selectedHistoryRange ? `${stats.selectedHistoryRange.start}-${stats.selectedHistoryRange.end}` : '无'],
+                  ['排除消息', stats.droppedHistoryMessages],
+                  ['字符数', `${stats.selectedHistoryChars}/${stats.maxHistoryChars}`],
+                  ['预算裁剪消息', stats.tokenDroppedHistoryMessages],
+                  ['历史窗口裁剪', stats.legacyDroppedHistoryMessages],
+                  ['选中图片', `${stats.selectedImages}/${stats.maxImages}`], ['排除图片', stats.droppedImages],
+                  ['图片字节数', stats.selectedImageBytes],
+                ]} />
+              </Disclosure>
+              <Disclosure title="模型参数">
+                <Values rows={[
+                  ['提供方', formatProviderName(model.provider)], ['模型', model.model ? formatModelName(model.model) : '未配置'],
+                  ['流式输出', model.stream ? '开启' : '关闭'], ['工具选择', model.toolChoice === 'auto' ? '自动' : model.toolChoice],
+                  ['API Key', model.apiKeyConfigured ? '已配置' : '未配置'],
+                  ['存储', formatStorageBackend(model.storageBackend)], ['温度', model.temperature ?? '模型默认'],
+                  ['最大输出 Token', model.maxTokens ?? '模型默认'], ['上下文窗口', model.contextWindowTokens],
+                ]} />
+              </Disclosure>
+            </Tabs.Panel>
+            <Tabs.Panel className="context-debug-body" value="request">
+              <Disclosure title={`发送给模型的消息 · ${context.messages.length}`}>
+                <ol className="context-message-list">
                   {context.messages.map((message, index) => (
-                    <li className="context-message-item min-w-0 rounded-[7px] border border-[var(--border-soft)] bg-[var(--surface)] px-2.5 py-[9px]" key={`${index}-${message.role}`}>
-                      <span className="context-message-role mb-1.5 inline-flex rounded-full bg-[var(--surface-muted)] px-1.5 py-1 text-[10px] font-semibold text-[var(--text-secondary)]">{message.role.toUpperCase()}</span>
-                      <pre className="context-message-content m-0 max-w-full overflow-x-auto font-mono text-[11px] leading-[1.55] whitespace-pre-wrap text-[var(--text-primary)] [overflow-wrap:anywhere]">{message.content || ''}</pre>
+                    <li className="context-message-item" key={`${index}-${message.role}`}>
+                      <span className="context-message-role">{message.role.toUpperCase()}</span>
+                      <pre className="context-message-content">{message.content || ''}</pre>
                     </li>
                   ))}
                 </ol>
-              </section>
-
-              <details className="context-debug-details min-w-0 rounded-[7px] border border-[var(--border-soft)] bg-[var(--surface)] px-2.5 py-[9px]" open>
-                <summary className="text-xs font-semibold text-[var(--text-secondary)]">Tool Definitions</summary>
-                <pre className="mt-[9px] mb-0 max-w-full overflow-x-auto font-mono text-[11px] leading-[1.55] whitespace-pre-wrap text-[var(--text-primary)] [overflow-wrap:anywhere]">{formattedTools}</pre>
-              </details>
-            </div>
-          ) : null}
-        </div>
-        <footer className="modal-footer flex shrink-0 items-center justify-end gap-2 border-t border-[var(--border-soft)] px-[17px] py-[15px]">
-          <DialogClose onClick={onClose} render={<Button className="modal-btn secondary h-[34px] rounded-[7px] border-[var(--border-strong)] bg-[var(--surface-raised)] px-3.5 text-xs font-semibold text-[var(--text-primary)] hover:bg-[var(--surface-muted)]" variant="outline" />}>
-            Close
-          </DialogClose>
-        </footer>
-      </DialogContent>
-    </DialogRoot>
+              </Disclosure>
+              <Disclosure title={`工具定义 · ${context.tools.count}`}>
+                <pre className="context-tools-content">{JSON.stringify(context.tools.definitions, null, 2)}</pre>
+              </Disclosure>
+            </Tabs.Panel>
+          </Tabs.Root>
+        ) : <p className="context-empty">暂无上下文数据</p>}
+      </div>
+    </SidePanel>
   )
 }

@@ -365,7 +365,7 @@ async function clickButton(client, text) {
 async function clickAppAction(client, text) {
   const clickedDirectly = await evaluate(client, `(() => {
     const button = [...document.querySelectorAll('button')]
-      .find((item) => item.textContent.trim() === ${JSON.stringify(text)});
+      .find((item) => item.getBoundingClientRect().width > 0 && (item.textContent.trim() === ${JSON.stringify(text)} || item.getAttribute('aria-label') === ${JSON.stringify(text)}));
     if (!button) return false;
     button.click();
     return true;
@@ -411,10 +411,8 @@ async function main() {
       selected: !document.querySelector('.model-menu-trigger')
     }))()`)
     if (assertions.modelSwitch.available) {
-      await clickButton(client, 'Model and Effort: DeepSeek V4 Flash, High')
-      await waitForEval(client, `Boolean(document.querySelector('button[aria-label="Select Model"]'))`)
-      await clickButton(client, 'Select Model')
-      await waitForEval(client, `Boolean(document.querySelector('button[aria-label="Select GPT-5.6 Luna"]'))`)
+      await clickButton(client, '选择模型：DeepSeek V4 Flash')
+      await waitForEval(client, `Boolean(document.querySelector('button[aria-label="选择 GPT-5.6 Luna"]'))`)
       assertions.disabledModels = await evaluate(client, `(() => {
         const buttons = [...document.querySelectorAll('.model-submenu button')];
         const headings = [...document.querySelectorAll('.model-submenu .submenu-heading')];
@@ -438,14 +436,11 @@ async function main() {
           providerSeparator: document.querySelectorAll('.model-submenu .model-provider-separator').length === 1,
           headingTypography: headingStyle?.fontSize === '12px' && Number(headingStyle.fontWeight) >= 500,
           optionTypography: optionStyle?.fontSize === '14px',
-          optionIndented: Boolean(
-            headingStyle && optionStyle &&
-            parseFloat(optionStyle.paddingLeft) - parseFloat(headingStyle.paddingLeft) >= 8
-          ),
-          disabledContrast: Boolean(disabledStyle && parseFloat(disabledStyle.opacity) <= 0.4)
+          optionGrouped: option?.closest('fieldset')?.getAttribute('aria-label') === 'DeepSeek',
+          disabledContrast: Boolean(disabledStyle && disabledStyle.color !== optionStyle.color && disabledOption.querySelector('.option-status')?.textContent === '不可用')
         };
       })()`)
-      await clickButton(client, 'Select GPT-5.6 Luna')
+      await clickButton(client, '选择 GPT-5.6 Luna')
       await waitForEval(
         client,
         `document.querySelector('.model-menu-trigger')?.getAttribute('aria-label')
@@ -485,10 +480,10 @@ async function main() {
         input.dispatchEvent(new Event('input', { bubbles: true }));
         input.dispatchEvent(new Event('change', { bubbles: true }));
       };
-      setValue('Max Tokens', '2048');
-      setValue(${JSON.stringify(`${expectedSettingsProvider} Effort`)}, 'high');
+      setValue('最大输出 Token', '2048');
+      setValue(${JSON.stringify(`${expectedSettingsProvider} 思考强度`)}, 'high');
     })()`)
-    await clickButton(client, 'Apply')
+    await clickButton(client, '应用')
     await waitForEval(client, `document.querySelector('.model-menu-trigger')?.disabled === false`)
 
     await clickAppAction(client, '模板')
