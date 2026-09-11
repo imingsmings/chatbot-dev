@@ -20,10 +20,10 @@
     "vitest": "4.1.10"
   },
   "scripts": {
-    "dev:server": "bun run --cwd bun-server dev",
+    "dev:server": "bun --no-env-file run --cwd bun-server dev",
     "dev:client": "bun run --cwd client dev",
-    "start:server": "bun run --cwd bun-server start",
-    "start:production": "NODE_ENV=production SERVE_CLIENT_BUILD=true HTTPS_ENABLED=true bun run --cwd bun-server start",
+    "start:server": "bun --no-env-file run --cwd bun-server start",
+    "start:production": "NODE_ENV=production SERVE_CLIENT_BUILD=true HTTPS_ENABLED=true bun --no-env-file run --cwd bun-server start",
     "typecheck:server": "bun run --cwd bun-server typecheck",
     "typecheck:client": "bun run --cwd client typecheck",
     "build:client": "bun run --cwd client build",

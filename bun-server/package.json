@@ -7,8 +7,8 @@
     "bun": ">=1.4.0"
   },
   "scripts": {
-    "dev": "bun --watch ./bin/www.ts",
-    "start": "bun ./bin/www.ts",
+    "dev": "bun --no-env-file --watch ./bin/www.ts",
+    "start": "bun --no-env-file ./bin/www.ts",
     "typecheck": "bun --bun tsc --noEmit -p tsconfig.json",
     "test": "bun test --timeout=30000 --isolate --parallel=1 ../tests/bun-server",
     "auth:hash-password": "bun ./scripts/hash-password.ts",
