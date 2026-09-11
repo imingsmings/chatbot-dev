@@ -195,7 +195,7 @@ async function newChat(client, createObservation) {
   const previousErrorCount = createObservation.errors.length
   const previousId = createObservation.ids.at(-1) ?? null
   await clickText(client, 'button', '新建')
-  await waitFor(client, `document.querySelector('.conversation-item-shell.active')?.textContent.includes('0 条消息')`)
+  await waitFor(client, `document.querySelector('.conversation-item-shell.active .conversation-item')?.getAttribute('aria-description') === '0 条消息'`)
   await waitFor(client, `Boolean(document.querySelector('.empty-state') && document.querySelector('textarea'))`)
   // A click on an already-empty conversation is intentionally a no-op. Otherwise,
   // wait for this click's POST response outside the page lifecycle.
@@ -303,7 +303,7 @@ function createMockLlmServer() {
     const startedAt = Date.now()
     const raw = await collectBody(req)
     const body = JSON.parse(raw || '{}')
-    const promptText = JSON.stringify(body.messages || [])
+    const promptText = JSON.stringify(body.messages?.findLast((message) => message.role === 'user')?.content || '')
     const stage = body.tools?.length && promptText.includes('[TC02]') ? 'tool-decision' : 'answer'
     const record = {
       id,
@@ -316,6 +316,7 @@ function createMockLlmServer() {
       responseClosed: false,
       closeBeforeEnd: false,
       closeAfterMs: null,
+      firstChunkAfterMs: null,
     }
     records.push(record)
 
@@ -328,6 +329,7 @@ function createMockLlmServer() {
     const safeWrite = (chunk) => {
       if (res.destroyed || res.writableEnded) return false
       res.write(chunk)
+      record.firstChunkAfterMs ??= Date.now() - startedAt
       return true
     }
 
@@ -364,8 +366,13 @@ function createMockLlmServer() {
     if (record.marker === '[TC08]') {
       await delay(5000)
     }
+    if (record.marker === '[TC09]') {
+      await delay(18000)
+    }
 
-    const words = Array.from({ length: 120 }, (_, index) => `片段${index + 1} `)
+    const words = record.marker === '[TC10]'
+      ? ['停止后恢复成功']
+      : Array.from({ length: 120 }, (_, index) => `片段${index + 1} `)
 
     for (const word of words) {
       if (!safeWrite(`data: ${JSON.stringify({ choices: [{ delta: { content: word } }] })}\n\n`)) {
@@ -555,12 +562,23 @@ export default defineConfig({
       if (event.request?.url?.includes('/api/conversations/') && event.request.url.includes('/ask')) {
         askRequests.set(event.requestId, {
           url: event.request.url,
+          requestId: JSON.parse(event.request.postData || '{}').requestId,
+          startedAt: event.timestamp,
+          chunks: 0,
+          bytes: 0,
           failed: false,
           finished: false,
           canceled: false,
           errorText: '',
         })
       }
+    })
+    client.on('Network.dataReceived', (event) => {
+      const item = askRequests.get(event.requestId)
+      if (!item) return
+      item.firstDataAfterMs ??= Math.round((event.timestamp - item.startedAt) * 1000)
+      item.chunks += 1
+      item.bytes += event.dataLength
     })
     client.on('Network.loadingFailed', (event) => {
       if (createRequestIds.delete(event.requestId)) {
@@ -602,7 +620,8 @@ export default defineConfig({
           const originalFetch = window.fetch.bind(window);
           window.__abortTest = {
             cancelResponses: [],
-            frontendAbortCount: 0
+            frontendAbortCount: 0,
+            streamReads: []
           };
           window.fetch = async (input, init = {}) => {
             const url = typeof input === 'string' ? input : input.url;
@@ -612,6 +631,25 @@ export default defineConfig({
               }, { once: true });
             }
             const response = await originalFetch(input, init);
+            if (url.includes('/api/conversations/') && url.includes('/ask') && response.body) {
+              const reads = { url, chunks: 0, bytes: 0, blankChunks: 0 };
+              window.__abortTest.streamReads.push(reads);
+              const getReader = response.body.getReader.bind(response.body);
+              response.body.getReader = (...args) => {
+                const reader = getReader(...args);
+                const read = reader.read.bind(reader);
+                reader.read = async (...readArgs) => {
+                  const result = await read(...readArgs);
+                  if (result.value) {
+                    reads.chunks += 1;
+                    reads.bytes += result.value.byteLength;
+                    if (!new TextDecoder().decode(result.value).trim()) reads.blankChunks += 1;
+                  }
+                  return result;
+                };
+                return reader;
+              };
+            }
             if (url.includes('/api/requests/') && url.endsWith('/cancel')) {
               const body = await response.clone().json().catch(() => null);
               window.__abortTest.cancelResponses.push({
@@ -841,6 +879,84 @@ export default defineConfig({
       `cancel completed: ${tc08CancelCompleted}`,
     ])
     screenshots.push(await screenshot(client, '08-tc08-slow-upstream-aborted'))
+
+    const tc09Id = await newChat(client, createObservation)
+    const tc09CancelIndex = await evaluate(client, `window.__abortTest.cancelResponses.length`)
+    const tc09AbortBefore = await evaluate(client, `window.__abortTest.frontendAbortCount`)
+    await ask(client, '[TC09] 上游静默 18 秒后开始长回答，验证保活、停止与恢复。')
+    await waitStop(client)
+    const tc09Stream = await waitUntil(
+      () => mock.records.find((item) => item.marker === '[TC09]' && item.stage === 'answer'),
+      8000,
+      'TC09 silent upstream started',
+    )
+    await delay(Math.max(0, tc09Stream.startedAt + 16000 - Date.now()))
+    const silentState = await evaluate(client, `(() => {
+      const row = [...document.querySelectorAll('.message-row.assistant')].at(-1);
+      return {
+        responding: Boolean(document.querySelector('button[aria-label="停止生成"]')),
+        error: row?.querySelector('.error-text')?.textContent || '',
+        text: row?.querySelector('.markdown-message')?.textContent.trim() || '',
+        abortCount: window.__abortTest.frontendAbortCount,
+        reads: window.__abortTest.streamReads.at(-1),
+      };
+    })()`)
+    const tc09Network = [...askRequests.values()].find((item) => item.url.includes(`/conversations/${tc09Id}/ask`))
+    const silentEvidence = {
+      elapsedMs: Date.now() - tc09Stream.startedAt,
+      providerChunks: tc09Stream.chunksSent,
+      transportChunks: tc09Network?.chunks ?? 0,
+      firstTransportByteMs: tc09Network?.firstDataAfterMs,
+      ...silentState,
+    }
+    const silentAlive = silentEvidence.elapsedMs > 15000 && silentEvidence.providerChunks === 0 &&
+      silentEvidence.transportChunks >= 1 && silentEvidence.firstTransportByteMs < 3000 &&
+      silentState.reads?.blankChunks >= 3 && silentState.reads.bytes >= 3 &&
+      silentState.responding && !silentState.error && !silentState.text && silentState.abortCount === tc09AbortBefore
+    if (!silentAlive) throw new Error(`TC09 heartbeat liveness failed: ${JSON.stringify(silentEvidence)}`)
+
+    await waitFor(client, `(() => {
+      const row = [...document.querySelectorAll('.message-row.assistant')].at(-1);
+      const error = row?.querySelector('.error-text')?.textContent;
+      if (error) throw new Error('TC09 first model content failed: ' + error);
+      return Boolean(row?.querySelector('.markdown-message')?.textContent.trim()) &&
+        Boolean(document.querySelector('button[aria-label="停止生成"]'));
+    })()`, 6000)
+    await clickText(client, 'button', '停止')
+    await waitIdle(client)
+    await waitUntil(() => tc09Stream.closeBeforeEnd, 5000, 'TC09 upstream abort')
+    await waitFor(client, `window.__abortTest.cancelResponses.length > ${tc09CancelIndex}`)
+    const tc09Cancelled = await evaluate(client, `window.__abortTest.cancelResponses[${tc09CancelIndex}]`)
+    const tc09Stored = await getConversationMessages(tc09Id)
+    const tc09Terminal = await (await fetch(`${SERVER_URL}/api/requests/${tc09Network.requestId}`)).json()
+    const tc09Pass = silentAlive && tc09Stream.firstChunkAfterMs >= 18000 && tc09Stream.closeBeforeEnd &&
+      (tc09Network.failed || tc09Network.finished) && tc09Cancelled.status === 200 &&
+      tc09Cancelled.body?.cancelled === true && tc09Cancelled.body?.completed === true &&
+      tc09Terminal.request?.status === 'stopped' && tc09Stored?.length === 2 &&
+      tc09Stored[1].status === 'stopped' && tc09Stored[1].content.length > 0
+    results.push({
+      id: 'TC-09', name: '首包静默超过 15 秒后仍可停止', pass: Boolean(tc09Pass),
+      silentEvidence, firstModelChunkMs: tc09Stream.firstChunkAfterMs,
+      upstreamCloseBeforeEnd: tc09Stream.closeBeforeEnd, cancelResponse: tc09Cancelled,
+      requestStatus: tc09Terminal.request?.status, persistedMessageCount: tc09Stored?.length,
+    })
+
+    await ask(client, '[TC10] 停止后恢复成功')
+    await waitFor(client, `(() => {
+      const row = [...document.querySelectorAll('.message-row.assistant')].at(-1);
+      const error = row?.querySelector('.error-text')?.textContent;
+      if (error) throw new Error('TC10 recovery failed: ' + error);
+      return row?.querySelector('.message-text')?.textContent.includes('停止后恢复成功') &&
+        Boolean(document.querySelector('button[aria-label="发送消息"]'));
+    })()`)
+    const tc10Stored = await getConversationMessages(tc09Id)
+    results.push({
+      id: 'TC-10', name: '慢首包停止后同会话恢复',
+      pass: tc10Stored?.length === 4 && tc10Stored[1].status === 'stopped' &&
+        tc10Stored[3].status === 'completed' && tc10Stored[3].content.includes('停止后恢复成功'),
+      persistedMessageCount: tc10Stored?.length,
+      previousStatus: tc10Stored?.[1].status, recoveredStatus: tc10Stored?.[3].status,
+    })
 
     const frontendAbortCount = await evaluate(client, `window.__abortTest.frontendAbortCount`)
     const createdIds = createObservation.ids

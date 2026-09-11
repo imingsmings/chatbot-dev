@@ -27,6 +27,23 @@ function createResponse(chunks: Uint8Array[]) {
 }
 
 describe('readChatStream', () => {
+  it('counts blank heartbeat chunks as transport activity without creating protocol events', async () => {
+    const onChunk = vi.fn<() => void>()
+    const events: ChatStreamEvent[] = []
+    const encode = (value: string) => new TextEncoder().encode(value)
+    await readChatStream({
+      response: createResponse([
+        encode('\n'), encode('\n'),
+        encode('{"type":"delta","content":"answer"}\n'),
+        encode('\n{"type":"done"}\n'),
+      ]),
+      onChunk,
+      onEvent: (event) => { events.push(event) },
+    })
+    expect(onChunk).toHaveBeenCalledTimes(5)
+    expect(events).toEqual([{ type: 'delta', content: 'answer' }, { type: 'done' }])
+  })
+
   it('reassembles split NDJSON chunks and forwards all six protocol events in order', async () => {
     const payload = [
       JSON.stringify({ type: 'reasoning_delta', content: '分析' }),

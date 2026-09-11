@@ -2,7 +2,7 @@ import crypto from 'node:crypto'
 import { generateConversationAnswer } from '../services/chatService.ts'
 import { findConversation } from '../services/conversationService.ts'
 import { createAbortError } from '../utils/abort.ts'
-import { setNdjsonStreamHeaders, writeStreamError, writeStreamEvent } from '../utils/ndjsonStream.ts'
+import { setNdjsonStreamHeaders, startNdjsonHeartbeat, writeStreamError, writeStreamEvent } from '../utils/ndjsonStream.ts'
 import {
   completeRequest,
   isRequestActive,
@@ -244,8 +244,10 @@ const askConversation: RequestHandler<AskConversationParams, unknown, AskConvers
 
   req.on('aborted', abortOnClientClose)
   res.on('close', abortOnClientClose)
+  let stopHeartbeat: (() => Promise<void>) | undefined
 
   try {
+    stopHeartbeat = await startNdjsonHeartbeat(res, () => abortUpstream('write_closed'))
     const writeDelta = async (chunk: string, type: LlmStreamChunkType): Promise<void> => {
       const eventType = type === 'reasoning' ? 'reasoning_delta' : 'delta'
 
@@ -287,8 +289,10 @@ const askConversation: RequestHandler<AskConversationParams, unknown, AskConvers
       requestId
     })
 
+    await stopHeartbeat()
     await writeStreamEvent(res, { type: 'done', reasoningDurationMs: answer.reasoningDurationMs })
   } catch (err: unknown) {
+    await stopHeartbeat?.()
     if (abortReason || (err instanceof Error && err.name === 'AbortError')) {
       console.info(
         `Ask request aborted: conversation=${req.params.id}, request=${requestId}, reason=${abortReason || 'abort_error'}`
@@ -299,6 +303,7 @@ const askConversation: RequestHandler<AskConversationParams, unknown, AskConvers
     console.error(`Failed to handle ask request:`, err)
     await writeStreamError(res, err)
   } finally {
+    await stopHeartbeat?.()
     req.off('aborted', abortOnClientClose)
     res.off('close', abortOnClientClose)
     const persisted = await findConversationRequest(requestId).catch(() => null)

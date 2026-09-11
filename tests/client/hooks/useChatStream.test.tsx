@@ -526,6 +526,47 @@ describe('useChatStream', () => {
     expect(options.refreshConversationList).toHaveBeenCalledOnce()
   })
 
+  it('keeps silent model work alive with blank heartbeats but still times out a broken connection', async () => {
+    vi.useFakeTimers()
+    let capturedSignal!: AbortSignal
+    let stream!: ReturnType<typeof createAbortableResponse>
+    const requestConversationAnswer = vi.fn<RequestAnswer>().mockImplementation(async ({ signal }) => {
+      capturedSignal = signal
+      stream = createAbortableResponse(signal)
+      return stream.response
+    })
+    const cancelRequest = vi.fn<CancelRequest>().mockResolvedValue(true)
+    const { result } = renderStreamHook(createHarnessOptions({ cancelRequest, requestConversationAnswer }))
+    let submission!: Promise<void>
+    await act(async () => {
+      submission = result.current.submitQuestion('等待模型首个内容', {
+        appendUser: true,
+        clearComposer: true,
+      })
+    })
+
+    for (let heartbeat = 0; heartbeat < 4; heartbeat += 1) {
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5_000)
+        stream.emit([])
+      })
+    }
+    expect(capturedSignal.aborted).toBe(false)
+    expect(cancelRequest).not.toHaveBeenCalled()
+    expect(result.current.isResponding).toBe(true)
+    expect(result.current.messages[1].text).toBe('')
+    expect(result.current.messages[1].error).toBeFalsy()
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(15_000)
+      await submission
+    })
+    expect(capturedSignal.aborted).toBe(true)
+    expect(cancelRequest).toHaveBeenCalledExactlyOnceWith('request-1', 'timeout')
+    expect(result.current.messages[1]).toMatchObject({ status: 'error', error: '响应超时或连接中断' })
+    expect(result.current.isResponding).toBe(false)
+  })
+
   it('times out an idle stream, cancels upstream and returns to a recoverable state', async () => {
     let capturedSignal!: AbortSignal
     const requestConversationAnswer = vi

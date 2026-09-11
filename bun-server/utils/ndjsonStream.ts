@@ -5,6 +5,8 @@ import {
   type ChatStreamEvent
 } from '../../shared/chatStreamProtocol.ts'
 
+const HEARTBEAT_INTERVAL_MS = 5_000
+
 function setNdjsonStreamHeaders(res: HttpResponse): void {
   res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8')
   res.setHeader('Cache-Control', 'no-cache')
@@ -30,10 +32,51 @@ async function writeStreamError(res: HttpResponse, err: unknown): Promise<void> 
   })
 }
 
+async function startNdjsonHeartbeat(
+  res: HttpResponse,
+  onClosed: () => void,
+  intervalMs = HEARTBEAT_INTERVAL_MS,
+): Promise<() => Promise<void>> {
+  let stopped = false
+  let timer: ReturnType<typeof setTimeout> | undefined
+  let pending: Promise<void> | undefined
+
+  const tick = async (): Promise<void> => {
+    if (stopped) return
+    let written = false
+    try {
+      if (!res.destroyed && !res.writableEnded) written = await res.write('\n')
+    } catch {
+      // A failed transport write must release the upstream request too.
+      stopped = true
+      onClosed()
+      return
+    }
+    if (!written) {
+      stopped = true
+      onClosed()
+      return
+    }
+    if (!stopped) {
+      // Schedule only after backpressure clears; keep at most one write pending.
+      timer = setTimeout(() => { pending = tick() }, intervalMs)
+      timer.unref()
+    }
+  }
+
+  await tick()
+  return async () => {
+    stopped = true
+    clearTimeout(timer)
+    await pending
+  }
+}
+
 export {
   CHAT_STREAM_PROTOCOL_HEADER,
   CHAT_STREAM_PROTOCOL_VERSION,
   setNdjsonStreamHeaders,
+  startNdjsonHeartbeat,
   writeStreamError,
   writeStreamEvent
 }

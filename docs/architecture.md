@@ -356,7 +356,8 @@ flowchart TD
   BestEffort --> Registry
 ```
 
-- 客户端超时从发起 fetch 前开始，因此覆盖“迟迟没有响应头”。
+- 客户端 15 秒连接空闲超时从发起 fetch 前开始，因此覆盖“迟迟没有响应头”，读取 chunk 后重置。服务端接受新 ask 后立即写 NDJSON 空行，执行期间以约 5 秒间隔保活，避免把模型首内容前的正常等待误判为断线；空行不进入消息或持久化。
+- 保活写入等待背压，终态/取消时停止且清理；失败写入中止上游。保活不延长每次 Provider 请求的 `LLM_TIMEOUT_MS`，模型期限与浏览器连接存活分别负责不同故障。
 - 同一 requestId 只取消一次；客户端以 `requestId -> cancellation Promise` 复用取消结果，请求结束后清理 map、timer 和 refs。
 - 后端同一会话只允许一个活动 ask，避免并行回答的语义和持久化竞态。
 - 用户点击停止时先向服务端发送 `manual` 原因，再中止浏览器 fetch；服务端将已有正文保存为 `stopped`。request registry 在 abort 后仍保留占用，直到 ask `finally` 完成；取消 API 等待该信号并返回 `completed`，前端随后回拉持久化详情。
