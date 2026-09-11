@@ -11,6 +11,7 @@ import { hashPassword } from '../../bun-server/security/password.ts'
 
 const REPO_ROOT = process.cwd()
 const PROJECT_NAME = `chatbot-docker-test-${process.pid}`
+const RUNTIME_IMAGE = `${PROJECT_NAME}:local`
 const TIMEOUT_MS = 120_000
 const COMMAND_TIMEOUT_MS = 300_000
 const CLEANUP_TIMEOUT_MS = 30_000
@@ -177,6 +178,7 @@ async function main() {
   const tempDir = await mkdtemp(path.join(tmpdir(), 'chatbot-docker-smoke-'))
   const dockerConfigDir = path.join(tempDir, 'docker-config')
   const envFile = path.join(tempDir, 'server.env')
+  const composeOverridePath = path.join(tempDir, 'compose.test.json')
   const certificatePath = path.join(tempDir, 'server-cert.pem')
   const privateKeyPath = path.join(tempDir, 'server-key.pem')
   const opensslConfigPath = path.join(tempDir, 'openssl.cnf')
@@ -191,6 +193,9 @@ async function main() {
     auths: {},
     cliPluginsExtraDirs: ['/Applications/Docker.app/Contents/Resources/cli-plugins'],
   }))
+  await writeFile(composeOverridePath, JSON.stringify({
+    services: { chatbot: { image: RUNTIME_IMAGE } },
+  }))
   const composeEnv = {
     ...process.env,
     CHATBOT_ENV_FILE: envFile,
@@ -199,7 +204,11 @@ async function main() {
     CHATBOT_TLS_KEY_SOURCE: privateKeyPath,
     DOCKER_CONFIG: dockerConfigDir,
   }
-  const compose = (...args) => run('docker', ['compose', '-p', PROJECT_NAME, ...args], {
+  const compose = (...args) => run('docker', [
+    'compose', '-p', PROJECT_NAME,
+    '-f', 'compose.yaml', '-f', composeOverridePath,
+    ...args,
+  ], {
     env: composeEnv,
   })
   const composeWithRestoredVolume = (volumeName, ...args) => run('docker', [
@@ -208,6 +217,8 @@ async function main() {
     PROJECT_NAME,
     '-f',
     'compose.yaml',
+    '-f',
+    composeOverridePath,
     '-f',
     'compose.data-volume.yaml',
     ...args,
@@ -316,7 +327,7 @@ async function main() {
     runtimeImageSizeBytes = Number((await run('docker', [
       'image',
       'inspect',
-      'chatbot:local',
+      RUNTIME_IMAGE,
       '--format',
       '{{.Size}}',
     ])).stdout.trim())
@@ -361,7 +372,7 @@ async function main() {
       '--env', `AUTH_USERNAME=${authUsername}`,
       '--env', `AUTH_PASSWORD_HASH=${authPasswordHash}`,
       '--env', `AUTH_ACCESS_TOKEN_SECRET=${randomBytes(32).toString('base64url')}`,
-      'chatbot:local',
+      RUNTIME_IMAGE,
     ], { allowFailure: true })
     assert.notEqual(missingAuthConfig.code, 0)
     assert.match(missingAuthConfig.stderr, /AUTH_REFRESH_TOKEN_SECRET/)
@@ -636,6 +647,8 @@ async function main() {
 
     const runningBackupAttempt = await run('bun', [
       'scripts/docker-volume-backup.mjs',
+      '--image',
+      RUNTIME_IMAGE,
       '--volume',
       sourceVolume,
       '--output',
@@ -697,6 +710,8 @@ async function main() {
 
     await run('bun', [
       'scripts/docker-volume-backup.mjs',
+      '--image',
+      RUNTIME_IMAGE,
       '--volume',
       sourceVolume,
       '--output',
@@ -841,7 +856,7 @@ async function main() {
       'bun',
       '--mount',
       `type=volume,source=${sourceVolume},target=/data,readonly`,
-      'chatbot:local',
+      RUNTIME_IMAGE,
       '/app/docker/volume-manifest.mjs',
       '/data',
     ])).stdout)
@@ -862,7 +877,7 @@ async function main() {
     console.log(JSON.stringify({
       ok: true,
       project: PROJECT_NAME,
-      image: 'chatbot:local',
+      image: RUNTIME_IMAGE,
       imageSizeBytes: runtimeImageSizeBytes,
       httpsPort: port,
       assertions: [
@@ -890,7 +905,11 @@ async function main() {
       ],
     }, null, 2))
   } finally {
-    await run('docker', ['compose', '-p', PROJECT_NAME, 'down', '--remove-orphans'], {
+    await run('docker', [
+      'compose', '-p', PROJECT_NAME,
+      '-f', 'compose.yaml', '-f', composeOverridePath,
+      'down', '--remove-orphans',
+    ], {
       env: composeEnv,
       allowFailure: true,
       timeoutMs: CLEANUP_TIMEOUT_MS,
@@ -907,6 +926,14 @@ async function main() {
       await new Promise((resolve) => mockProvider.close(() => resolve()))
     }
     await rm(tempDir, { recursive: true, force: true })
+    const imageCleanup = await run('docker', ['image', 'rm', RUNTIME_IMAGE], {
+      allowFailure: true,
+      timeoutMs: CLEANUP_TIMEOUT_MS,
+    })
+    if (imageCleanup.code !== 0 && !imageCleanup.stderr.includes('No such image')) {
+      console.error(`Test image cleanup failed: ${imageCleanup.stderr}`)
+      process.exitCode = 1
+    }
   }
 }
 

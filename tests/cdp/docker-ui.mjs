@@ -173,18 +173,22 @@ async function main() {
           document.querySelector('button[aria-label="上下文"]')?.disabled === false`,
       )
       await evaluate(client, `document.querySelector('button[aria-label="上下文"]')?.click()`)
-      await waitForEval(client, `Boolean(document.querySelector('.context-debug-modal'))`)
+      await waitForEval(client, `Boolean(document.querySelector('.context-debug-modal meter[aria-label="上下文预算使用量"]'))`)
+      await evaluate(client, `(() => {
+        const details = [...document.querySelectorAll('.context-debug-modal .context-disclosure')]
+          .find((node) => node.querySelector('summary')?.textContent.trim() === '模型参数');
+        if (!(details instanceof HTMLDetailsElement)) throw new Error('Model parameters disclosure not found');
+        if (!details.open) details.querySelector('summary').click();
+      })()`)
       contextPreviewState = await evaluate(client, `(() => {
         const readDefinition = (label) => {
           const term = [...document.querySelectorAll('.context-debug-modal dt')]
             .find((node) => node.textContent === label);
           return term?.nextElementSibling?.textContent?.trim() ?? '';
         };
-        const total = [...document.querySelectorAll('.context-debug-modal .context-debug-stat span')]
-          .find((node) => node.textContent === 'Total Estimate');
         return {
-          contextWindow: Number(readDefinition('Context Window')),
-          totalEstimate: total?.nextElementSibling?.textContent?.trim() ?? '',
+          contextWindow: Number(readDefinition('上下文窗口')),
+          totalEstimate: readDefinition('总量'),
         };
       })()`)
       if (
@@ -194,7 +198,7 @@ async function main() {
         throw new Error(`Docker context preview state invalid: ${JSON.stringify(contextPreviewState)}`)
       }
       await evaluate(client, `(() => {
-        const close = document.querySelector('.context-debug-modal button[aria-label="Close"]');
+        const close = document.querySelector('.context-debug-modal button[aria-label="关闭上下文"]');
         if (!(close instanceof HTMLButtonElement)) throw new Error('Context dialog close button not found');
         close.click();
       })()`)
@@ -205,7 +209,7 @@ async function main() {
       protocol: location.protocol,
       hasComposer: Boolean(document.querySelector('textarea')),
       hasSidebar: Boolean(document.querySelector('.sidebar')),
-      hasModelControl: Boolean(document.querySelector('.model-menu-trigger[aria-label^="Model and Effort:"]')),
+      hasModelControl: Boolean(document.querySelector('.model-menu-trigger[aria-label^="选择模型："]')),
       hasServiceError: document.body.innerText.includes('服务异常'),
       conversationCount: document.querySelectorAll('.conversation-item-shell').length,
       viewportWidth: document.documentElement.clientWidth,
